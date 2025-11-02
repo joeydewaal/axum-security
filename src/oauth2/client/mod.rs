@@ -33,8 +33,8 @@ struct OAuth2ClientInner {
 }
 
 pub struct TokenResponse {
-    access_token: String,
-    refresh_token: Option<String>,
+    pub access_token: String,
+    pub refresh_token: Option<String>,
 }
 
 impl TokenResponse {

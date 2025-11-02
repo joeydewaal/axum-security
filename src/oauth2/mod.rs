@@ -4,6 +4,9 @@ mod builder;
 mod client;
 mod router;
 
+use ::oauth2::{
+    AuthorizationCode, CsrfToken, PkceCodeChallenge, PkceCodeVerifier, Scope, TokenResponse as _,
+};
 use axum::{
     Extension,
     extract::{FromRef, FromRequest, FromRequestParts, Request, State},
@@ -15,7 +18,7 @@ use uuid::{Timestamp, Uuid};
 
 use crate::{
     oauth2::{
-        builder::Oauth2ContextBuilder,
+        builder::{OAuth2ClientTyped, Oauth2ContextBuilder},
         client::{OAuth2Client, OAuth2ClientBuilder, TokenResponse},
     },
     session::{Session, SessionId, SessionStore},
@@ -31,15 +34,18 @@ impl<T> Clone for OAuth2Context<T> {
 }
 
 struct OAuthSessionState {
-    state: String,
+    csrf_token: CsrfToken,
+    pkce_verifier: PkceCodeVerifier,
 }
 
 struct OAuth2ContextInner<T> {
     inner: T,
-    client: OAuth2Client,
+    client: OAuth2ClientTyped,
     store: MemoryStore<OAuthSessionState>,
     cookie_opts: CookieBuilder,
     start_challenge_path: Option<String>,
+    scopes: Vec<Scope>,
+    http_client: ::oauth2::reqwest::Client,
 }
 impl OAuth2Context<()> {
     pub fn builder() -> Oauth2ContextBuilder {
@@ -48,19 +54,44 @@ impl OAuth2Context<()> {
 }
 
 impl<T: OAuth2Handler> OAuth2Context<T> {
+    pub(crate) fn callback_url(&self) -> String {
+        let x = self
+            .0
+            .client
+            .redirect_uri()
+            .unwrap()
+            .split("/")
+            .nth(1)
+            .unwrap();
+
+        format!("/{x}")
+    }
+
     async fn start_challenge(&self) -> axum::response::Response {
-        let (state, url) = self.0.client.authorization_url("random csrf token");
+        let (pkce_challenge, pkce_verifier) = PkceCodeChallenge::new_random_sha256();
+        let req = self.0.client.authorize_url(CsrfToken::new_random);
+
         // Create authorize url, with csrf token
+        let (url, csrf_token) = req
+            .add_scopes(self.0.scopes.clone())
+            .set_pkce_challenge(pkce_challenge)
+            .url();
 
         // Store CSRF token on the server somewhere temp. (session)
         let session_id = self.0.inner.generate_session_id();
-        let session = Session::new(session_id.clone(), OAuthSessionState { state });
+        let session = Session::new(
+            session_id.clone(),
+            OAuthSessionState {
+                csrf_token,
+                pkce_verifier,
+            },
+        );
         self.0.store.store_session(session).await;
 
         // Send session cookie back
         let mut cookie = self.0.cookie_opts.clone().value(session_id).build();
 
-        (cookie, Redirect::to(&url)).into_response()
+        (cookie, Redirect::to(url.as_str())).into_response()
     }
 }
 async fn callback<T: OAuth2Handler>(
@@ -81,18 +112,36 @@ async fn callback<T: OAuth2Handler>(
         return ().into_response();
     };
 
-    let state = &session.state().state;
+    let OAuthSessionState {
+        csrf_token,
+        pkce_verifier,
+    } = session.into_state();
 
-    let (req_code, req_state): (String, String) = todo!("get from req");
+    let (req_code, req_state): (AuthorizationCode, CsrfToken) = todo!("get from req");
 
     // verify that csrf token is equal
-    if *state != req_code {
+    if csrf_token.secret() != req_state.secret() {
         // bad req
         return ().into_response();
     }
 
     // exchange authorization code
-    let token_response = context.0.client.exchange_code(&req_code).await;
+    let response = context
+        .0
+        .client
+        .exchange_code(req_code)
+        .set_pkce_verifier(pkce_verifier)
+        .request_async(&context.0.http_client)
+        .await
+        .unwrap();
+
+    let access_token = response.access_token().secret().clone();
+    let refresh_token = response.refresh_token().map(|t| t.secret().clone());
+
+    let token_response = TokenResponse {
+        access_token,
+        refresh_token,
+    };
 
     // tada, access token, maybe refresh token.
 

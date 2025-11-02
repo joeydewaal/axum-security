@@ -1,6 +1,10 @@
 use std::borrow::Cow;
 
 use cookie_monster::{Cookie, CookieBuilder};
+use oauth2::{
+    AuthUrl, Client, ClientId, ClientSecret, EndpointNotSet, EndpointSet, RedirectUrl, Scope,
+    TokenUrl, basic::BasicClient, reqwest::redirect::Policy,
+};
 
 use crate::{
     oauth2::{
@@ -13,37 +17,57 @@ use crate::{
 static DEFAULT_SESSION_COOKIE_NAME: &str = "oauth2-session";
 
 pub struct Oauth2ContextBuilder {
-    pub(super) builder: OAuth2ClientBuilder,
     pub(super) cookie_opts: Option<CookieBuilder>,
     pub(super) start_challenge_path: Option<String>,
+    pub(super) redirect_url: Option<RedirectUrl>,
+    pub(super) client_id: Option<ClientId>,
+    pub(super) client_secret: Option<ClientSecret>,
+    pub(super) scopes: Vec<Scope>,
+    pub(super) auth_url: Option<AuthUrl>,
+    pub(super) token_url: Option<TokenUrl>,
 }
 
 impl Oauth2ContextBuilder {
     pub fn builder() -> Oauth2ContextBuilder {
         Self {
-            builder: OAuth2Client::build(),
             cookie_opts: None,
             start_challenge_path: None,
+            redirect_url: None,
+            client_id: None,
+            client_secret: None,
+            scopes: Vec::new(),
+            auth_url: None,
+            token_url: None,
         }
     }
 
     pub fn redirect_uri(mut self, url: impl Into<String>) -> Self {
-        self.builder.set_redirect_uri(url);
+        self.redirect_url = Some(RedirectUrl::new(url.into()).unwrap());
         self
     }
 
     pub fn client_id(mut self, client_id: impl Into<String>) -> Self {
-        self.builder.set_client_id(client_id);
+        self.client_id = Some(ClientId::new(client_id.into()));
         self
     }
 
     pub fn client_secret(mut self, client_secret: impl Into<String>) -> Self {
-        self.builder.set_client_secret(client_secret);
+        self.client_secret = Some(ClientSecret::new(client_secret.into()));
+        self
+    }
+
+    pub fn auth_url(mut self, auth_url: impl Into<String>) -> Self {
+        self.auth_url = Some(AuthUrl::new(auth_url.into()).unwrap());
+        self
+    }
+
+    pub fn token_url(mut self, token_url: impl Into<String>) -> Self {
+        self.token_url = Some(TokenUrl::new(token_url.into()).unwrap());
         self
     }
 
     pub fn scopes(mut self, scopes: &[&str]) -> Self {
-        self.builder.set_scopes(scopes);
+        self.scopes = scopes.iter().map(|s| Scope::new(s.to_string())).collect();
         self
     }
 
@@ -58,13 +82,27 @@ impl Oauth2ContextBuilder {
     }
 
     pub fn build<T>(self, inner: T) -> OAuth2Context<T> {
+        let mut basic_client: OAuth2ClientTyped = Client::new(self.client_id.unwrap())
+            .set_redirect_uri(self.redirect_url.unwrap())
+            .set_auth_uri(self.auth_url.unwrap())
+            .set_token_uri(self.token_url.unwrap());
+
+        if let Some(client_secret) = self.client_secret {
+            basic_client = basic_client.set_client_secret(client_secret);
+        }
+
         OAuth2Context(
             OAuth2ContextInner {
+                client: basic_client,
                 inner,
-                client: self.builder.build(),
                 store: MemoryStore::new(),
                 cookie_opts: self.cookie_opts.unwrap_or(default_cookie()),
                 start_challenge_path: self.start_challenge_path,
+                http_client: ::oauth2::reqwest::Client::builder()
+                    .redirect(Policy::none())
+                    .build()
+                    .unwrap(),
+                scopes: self.scopes,
             }
             .into(),
         )
@@ -74,3 +112,6 @@ impl Oauth2ContextBuilder {
 fn default_cookie() -> CookieBuilder {
     Cookie::build("oauth2-session", DEFAULT_SESSION_COOKIE_NAME).http_only()
 }
+
+pub type OAuth2ClientTyped =
+    BasicClient<EndpointSet, EndpointNotSet, EndpointNotSet, EndpointNotSet, EndpointSet>;

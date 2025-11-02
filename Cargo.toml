@@ -12,3 +12,5 @@ cookie-monster = { path = "../cookie-monster", features = ["axum" ]}
 anyhow = "1.0.100"
 
 uuid = { version = "1.18.1", features = ["v7"] }
+
+oauth2 = { version = "5.0.0", features = ["reqwest"], default-features = false }
