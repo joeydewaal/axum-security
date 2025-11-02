@@ -9,8 +9,11 @@ impl OAuth2Client {
         OAuth2ClientBuilder::default()
     }
 
-    pub fn callback_url(&self) -> &str {
-        &self.inner.callback_url
+    pub fn callback_url(&self) -> String {
+        //TODO make smarter.
+        let callback_url = &self.inner.redirect_uri.split("/").nth(1).unwrap();
+
+        format!("/{callback_url}")
     }
 
     pub fn authorization_url(&self, state: &str) -> (String, String) {
@@ -25,7 +28,7 @@ impl OAuth2Client {
 struct OAuth2ClientInner {
     client_id: String,
     client_secret: String,
-    callback_url: String,
+    redirect_uri: String,
     scopes: Vec<String>,
 }
 
@@ -48,7 +51,7 @@ impl TokenResponse {
 pub struct OAuth2ClientBuilder {
     client_id: Option<String>,
     client_secret: Option<String>,
-    callback_url: Option<String>,
+    redirect_uri: Option<String>,
     scopes: Vec<String>,
 }
 
@@ -58,19 +61,19 @@ impl OAuth2ClientBuilder {
             inner: Arc::new(OAuth2ClientInner {
                 client_id: self.client_id.unwrap(),
                 client_secret: self.client_secret.unwrap(),
-                callback_url: self.callback_url.unwrap(),
+                redirect_uri: self.redirect_uri.unwrap(),
                 scopes: self.scopes,
             }),
         }
     }
 
-    pub fn callback_url(mut self, url: impl Into<String>) -> Self {
-        self.callback_url = Some(url.into());
+    pub fn redirect_uri(mut self, url: impl Into<String>) -> Self {
+        self.redirect_uri = Some(url.into());
         self
     }
 
-    pub fn set_callback_url(&mut self, url: impl Into<String>) {
-        self.callback_url = Some(url.into());
+    pub fn set_redirect_uri(&mut self, url: impl Into<String>) {
+        self.redirect_uri = Some(url.into());
     }
 
     pub fn client_id(mut self, client_id: impl Into<String>) -> Self {

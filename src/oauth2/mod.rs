@@ -18,6 +18,7 @@ use crate::{
         builder::Oauth2ContextBuilder,
         client::{OAuth2Client, OAuth2ClientBuilder, TokenResponse},
     },
+    session::{Session, SessionId, SessionStore},
     store::MemoryStore,
 };
 
@@ -29,11 +30,16 @@ impl<T> Clone for OAuth2Context<T> {
     }
 }
 
+struct OAuthSessionState {
+    state: String,
+}
+
 struct OAuth2ContextInner<T> {
     inner: T,
     client: OAuth2Client,
-    store: MemoryStore,
+    store: MemoryStore<OAuthSessionState>,
     cookie_opts: CookieBuilder,
+    start_challenge_path: Option<String>,
 }
 impl OAuth2Context<()> {
     pub fn builder() -> Oauth2ContextBuilder {
@@ -48,7 +54,8 @@ impl<T: OAuth2Handler> OAuth2Context<T> {
 
         // Store CSRF token on the server somewhere temp. (session)
         let session_id = self.0.inner.generate_session_id();
-        self.0.store.write(&session_id, &state).await;
+        let session = Session::new(session_id.clone(), OAuthSessionState { state });
+        self.0.store.store_session(session).await;
 
         // Send session cookie back
         let mut cookie = self.0.cookie_opts.clone().value(session_id).build();
@@ -67,15 +74,19 @@ async fn callback<T: OAuth2Handler>(
     };
 
     // load session
+    let session_id = SessionId::from_cookie(cookie);
+
     // retrieve csrf token from session
-    let Some(state) = context.0.store.remove(cookie.value()).await else {
+    let Some(session) = context.0.store.remove_session(&session_id).await else {
         return ().into_response();
     };
+
+    let state = &session.state().state;
 
     let (req_code, req_state): (String, String) = todo!("get from req");
 
     // verify that csrf token is equal
-    if state != req_code {
+    if *state != req_code {
         // bad req
         return ().into_response();
     }
@@ -95,27 +106,21 @@ async fn callback<T: OAuth2Handler>(
         .into_response()
 }
 
+async fn start_challenge<T: OAuth2Handler>(
+    Extension(context): Extension<OAuth2Context<T>>,
+) -> impl IntoResponse {
+    context.start_challenge().await
+}
+
 pub trait OAuth2Handler: Send + Sync + 'static {
-    fn generate_session_id(&self) -> String {
-        Uuid::now_v7().to_string()
+    fn generate_session_id(&self) -> SessionId {
+        SessionId::new_uuid_v7()
     }
 
     fn after_login(
         &self,
         token_res: TokenResponse,
-    ) -> impl Future<Output = crate::Result<impl IntoResponse>> + Send {
-        async { Ok(().into_response()) }
-    }
-}
-
-impl<S: Send + Sync, T> FromRequestParts<S> for OAuth2Context<T>
-where
-    OAuth2Context<T>: FromRef<S>,
-{
-    type Rejection = ();
-    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
-        Ok(OAuth2Context::from_ref(state))
-    }
+    ) -> impl Future<Output = crate::Result<impl IntoResponse>> + Send;
 }
 
 #[cfg(test)]
@@ -124,7 +129,7 @@ mod oauth2 {
 
     use axum::{
         Router,
-        extract::FromRef,
+        extract::{FromRef, State},
         response::{IntoResponse, Redirect},
         routing::get,
         serve,
@@ -136,21 +141,24 @@ mod oauth2 {
 
     use crate::{
         oauth2::{OAuth2Context, OAuth2Handler, client::TokenResponse, router::RouterOAuthExt},
+        session::{Session, SessionId, SessionStore},
         store::MemoryStore,
     };
 
     struct Oauth2Backend {
-        store: MemoryStore,
         channel: Sender<()>,
+        session: MemoryStore<User>,
     }
 
     impl Oauth2Backend {
-        pub fn new(chan: Sender<()>) -> Self {
-            Oauth2Backend {
-                store: MemoryStore::new(),
-                channel: chan,
-            }
+        pub fn new(channel: Sender<()>, session: MemoryStore<User>) -> Self {
+            Oauth2Backend { channel, session }
         }
+    }
+
+    struct User {
+        id: String,
+        username: String,
     }
 
     impl OAuth2Handler for Oauth2Backend {
@@ -158,6 +166,15 @@ mod oauth2 {
             println!("user logged in");
             println!("at: {}", res.access_token());
             println!("refresh token:: {:?}", res.refresh_token());
+
+            let id = todo!();
+            let username = todo!();
+
+            let user = User { id, username };
+
+            let session = Session::new(SessionId::new_uuid_v7(), user);
+
+            self.session.store_session(session).await;
 
             self.channel.send(()).await;
 
@@ -168,28 +185,24 @@ mod oauth2 {
     #[tokio::test]
     async fn test1() -> crate::Result<()> {
         let (tx, mut rx) = mpsc::channel(1);
+        let session = MemoryStore::new();
 
         let context = OAuth2Context::builder()
-            .callback_url("/callback")
-            .client_id("client_id")
-            .client_secret("secret")
-            .cookie_opts(|cookie| {
-                if cfg!(debug_assertions) {
-                    cookie.http_only()
-                } else {
-                    cookie.http_only().secure()
-                }
-            })
-            .build(Oauth2Backend::new(tx));
+            .redirect_uri("")
+            .client_id("")
+            .client_secret("")
+            .start_challenge_path("/login")
+            .cookie_opts(|cookie| cookie.http_only().secure())
+            .build(Oauth2Backend::new(tx, session.clone()));
 
         let router = Router::new()
             .route("/", get(|| async { "hello world" }))
-            .route("/login", get(login))
+            .route("/authorized", get(authorized))
             .with_oauth2(&context)
-            .with_state(context);
+            .with_state(session);
 
-        async fn login(context: OAuth2Context<Oauth2Backend>) -> impl IntoResponse {
-            context.start_challenge().await
+        async fn authorized(user: Session<User>) -> String {
+            user.into_state().username
         }
 
         let listener = TcpListener::bind("0.0.0.0:3000").await?;
