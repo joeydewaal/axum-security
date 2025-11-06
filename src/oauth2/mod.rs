@@ -1,70 +1,73 @@
-use std::{borrow::Cow, sync::Arc};
+use std::sync::Arc;
 
 mod builder;
 mod client;
 mod router;
+
+pub use client::TokenResponse;
+pub use router::RouterOAuthExt;
 
 use ::oauth2::{
     AuthorizationCode, CsrfToken, PkceCodeChallenge, PkceCodeVerifier, Scope, TokenResponse as _,
 };
 use axum::{
     Extension,
-    extract::{FromRef, FromRequest, FromRequestParts, Request, State},
-    http::request::Parts,
-    response::{IntoResponse, Redirect, Response},
+    extract::Query,
+    response::{IntoResponse, Redirect},
 };
-use cookie_monster::{Cookie, CookieBuilder, CookieJar, SameSite};
-use uuid::{Timestamp, Uuid};
+use cookie_monster::{CookieBuilder, CookieJar};
+use serde::Deserialize;
 
 use crate::{
-    oauth2::{
-        builder::{OAuth2ClientTyped, Oauth2ContextBuilder},
-        client::{OAuth2Client, OAuth2ClientBuilder, TokenResponse},
-    },
-    session::{Session, SessionId, SessionStore},
+    oauth2::builder::{OAuth2ClientTyped, Oauth2ContextBuilder},
+    session::{CookieSession, SessionId, SessionStore},
     store::MemoryStore,
 };
 
-pub struct OAuth2Context<T>(Arc<OAuth2ContextInner<T>>);
+pub struct OAuth2Context<T, S>(Arc<OAuth2ContextInner<T, S>>);
 
-impl<T> Clone for OAuth2Context<T> {
+impl<T, S> Clone for OAuth2Context<T, S> {
     fn clone(&self) -> Self {
         OAuth2Context(self.0.clone())
     }
 }
 
-struct OAuthSessionState {
+pub struct OAuthSessionState {
     csrf_token: CsrfToken,
     pkce_verifier: PkceCodeVerifier,
 }
 
-struct OAuth2ContextInner<T> {
+impl Clone for OAuthSessionState {
+    fn clone(&self) -> Self {
+        Self {
+            csrf_token: self.csrf_token.clone(),
+            pkce_verifier: PkceCodeVerifier::new(self.pkce_verifier.secret().clone()),
+        }
+    }
+}
+
+struct OAuth2ContextInner<T, S> {
     inner: T,
+    session: CookieSession<S>,
     client: OAuth2ClientTyped,
-    store: MemoryStore<OAuthSessionState>,
     cookie_opts: CookieBuilder,
     start_challenge_path: Option<String>,
     scopes: Vec<Scope>,
     http_client: ::oauth2::reqwest::Client,
 }
-impl OAuth2Context<()> {
-    pub fn builder() -> Oauth2ContextBuilder {
-        Oauth2ContextBuilder::builder()
+impl OAuth2Context<(), ()> {
+    pub fn builder() -> Oauth2ContextBuilder<MemoryStore<OAuthSessionState>> {
+        Oauth2ContextBuilder::new(MemoryStore::new())
+    }
+
+    pub fn builder_with_store<S>(store: S) -> Oauth2ContextBuilder<S> {
+        Oauth2ContextBuilder::new(store)
     }
 }
 
-impl<T: OAuth2Handler> OAuth2Context<T> {
-    pub(crate) fn callback_url(&self) -> String {
-        let x = self
-            .0
-            .client
-            .redirect_uri()
-            .unwrap()
-            .split("/")
-            .nth(1)
-            .unwrap();
-
-        format!("/{x}")
+impl<T: OAuth2Handler, S: SessionStore<State = OAuthSessionState>> OAuth2Context<T, S> {
+    pub(crate) fn callback_url(&self) -> &str {
+        self.0.client.redirect_uri().unwrap().url().path()
     }
 
     async fn start_challenge(&self) -> axum::response::Response {
@@ -78,28 +81,31 @@ impl<T: OAuth2Handler> OAuth2Context<T> {
             .url();
 
         // Store CSRF token on the server somewhere temp. (session)
-        let session_id = self.0.inner.generate_session_id();
-        let session = Session::new(
-            session_id.clone(),
-            OAuthSessionState {
-                csrf_token,
-                pkce_verifier,
-            },
-        );
-        self.0.store.store_session(session).await;
+        let state = OAuthSessionState {
+            csrf_token,
+            pkce_verifier,
+        };
+
+        let session = self.0.session.store_session(state).await;
 
         // Send session cookie back
-        let mut cookie = self.0.cookie_opts.clone().value(session_id).build();
 
-        (cookie, Redirect::to(url.as_str())).into_response()
+        (session.cookie(), Redirect::to(url.as_str())).into_response()
     }
 }
-async fn callback<T: OAuth2Handler>(
-    Extension(context): Extension<OAuth2Context<T>>,
-    req: Request,
+
+#[derive(Deserialize)]
+struct OAuth2Params {
+    code: AuthorizationCode,
+    state: CsrfToken,
+}
+
+async fn callback<T: OAuth2Handler, S: SessionStore<State = OAuthSessionState>>(
+    Extension(context): Extension<OAuth2Context<T, S>>,
+    Query(params): Query<OAuth2Params>,
+    jar: CookieJar,
 ) -> impl IntoResponse {
     // get session cookie
-    let jar: CookieJar = CookieJar::from_headers(req.headers());
     let Some(cookie) = jar.get(context.0.cookie_opts.get_name()) else {
         return ().into_response();
     };
@@ -108,7 +114,7 @@ async fn callback<T: OAuth2Handler>(
     let session_id = SessionId::from_cookie(cookie);
 
     // retrieve csrf token from session
-    let Some(session) = context.0.store.remove_session(&session_id).await else {
+    let Some(session) = context.0.session.remove_session(&session_id).await else {
         return ().into_response();
     };
 
@@ -117,10 +123,8 @@ async fn callback<T: OAuth2Handler>(
         pkce_verifier,
     } = session.into_state();
 
-    let (req_code, req_state): (AuthorizationCode, CsrfToken) = todo!("get from req");
-
     // verify that csrf token is equal
-    if csrf_token.secret() != req_state.secret() {
+    if csrf_token.secret() != params.state.secret() {
         // bad req
         return ().into_response();
     }
@@ -129,7 +133,7 @@ async fn callback<T: OAuth2Handler>(
     let response = context
         .0
         .client
-        .exchange_code(req_code)
+        .exchange_code(params.code)
         .set_pkce_verifier(pkce_verifier)
         .request_async(&context.0.http_client)
         .await
@@ -151,12 +155,11 @@ async fn callback<T: OAuth2Handler>(
         .inner
         .after_login(token_response)
         .await
-        .unwrap()
         .into_response()
 }
 
-async fn start_challenge<T: OAuth2Handler>(
-    Extension(context): Extension<OAuth2Context<T>>,
+pub async fn start_challenge<T: OAuth2Handler, S: SessionStore<State = OAuthSessionState>>(
+    Extension(context): Extension<OAuth2Context<T, S>>,
 ) -> impl IntoResponse {
     context.start_challenge().await
 }
@@ -169,16 +172,15 @@ pub trait OAuth2Handler: Send + Sync + 'static {
     fn after_login(
         &self,
         token_res: TokenResponse,
-    ) -> impl Future<Output = crate::Result<impl IntoResponse>> + Send;
+    ) -> impl Future<Output = impl IntoResponse> + Send;
 }
 
 #[cfg(test)]
 mod oauth2 {
-    use std::time::Duration;
+    use std::{env, time::Duration};
 
     use axum::{
         Router,
-        extract::{FromRef, State},
         response::{IntoResponse, Redirect},
         routing::get,
         serve,
@@ -190,77 +192,7 @@ mod oauth2 {
 
     use crate::{
         oauth2::{OAuth2Context, OAuth2Handler, client::TokenResponse, router::RouterOAuthExt},
-        session::{Session, SessionId, SessionStore},
+        session::{CookieSession, Session},
         store::MemoryStore,
     };
-
-    struct Oauth2Backend {
-        channel: Sender<()>,
-        session: MemoryStore<User>,
-    }
-
-    impl Oauth2Backend {
-        pub fn new(channel: Sender<()>, session: MemoryStore<User>) -> Self {
-            Oauth2Backend { channel, session }
-        }
-    }
-
-    struct User {
-        id: String,
-        username: String,
-    }
-
-    impl OAuth2Handler for Oauth2Backend {
-        async fn after_login(&self, res: TokenResponse) -> crate::Result<impl IntoResponse> {
-            println!("user logged in");
-            println!("at: {}", res.access_token());
-            println!("refresh token:: {:?}", res.refresh_token());
-
-            let id = todo!();
-            let username = todo!();
-
-            let user = User { id, username };
-
-            let session = Session::new(SessionId::new_uuid_v7(), user);
-
-            self.session.store_session(session).await;
-
-            self.channel.send(()).await;
-
-            Ok(Redirect::to("/"))
-        }
-    }
-
-    #[tokio::test]
-    async fn test1() -> crate::Result<()> {
-        let (tx, mut rx) = mpsc::channel(1);
-        let session = MemoryStore::new();
-
-        let context = OAuth2Context::builder()
-            .redirect_uri("")
-            .client_id("")
-            .client_secret("")
-            .start_challenge_path("/login")
-            .cookie_opts(|cookie| cookie.http_only().secure())
-            .build(Oauth2Backend::new(tx, session.clone()));
-
-        let router = Router::new()
-            .route("/", get(|| async { "hello world" }))
-            .route("/authorized", get(authorized))
-            .with_oauth2(&context)
-            .with_state(session);
-
-        async fn authorized(user: Session<User>) -> String {
-            user.into_state().username
-        }
-
-        let listener = TcpListener::bind("0.0.0.0:3000").await?;
-
-        serve(listener, router)
-            .with_graceful_shutdown(async move {
-                rx.recv().await;
-            })
-            .await;
-        Ok(())
-    }
 }

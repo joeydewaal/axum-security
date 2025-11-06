@@ -1,7 +1,4 @@
-use std::{
-    collections::{HashMap, HashSet},
-    sync::Arc,
-};
+use std::{collections::HashMap, sync::Arc};
 
 use tokio::sync::RwLock;
 
@@ -25,30 +22,9 @@ impl<S> MemoryStore<S> {
             inner: RwLock::new(HashMap::new()).into(),
         }
     }
-
-    // pub async fn read(&self, id: &str) -> Option<String> {
-    //     let lock = self.inner.read().await;
-
-    //     lock.get(id).cloned()
-    // }
-
-    // pub async fn remove(&self, id: &str) -> Option<String> {
-    //     let mut lock = self.inner.write().await;
-    //     lock.remove(id)
-    // }
-
-    // pub async fn write(&self, id: &str, value: &str) {
-    //     let mut lock = self.inner.write().await;
-
-    //     if let Some(session) = lock.get_mut(id) {
-    //         *session = value.to_string();
-    //     } else {
-    //         lock.insert(id.to_string(), value.to_string());
-    //     }
-    // }
 }
 
-impl<S: Send + Sync + 'static> SessionStore for MemoryStore<S> {
+impl<S: Send + Sync + Clone + 'static> SessionStore for MemoryStore<S> {
     type State = S;
 
     async fn store_session(&self, session: Session<Self::State>) {
@@ -60,5 +36,10 @@ impl<S: Send + Sync + 'static> SessionStore for MemoryStore<S> {
     async fn remove_session(&self, id: &SessionId) -> Option<Session<Self::State>> {
         let mut lock = self.inner.write().await;
         lock.remove(id)
+    }
+
+    async fn load_session(&self, id: &SessionId) -> Option<Session<Self::State>> {
+        let lock = self.inner.read().await;
+        lock.get(id).cloned()
     }
 }

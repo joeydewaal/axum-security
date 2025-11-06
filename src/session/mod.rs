@@ -1,30 +1,19 @@
-use std::{borrow::Cow, hash::Hash};
+use std::hash::Hash;
+
+mod cookie;
+mod id;
+mod jwt;
+mod store;
+
+pub use cookie::{CookieSession, CookieSessionBuilder};
+pub use id::SessionId;
+pub use store::SessionStore;
 
 use axum::{
-    extract::{FromRef, FromRequestParts},
+    extract::FromRequestParts,
     http::{StatusCode, request::Parts},
 };
-use cookie_monster::{Cookie, CookieJar};
-use uuid::Uuid;
-
-#[derive(Hash, Clone, PartialEq, Eq)]
-pub struct SessionId(String);
-
-impl SessionId {
-    pub fn new_uuid_v7() -> Self {
-        SessionId(Uuid::now_v7().to_string())
-    }
-
-    pub fn from_cookie(cookie: &Cookie) -> Self {
-        SessionId(cookie.value().to_string())
-    }
-}
-
-impl From<SessionId> for Cow<'static, str> {
-    fn from(value: SessionId) -> Self {
-        Cow::Owned(value.0)
-    }
-}
+use cookie_monster::Cookie;
 
 #[derive(Clone)]
 pub struct Session<S> {
@@ -48,23 +37,9 @@ impl<S> Session<S> {
     pub fn into_state(self) -> S {
         self.value
     }
-}
 
-pub trait SessionStore: Send + Sync + 'static {
-    type State: Send + Sync + 'static;
-
-    fn store_session(&self, session: Session<Self::State>) -> impl Future<Output = ()> + Send;
-
-    fn remove_session(
-        &self,
-        id: &SessionId,
-    ) -> impl Future<Output = Option<Session<Self::State>>> + Send;
-
-    fn load_session(
-        &self,
-        id: &SessionId,
-    ) -> impl Future<Output = Option<Session<Self::State>>> + Send {
-        async { None }
+    pub fn cookie(&self) -> Cookie {
+        todo!();
     }
 }
 
@@ -91,4 +66,13 @@ impl<S: Send + Sync, T: Send + Sync + 'static> FromRequestParts<S> for Session<T
             Err(StatusCode::UNAUTHORIZED)
         }
     }
+}
+
+pub trait HttpSession: Send + Sync + 'static {
+    type State: Send + Sync + 'static;
+
+    fn load_from_request_parts(
+        &self,
+        parts: &mut Parts,
+    ) -> impl Future<Output = Option<Session<Self::State>>> + Send;
 }

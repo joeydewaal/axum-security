@@ -1,21 +1,20 @@
 use axum::{
-    Extension, Router,
-    extract::{FromRef, FromRequestParts, Request},
-    middleware::{AddExtension, Next},
-    response::Response,
-    routing::{MethodRouter, get},
+    Extension, Router, extract::Request, middleware::Next, response::Response,
+    routing::MethodRouter,
 };
-use cookie_monster::CookieJar;
 
 use crate::{
-    oauth2::{OAuth2Context, OAuth2Handler, callback},
-    session::{SessionId, SessionStore},
+    oauth2::{OAuth2Context, OAuth2Handler, OAuthSessionState, callback, start_challenge},
+    session::{HttpSession, SessionStore},
 };
 
 pub trait RouterOAuthExt<S> {
-    fn with_oauth2<T: OAuth2Handler>(self, oauth2: &OAuth2Context<T>) -> Router<S>;
+    fn with_oauth2<T: OAuth2Handler, STORE: SessionStore<State = OAuthSessionState>>(
+        self,
+        oauth2: &OAuth2Context<T, STORE>,
+    ) -> Router<S>;
 
-    fn with_session<SES: SessionStore + Clone>(self, session: SES) -> Router<S>
+    fn with_session<SES: HttpSession + Clone>(self, session: SES) -> Router<S>
     where
         SES::State: Clone;
 }
@@ -24,26 +23,29 @@ impl<S> RouterOAuthExt<S> for Router<S>
 where
     S: Send + Sync + Clone + 'static,
 {
-    fn with_oauth2<T>(mut self, oauth2: &OAuth2Context<T>) -> Router<S>
+    fn with_oauth2<T, STORE>(mut self, oauth2: &OAuth2Context<T, STORE>) -> Router<S>
     where
         T: OAuth2Handler,
+        STORE: SessionStore<State = OAuthSessionState>,
     {
         if let Some(start_challenge_path) = &oauth2.0.start_challenge_path {
             let challenge_route = MethodRouter::new()
-                .get(callback::<T>)
+                .get(start_challenge::<T, STORE>)
                 .layer(Extension(oauth2.clone()));
 
             self = self.route(start_challenge_path, challenge_route);
         }
 
+        dbg!(&oauth2.callback_url());
+
         let route = MethodRouter::new()
-            .get(callback::<T>)
+            .get(callback::<T, STORE>)
             .layer(Extension(oauth2.clone()));
 
         self.route(&oauth2.callback_url(), route)
     }
 
-    fn with_session<SES: SessionStore + Clone>(self, session: SES) -> Router<S>
+    fn with_session<SES: HttpSession + Clone>(self, session: SES) -> Router<S>
     where
         SES::State: Clone,
     {
@@ -53,28 +55,19 @@ where
     }
 }
 
-async fn session_layer<S: SessionStore + 'static + Send + Sync>(
-    mut req: Request,
-    next: Next,
-) -> Response
+async fn session_layer<S: HttpSession + Clone>(mut req: Request, next: Next) -> Response
 where
     S::State: Send + Sync + 'static + Clone,
 {
     let session = req.extensions_mut().remove::<S>().unwrap();
 
-    let cookies = CookieJar::from_headers(req.headers());
+    let (mut parts, body) = req.into_parts();
 
-    let Some(cookie) = cookies.get("session") else {
-        return next.run(req).await;
+    if let Some(session) = session.load_from_request_parts(&mut parts).await {
+        parts.extensions.insert(session);
     };
 
-    let session_id = SessionId::from_cookie(&cookie);
+    let req = Request::from_parts(parts, body);
 
-    let Some(session) = session.load_session(&session_id).await else {
-        return next.run(req).await;
-    };
-
-    req.extensions_mut().insert(session);
-
-    return next.run(req).await;
+    next.run(req).await
 }
