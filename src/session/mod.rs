@@ -3,7 +3,7 @@ use std::hash::Hash;
 mod cookie;
 mod id;
 mod jwt;
-mod store;
+pub mod store;
 
 pub use cookie::{CookieSession, CookieSessionBuilder};
 pub use id::SessionId;

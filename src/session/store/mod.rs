@@ -1,5 +1,9 @@
 use crate::session::{Session, SessionId};
 
+mod memory;
+
+pub use memory::MemoryStore;
+
 pub trait SessionStore: Send + Sync + 'static {
     type State: Send + Sync + 'static;
 

@@ -79,20 +79,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "axum-auth-utils"
-version = "0.0.1"
-dependencies = [
- "anyhow",
- "axum",
- "cookie-monster",
- "oauth2",
- "serde",
- "sqlx",
- "tokio",
- "uuid",
-]
-
-[[package]]
 name = "axum-core"
 version = "0.5.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -120,6 +106,20 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
+]
+
+[[package]]
+name = "axum-security"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "axum",
+ "cookie-monster",
+ "oauth2",
+ "serde",
+ "sqlx",
+ "tokio",
+ "uuid",
 ]
 
 [[package]]
@@ -223,7 +223,7 @@ checksum = "c2459377285ad874054d797f3ccebf984978aa39129f6eafde5cdc8315b612f8"
 
 [[package]]
 name = "cookie-monster"
-version = "0.0.2"
+version = "0.1.0"
 dependencies = [
  "axum-core",
  "http",

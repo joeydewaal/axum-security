@@ -3,10 +3,7 @@ use std::{borrow::Cow, sync::Arc};
 use axum::http::request::Parts;
 use cookie_monster::{CookieBuilder, CookieJar, SameSite};
 
-use crate::{
-    session::{HttpSession, Session, SessionId, SessionStore},
-    store::MemoryStore,
-};
+use crate::session::{HttpSession, Session, SessionId, SessionStore, store::MemoryStore};
 
 pub struct CookieSession<S>(Arc<CookieSessionInner<S>>);
 

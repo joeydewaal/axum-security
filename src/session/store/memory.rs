@@ -8,6 +8,12 @@ pub struct MemoryStore<S> {
     inner: Arc<RwLock<HashMap<SessionId, Session<S>>>>,
 }
 
+impl<S> Default for MemoryStore<S> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<S> Clone for MemoryStore<S> {
     fn clone(&self) -> Self {
         MemoryStore {

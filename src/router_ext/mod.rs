@@ -8,7 +8,7 @@ use crate::{
     session::{HttpSession, SessionStore},
 };
 
-pub trait RouterOAuthExt<S> {
+pub trait RouterExt<S> {
     fn with_oauth2<T: OAuth2Handler, STORE: SessionStore<State = OAuthSessionState>>(
         self,
         oauth2: &OAuth2Context<T, STORE>,
@@ -19,7 +19,7 @@ pub trait RouterOAuthExt<S> {
         SES::State: Clone;
 }
 
-impl<S> RouterOAuthExt<S> for Router<S>
+impl<S> RouterExt<S> for Router<S>
 where
     S: Send + Sync + Clone + 'static,
 {
@@ -28,15 +28,13 @@ where
         T: OAuth2Handler,
         STORE: SessionStore<State = OAuthSessionState>,
     {
-        if let Some(start_challenge_path) = &oauth2.0.start_challenge_path {
+        if let Some(start_challenge_path) = oauth2.get_start_challenge_path() {
             let challenge_route = MethodRouter::new()
                 .get(start_challenge::<T, STORE>)
                 .layer(Extension(oauth2.clone()));
 
             self = self.route(start_challenge_path, challenge_route);
         }
-
-        dbg!(&oauth2.callback_url());
 
         let route = MethodRouter::new()
             .get(callback::<T, STORE>)

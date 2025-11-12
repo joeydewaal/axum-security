@@ -7,8 +7,8 @@ use axum::{
     routing::get,
     serve,
 };
-use axum_auth_utils::{
-    oauth2::RouterOAuthExt,
+use axum_security::{
+    oauth2::RouterExt,
     session::{CookieSession, Session},
     store::MemoryStore,
 };

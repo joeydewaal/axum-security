@@ -2,18 +2,20 @@ use std::sync::Arc;
 
 use cookie_monster::{Cookie, CookieBuilder};
 use oauth2::{
-    AuthUrl, Client, ClientId, ClientSecret, EndpointNotSet, EndpointSet, RedirectUrl, Scope,
-    TokenUrl, basic::BasicClient, reqwest::redirect::Policy,
+    AuthUrl, Client, ClientId, ClientSecret, RedirectUrl, Scope, TokenUrl,
+    reqwest::redirect::Policy,
 };
 
 use crate::{
-    oauth2::{OAuth2Context, OAuth2ContextInner, OAuthSessionState},
+    oauth2::OAuthSessionState,
     session::{CookieSession, CookieSessionBuilder, SessionStore},
 };
 
+use super::{OAuth2ClientTyped, OAuth2Context, OAuth2ContextInner};
+
 static DEFAULT_SESSION_COOKIE_NAME: &str = "oauth2-session";
 
-pub struct Oauth2ContextBuilder<S> {
+pub struct OAuth2ContextBuilder<S> {
     session: CookieSessionBuilder<S>,
     cookie_opts: Option<CookieBuilder>,
     start_challenge_path: Option<String>,
@@ -25,8 +27,8 @@ pub struct Oauth2ContextBuilder<S> {
     token_url: Option<TokenUrl>,
 }
 
-impl<S> Oauth2ContextBuilder<S> {
-    pub fn new(store: S) -> Oauth2ContextBuilder<S> {
+impl<S> OAuth2ContextBuilder<S> {
+    pub fn new(store: S) -> OAuth2ContextBuilder<S> {
         Self {
             session: CookieSession::builder_with_store(store),
             cookie_opts: None,
@@ -121,6 +123,3 @@ impl<S> Oauth2ContextBuilder<S> {
 fn default_cookie() -> CookieBuilder {
     Cookie::build("oauth2-session", DEFAULT_SESSION_COOKIE_NAME).http_only()
 }
-
-pub type OAuth2ClientTyped =
-    BasicClient<EndpointSet, EndpointNotSet, EndpointNotSet, EndpointNotSet, EndpointSet>;
