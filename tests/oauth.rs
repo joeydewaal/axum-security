@@ -7,7 +7,7 @@ use axum::{
     serve,
 };
 use axum_security::{
-    oauth2::{OAuth2Context, OAuth2Handler, RouterExt, TokenResponse},
+    oauth2::{OAuth2Context, OAuth2Handler, RouterExt, TokenResponse, providers::github},
     session::{CookieSession, Session},
     store::MemoryStore,
 };
@@ -41,9 +41,9 @@ impl OAuth2Handler for Oauth2Backend {
 
         let user = User { id, username };
 
-        let session = self.session.store_session(user).await;
+        let cookie = self.session.store_session(user).await;
 
-        (session.cookie(), Redirect::to("/"))
+        (cookie, Redirect::to("/"))
     }
 }
 
@@ -51,12 +51,12 @@ impl OAuth2Handler for Oauth2Backend {
 async fn test1() -> anyhow::Result<()> {
     let session = CookieSession::builder().build(true);
 
-    let context = OAuth2Context::builder()
+    let context = OAuth2Context::builder("github")
         .client_id(env::var("CLIENT_ID").unwrap())
         .client_secret(env::var("CLIENT_SECRET").unwrap())
         .redirect_uri(env::var("REDIRECT_URL").unwrap())
-        .token_url("https://github.com/login/oauth/access_token")
-        .auth_url("https://github.com/login/oauth/authorize")
+        .token_url(github::TOKEN_URL)
+        .auth_url(github::AUTH_URL)
         .start_challenge_path("/login")
         .cookie(|c| c.http_only().secure())
         .build(Oauth2Backend::new(session.clone()), true);

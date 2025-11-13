@@ -41,7 +41,7 @@ where
             .get(callback::<T, STORE>)
             .layer(Extension(oauth2.clone()));
 
-        self.route(&oauth2.callback_url(), route)
+        self.route(oauth2.callback_url(), route)
     }
 
     fn with_session<SES: HttpSession + Clone>(self, session: SES) -> Router<S>

@@ -1,7 +1,7 @@
-use std::{borrow::Cow, sync::Arc};
+use std::sync::Arc;
 
 use axum::http::request::Parts;
-use cookie_monster::{CookieBuilder, CookieJar, SameSite};
+use cookie_monster::{Cookie, CookieBuilder, CookieJar, SameSite};
 
 use crate::{
     session::{HttpSession, Session, SessionId},
@@ -32,18 +32,31 @@ impl CookieSession<()> {
 }
 
 impl<S: SessionStore> CookieSession<S> {
-    pub async fn store_session(
-        &self,
-        state: <S as SessionStore>::State,
-    ) -> Session<<S as SessionStore>::State> {
-        todo!();
+    pub fn get_cookie(&self, session_id: SessionId) -> Cookie {
+        self.0
+            .cookie_opts
+            .clone()
+            .value(session_id.into_inner())
+            .build()
+    }
+    pub async fn store_session(&self, state: <S as SessionStore>::State) -> Cookie {
+        let session_id = self.0.store.store_state(state).await;
+        self.get_cookie(session_id)
     }
 
     pub async fn remove_session(
         &self,
-        session_id: &SessionId,
+        jar: &CookieJar,
     ) -> Option<Session<<S as SessionStore>::State>> {
-        todo!();
+        let session_id = self.session_id_from_jar(jar)?;
+
+        self.0.store.remove_session(&session_id).await
+    }
+
+    pub(crate) fn session_id_from_jar(&self, jar: &CookieJar) -> Option<SessionId> {
+        let cookie = jar.get(self.0.cookie_opts.get_name())?;
+
+        Some(SessionId::from_cookie(cookie))
     }
 }
 
@@ -53,18 +66,18 @@ static DEFAULT_SESSION_COOKIE_NAME: &str = "session";
 
 pub struct CookieSessionBuilder<S> {
     store: S,
-    dev_cookie: CookieBuilder,
-    cookie: CookieBuilder,
+    pub(crate) dev_cookie: CookieBuilder,
+    pub(crate) cookie: CookieBuilder,
 }
 
 impl<S> CookieSessionBuilder<S> {
     pub fn new(store: S) -> Self {
         Self {
             store,
-            dev_cookie: CookieBuilder::new(DEFAULT_SESSION_COOKIE_NAME, "")
+            dev_cookie: Cookie::named(DEFAULT_SESSION_COOKIE_NAME)
                 .same_site(SameSite::None)
                 .http_only(),
-            cookie: CookieBuilder::new(DEFAULT_SESSION_COOKIE_NAME, "")
+            cookie: Cookie::named(DEFAULT_SESSION_COOKIE_NAME)
                 .same_site(SameSite::Strict)
                 .http_only()
                 .secure(),
@@ -78,11 +91,6 @@ impl<S> CookieSessionBuilder<S> {
 
     pub fn dev_cookie(mut self, f: impl FnOnce(CookieBuilder) -> CookieBuilder) -> Self {
         self.dev_cookie = f(self.dev_cookie);
-        self
-    }
-
-    pub fn cookie_name(mut self, cookie_name: impl Into<Cow<'static, str>>) -> Self {
-        self.cookie = self.cookie.name(cookie_name);
         self
     }
 }
@@ -105,9 +113,7 @@ impl<S: SessionStore> HttpSession for CookieSession<S> {
     async fn load_from_request_parts(&self, parts: &mut Parts) -> Option<Session<S::State>> {
         let cookies = CookieJar::from_headers(&parts.headers);
 
-        let cookie = cookies.get(self.0.cookie_opts.get_name())?;
-
-        let session_id = SessionId::from_cookie(&cookie);
+        let session_id = self.session_id_from_jar(&cookies)?;
 
         self.0.store.load_session(&session_id).await
     }

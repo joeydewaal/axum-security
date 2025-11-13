@@ -1,8 +1,11 @@
+mod builder;
+mod callback;
 mod context;
+pub mod providers;
 mod response;
 
-pub use context::{OAuth2Context, OAuth2ContextBuilder};
-pub(crate) use context::{callback, start_challenge};
+pub(crate) use callback::{callback, start_challenge};
+pub use context::OAuth2Context;
 
 pub use crate::RouterExt;
 pub use response::TokenResponse;
@@ -11,6 +14,10 @@ use ::oauth2::{CsrfToken, PkceCodeVerifier};
 use axum::response::IntoResponse;
 
 use crate::session::SessionId;
+
+use oauth2::{EndpointNotSet, EndpointSet, basic::BasicClient};
+pub(crate) type OAuth2ClientTyped =
+    BasicClient<EndpointSet, EndpointNotSet, EndpointNotSet, EndpointNotSet, EndpointSet>;
 
 pub struct OAuthSessionState {
     csrf_token: CsrfToken,

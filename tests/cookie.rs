@@ -40,9 +40,10 @@ async fn login(
             username: login.username,
             email: None,
         };
-        let session = session.store_session(user).await;
 
-        (session.cookie(), "Logged in").into_response()
+        let cookie = session.store_session(user).await;
+
+        (cookie, "Logged in").into_response()
     } else {
         "failed to log in".into_response()
     }
@@ -51,9 +52,9 @@ async fn login(
 #[tokio::test]
 async fn test_cookie() -> anyhow::Result<()> {
     let session = CookieSession::builder()
-        .cookie_name("session")
         .cookie(|c| {
-            c.domain("www.rust-lang.com")
+            c.name("session")
+                .domain("www.rust-lang.com")
                 .path("/")
                 .max_age(Duration::from_mins(15))
         })

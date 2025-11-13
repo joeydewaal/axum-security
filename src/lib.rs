@@ -7,8 +7,8 @@ mod router_ext;
 pub mod session;
 pub mod store;
 
-mod cookie;
-mod http;
-mod jwt;
+pub mod cookie;
+pub mod http;
+pub mod jwt;
 
 pub use router_ext::RouterExt;

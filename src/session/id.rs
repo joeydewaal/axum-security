@@ -14,6 +14,10 @@ impl SessionId {
     pub fn from_cookie(cookie: &Cookie) -> Self {
         SessionId(cookie.value().to_string())
     }
+
+    pub fn into_inner(self) -> String {
+        self.0
+    }
 }
 
 impl From<SessionId> for Cow<'static, str> {

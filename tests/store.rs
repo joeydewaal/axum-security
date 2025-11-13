@@ -39,9 +39,10 @@ async fn login(
             username: login.username,
             email: None,
         };
-        let session = session.store_session(user).await;
 
-        (session.cookie(), "Logged in").into_response()
+        let cookie = session.store_session(user).await;
+
+        (cookie, "Logged in").into_response()
     } else {
         "failed to log in".into_response()
     }

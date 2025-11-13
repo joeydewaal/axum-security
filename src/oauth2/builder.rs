@@ -1,26 +1,20 @@
-use std::sync::Arc;
+use std::{borrow::Cow, sync::Arc};
 
 use anyhow::Context;
-use cookie_monster::{Cookie, CookieBuilder};
-use oauth2::{
-    AuthUrl, Client, ClientId, ClientSecret, RedirectUrl, Scope, TokenUrl,
-    reqwest::redirect::Policy,
-};
+use cookie_monster::{Cookie, CookieBuilder, SameSite};
+use oauth2::{AuthUrl, Client, ClientId, ClientSecret, RedirectUrl, Scope, TokenUrl};
 
 use crate::{
-    oauth2::OAuthSessionState,
+    http::default_reqwest_client,
+    oauth2::{OAuth2Context, OAuthSessionState, context::OAuth2ContextInner},
     session::{CookieSession, CookieSessionBuilder},
     store::SessionStore,
 };
 
-use super::{OAuth2ClientTyped, OAuth2Context, OAuth2ContextInner};
-
-static DEFAULT_SESSION_COOKIE_NAME: &str = "oauth2-session";
-
 pub struct OAuth2ContextBuilder<S> {
+    name: Cow<'static, str>,
     session: CookieSessionBuilder<S>,
-    cookie_opts: Option<CookieBuilder>,
-    start_challenge_path: Option<String>,
+    start_challenge_path: Option<Cow<'static, str>>,
     redirect_url: Option<String>,
     client_id: Option<String>,
     client_secret: Option<String>,
@@ -30,10 +24,21 @@ pub struct OAuth2ContextBuilder<S> {
 }
 
 impl<S> OAuth2ContextBuilder<S> {
-    pub fn new(store: S) -> OAuth2ContextBuilder<S> {
+    pub fn new(name: impl Into<Cow<'static, str>>, store: S) -> OAuth2ContextBuilder<S> {
+        let name = name.into();
+
+        let cookie = Cookie::named(name.clone())
+            .secure()
+            .http_only()
+            .same_site(SameSite::Strict);
+
+        let dev_cookie = Cookie::named(name.clone());
+
         Self {
-            session: CookieSession::builder_with_store(store),
-            cookie_opts: None,
+            name,
+            session: CookieSession::builder_with_store(store)
+                .cookie(|_| cookie)
+                .dev_cookie(|_| dev_cookie),
             start_challenge_path: None,
             redirect_url: None,
             client_id: None,
@@ -84,8 +89,10 @@ impl<S> OAuth2ContextBuilder<S> {
         self
     }
 
-    pub fn start_challenge_path(mut self, path: impl Into<String>) -> Self {
-        self.start_challenge_path = Some(path.into());
+    pub fn start_challenge_path(mut self, path: impl Into<Cow<'static, str>>) -> Self {
+        let path = path.into();
+        self.start_challenge_path = Some(path.clone());
+        self.session = self.session.cookie(|c| c.path(path));
         self
     }
 
@@ -96,11 +103,11 @@ impl<S> OAuth2ContextBuilder<S> {
         self.try_build(inner, dev).unwrap()
     }
 
-    pub fn try_build<T>(self, inner: T, dev: bool) -> crate::Result<OAuth2Context<T, S>>
+    pub fn try_build<T>(mut self, inner: T, dev: bool) -> crate::Result<OAuth2Context<T, S>>
     where
         S: SessionStore<State = OAuthSessionState>,
     {
-        let mut basic_client: OAuth2ClientTyped =
+        let mut basic_client =
             Client::new(ClientId::new(self.client_id.context("client id missing")?))
                 .set_redirect_uri(RedirectUrl::new(
                     self.redirect_url.context("redirect url mmissing")?,
@@ -116,17 +123,29 @@ impl<S> OAuth2ContextBuilder<S> {
             client: basic_client,
             inner,
             session: self.session.build(dev),
-            cookie_opts: self.cookie_opts.unwrap_or(default_cookie()),
             start_challenge_path: self.start_challenge_path,
-            http_client: ::oauth2::reqwest::Client::builder()
-                .redirect(Policy::none())
-                .build()
-                .unwrap(),
+            http_client: default_reqwest_client(),
             scopes: self.scopes,
         })))
     }
 }
 
-fn default_cookie() -> CookieBuilder {
-    Cookie::build("oauth2-session", DEFAULT_SESSION_COOKIE_NAME).http_only()
+fn default_dev_cookie(name: Cow<'static, str>) -> CookieBuilder {
+    Cookie::named(name)
+}
+
+fn default_secure_cookie(
+    name: Cow<'static, str>,
+    start_challenge_path: Option<&str>,
+) -> CookieBuilder {
+    let mut builder = default_dev_cookie(name)
+        .secure()
+        .http_only()
+        .same_site(SameSite::Strict);
+
+    if let Some(login_path) = start_challenge_path {
+        builder.path(login_path.to_string())
+    } else {
+        builder
+    }
 }

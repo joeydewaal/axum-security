@@ -11,7 +11,6 @@ use axum::{
     extract::FromRequestParts,
     http::{StatusCode, request::Parts},
 };
-use cookie_monster::Cookie;
 
 #[derive(Clone)]
 pub struct Session<S> {
@@ -34,10 +33,6 @@ impl<S> Session<S> {
 
     pub fn into_state(self) -> S {
         self.value
-    }
-
-    pub fn cookie(&self) -> Cookie {
-        todo!();
     }
 }
 
