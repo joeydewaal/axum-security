@@ -49,7 +49,7 @@ impl OAuth2Handler for Oauth2Backend {
 
 #[tokio::test]
 async fn test1() -> anyhow::Result<()> {
-    let session = CookieSession::builder().build();
+    let session = CookieSession::builder().build(true);
 
     let context = OAuth2Context::builder()
         .client_id(env::var("CLIENT_ID").unwrap())
@@ -59,7 +59,7 @@ async fn test1() -> anyhow::Result<()> {
         .auth_url("https://github.com/login/oauth/authorize")
         .start_challenge_path("/login")
         .cookie(|c| c.http_only().secure())
-        .build(Oauth2Backend::new(session.clone()));
+        .build(Oauth2Backend::new(session.clone()), true);
 
     let router = Router::new()
         .route("/", get(|| async { "hello world" }))

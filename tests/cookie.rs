@@ -58,8 +58,7 @@ async fn test_cookie() -> anyhow::Result<()> {
                 .max_age(Duration::from_mins(15))
         })
         .dev_cookie(|c| c.path("/"))
-        .dev(true)
-        .build::<User>();
+        .build::<User>(true);
 
     let router = Router::new()
         .route("/", get(|| async { "hello world" }))
@@ -76,7 +75,7 @@ async fn test_cookie() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_cookie_simple() -> anyhow::Result<()> {
-    let session = CookieSession::builder().dev(true).build::<User>();
+    let session = CookieSession::builder().build::<User>(true);
 
     let router = Router::new()
         .route("/", get(|| async { "hello world" }))

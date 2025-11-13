@@ -3,11 +3,9 @@ use std::hash::Hash;
 mod cookie;
 mod id;
 mod jwt;
-pub mod store;
 
 pub use cookie::{CookieSession, CookieSessionBuilder};
 pub use id::SessionId;
-pub use store::SessionStore;
 
 use axum::{
     extract::FromRequestParts,

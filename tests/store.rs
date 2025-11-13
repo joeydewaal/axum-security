@@ -7,7 +7,8 @@ use axum::{
 };
 use axum_security::{
     oauth2::RouterExt,
-    session::{CookieSession, Session, SessionId, SessionStore},
+    session::{CookieSession, Session, SessionId},
+    store::SessionStore,
 };
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
@@ -52,9 +53,7 @@ async fn test_cookie_simple() -> anyhow::Result<()> {
         pool: SqlitePool::connect(":memory:").await?,
     };
 
-    let session = CookieSession::builder_with_store(store)
-        .dev(true)
-        .build::<User>();
+    let session = CookieSession::builder_with_store(store).build::<User>(true);
 
     let router = Router::new()
         .route("/", get(|| async { "hello world" }))

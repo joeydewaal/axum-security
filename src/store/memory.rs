@@ -2,7 +2,10 @@ use std::{collections::HashMap, sync::Arc};
 
 use tokio::sync::RwLock;
 
-use crate::session::{Session, SessionId, SessionStore};
+use crate::{
+    session::{Session, SessionId},
+    store::SessionStore,
+};
 
 pub struct MemoryStore<S> {
     inner: Arc<RwLock<HashMap<SessionId, Session<S>>>>,

@@ -15,7 +15,8 @@ use oauth2::{
 
 use crate::{
     oauth2::{OAuth2Handler, OAuthSessionState},
-    session::{CookieSession, SessionStore, store::MemoryStore},
+    session::CookieSession,
+    store::{MemoryStore, SessionStore},
 };
 
 mod builder;

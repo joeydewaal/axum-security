@@ -3,7 +3,10 @@ use std::{borrow::Cow, sync::Arc};
 use axum::http::request::Parts;
 use cookie_monster::{CookieBuilder, CookieJar, SameSite};
 
-use crate::session::{HttpSession, Session, SessionId, SessionStore, store::MemoryStore};
+use crate::{
+    session::{HttpSession, Session, SessionId},
+    store::{MemoryStore, SessionStore},
+};
 
 pub struct CookieSession<S>(Arc<CookieSessionInner<S>>);
 
@@ -52,7 +55,6 @@ pub struct CookieSessionBuilder<S> {
     store: S,
     dev_cookie: CookieBuilder,
     cookie: CookieBuilder,
-    dev: bool,
 }
 
 impl<S> CookieSessionBuilder<S> {
@@ -66,7 +68,6 @@ impl<S> CookieSessionBuilder<S> {
                 .same_site(SameSite::Strict)
                 .http_only()
                 .secure(),
-            dev: false,
         }
     }
 
@@ -80,11 +81,6 @@ impl<S> CookieSessionBuilder<S> {
         self
     }
 
-    pub fn dev(mut self, dev_cookie: bool) -> Self {
-        self.dev = dev_cookie;
-        self
-    }
-
     pub fn cookie_name(mut self, cookie_name: impl Into<Cow<'static, str>>) -> Self {
         self.cookie = self.cookie.name(cookie_name);
         self
@@ -92,17 +88,13 @@ impl<S> CookieSessionBuilder<S> {
 }
 
 impl<S: SessionStore> CookieSessionBuilder<S> {
-    pub fn build<T>(self) -> CookieSession<S>
+    pub fn build<T>(self, dev: bool) -> CookieSession<S>
     where
         S: SessionStore<State = T>,
     {
         CookieSession(Arc::new(CookieSessionInner {
             store: self.store,
-            cookie_opts: if self.dev {
-                self.dev_cookie
-            } else {
-                self.cookie
-            },
+            cookie_opts: if dev { self.dev_cookie } else { self.cookie },
         }))
     }
 }

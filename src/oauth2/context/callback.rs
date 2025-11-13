@@ -5,7 +5,8 @@ use serde::Deserialize;
 
 use crate::{
     oauth2::{OAuth2Context, OAuth2Handler, OAuthSessionState, TokenResponse},
-    session::{SessionId, SessionStore},
+    session::SessionId,
+    store::SessionStore,
 };
 
 #[derive(Deserialize)]
