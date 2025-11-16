@@ -8,6 +8,7 @@ axum = { version = "0.8.6", features = ["macros" ]}
 tokio = { version = "1.0", features = ["full"]}
 
 cookie-monster = { path = "../cookie-monster", features = ["axum" ]}
+jsonwebtoken = { version = "10.2.0", features = ["aws_lc_rs"] }
 
 anyhow = "1.0.100"
 
@@ -15,7 +16,7 @@ uuid = { version = "1.18.1", features = ["v7"] }
 
 oauth2 = { version = "5.0.0", features = ["reqwest", "rustls-tls"], default-features = false }
 
-serde = { version = "1", features = ["derive"] }
+serde = { version = "1.0.228", features = ["derive"] }
 
 [dev-dependencies]
 axum = { version = "0.8.6", features = ["macros" ]}

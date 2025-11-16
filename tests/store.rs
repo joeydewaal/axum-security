@@ -6,7 +6,7 @@ use axum::{
     serve,
 };
 use axum_security::{
-    cookie::{CookieContext, CookieSession, SessionId, SessionStore},
+    cookie::{CookieContext, CookieSession, CookieStore, SessionId},
     oauth2::RouterExt,
 };
 use serde::{Deserialize, Serialize};
@@ -73,7 +73,7 @@ struct SqlxStore {
     pool: SqlitePool,
 }
 
-impl SessionStore for SqlxStore {
+impl CookieStore for SqlxStore {
     type State = User;
 
     async fn load_session(&self, _id: &SessionId) -> Option<CookieSession<User>> {

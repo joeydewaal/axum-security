@@ -45,9 +45,14 @@ impl<S> PartialEq for CookieSession<S> {
     }
 }
 
-impl<S: Send + Sync, T: Send + Sync + 'static> FromRequestParts<S> for CookieSession<T> {
+impl<S, T> FromRequestParts<S> for CookieSession<T>
+where
+    S: Send + Sync,
+    T: Send + Sync + 'static,
+{
     type Rejection = StatusCode;
-    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, StatusCode> {
+
+    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, StatusCode> {
         if let Some(session) = parts.extensions.remove::<CookieSession<T>>() {
             Ok(session)
         } else {

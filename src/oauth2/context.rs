@@ -11,7 +11,7 @@ use oauth2::{
 };
 
 use crate::{
-    cookie::{CookieContext, MemoryStore, SessionStore},
+    cookie::{CookieContext, CookieStore, MemoryStore},
     oauth2::{
         OAuth2ClientTyped, OAuth2Handler, OAuthSessionState, TokenResponse,
         builder::OAuth2ContextBuilder,
@@ -35,21 +35,16 @@ pub(super) struct OAuth2ContextInner<T, S> {
     pub(super) http_client: ::oauth2::reqwest::Client,
 }
 impl OAuth2Context<(), ()> {
-    pub fn builder(
-        name: impl Into<Cow<'static, str>>,
-    ) -> OAuth2ContextBuilder<MemoryStore<OAuthSessionState>> {
-        OAuth2ContextBuilder::new(name, MemoryStore::new())
+    pub fn builder() -> OAuth2ContextBuilder<MemoryStore<OAuthSessionState>> {
+        OAuth2ContextBuilder::new(MemoryStore::new())
     }
 
-    pub fn builder_with_store<S>(
-        store: S,
-        name: impl Into<Cow<'static, str>>,
-    ) -> OAuth2ContextBuilder<S> {
-        OAuth2ContextBuilder::new(name, store)
+    pub fn builder_with_store<S>(store: S) -> OAuth2ContextBuilder<S> {
+        OAuth2ContextBuilder::new(store)
     }
 }
 
-impl<T: OAuth2Handler, S: SessionStore<State = OAuthSessionState>> OAuth2Context<T, S> {
+impl<T: OAuth2Handler, S: CookieStore<State = OAuthSessionState>> OAuth2Context<T, S> {
     pub(crate) fn callback_url(&self) -> &str {
         self.0.client.redirect_uri().unwrap().url().path()
     }

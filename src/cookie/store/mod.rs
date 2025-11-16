@@ -4,7 +4,7 @@ pub use memory::MemoryStore;
 
 use crate::cookie::{CookieSession, SessionId};
 
-pub trait SessionStore: Send + Sync + 'static {
+pub trait CookieStore: Send + Sync + 'static {
     type State: Send + Sync + 'static;
 
     fn store_state(&self, state: Self::State) -> impl Future<Output = SessionId> + Send {

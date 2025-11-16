@@ -1,5 +1,3 @@
-use std::env;
-
 use axum::{
     Json, Router,
     response::{IntoResponse, Redirect},
@@ -50,10 +48,10 @@ impl OAuth2Handler for Oauth2Backend {
 async fn test1() -> anyhow::Result<()> {
     let session = CookieContext::builder().build(true);
 
-    let context = OAuth2Context::builder("github")
-        .client_id(env::var("CLIENT_ID").unwrap())
-        .client_secret(env::var("CLIENT_SECRET").unwrap())
-        .redirect_uri(env::var("REDIRECT_URL").unwrap())
+    let context = OAuth2Context::builder()
+        .client_id_env("CLIENT_ID")
+        .client_secret_env("CLIENT_SECRET")
+        .redirect_uri_env("REDIRECT_URL")
         .token_url(github::TOKEN_URL)
         .auth_url(github::AUTH_URL)
         .login_path("/login")

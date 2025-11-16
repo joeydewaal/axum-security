@@ -5,14 +5,15 @@ use cookie_monster::{Cookie, CookieBuilder, SameSite};
 use oauth2::{AuthUrl, Client, ClientId, ClientSecret, RedirectUrl, Scope, TokenUrl};
 
 use crate::{
-    cookie::{CookieContext, CookieSessionBuilder, SessionStore},
+    cookie::{CookieContext, CookieSessionBuilder, CookieStore},
     http::default_reqwest_client,
     oauth2::{OAuth2Context, OAuthSessionState, context::OAuth2ContextInner},
     utils::get_env,
 };
 
+static DEFAULT_COOKIE_NAME: &str = "oauth2-session";
+
 pub struct OAuth2ContextBuilder<S> {
-    name: Cow<'static, str>,
     session: CookieSessionBuilder<S>,
     login_path: Option<Cow<'static, str>>,
     redirect_url: Option<String>,
@@ -24,18 +25,16 @@ pub struct OAuth2ContextBuilder<S> {
 }
 
 impl<S> OAuth2ContextBuilder<S> {
-    pub fn new(name: impl Into<Cow<'static, str>>, store: S) -> OAuth2ContextBuilder<S> {
-        let name = name.into();
+    pub fn new(store: S) -> OAuth2ContextBuilder<S> {
+        let dev_cookie = Cookie::named(DEFAULT_COOKIE_NAME);
 
-        let cookie = Cookie::named(name.clone())
+        let cookie = dev_cookie
+            .clone()
             .secure()
             .http_only()
             .same_site(SameSite::Strict);
 
-        let dev_cookie = Cookie::named(name.clone());
-
         Self {
-            name,
             session: CookieContext::builder_with_store(store)
                 .cookie(|_| cookie)
                 .dev_cookie(|_| dev_cookie),
@@ -54,7 +53,7 @@ impl<S> OAuth2ContextBuilder<S> {
         self
     }
 
-    pub fn redirect_uri_env(mut self, name: &str) -> Self {
+    pub fn redirect_uri_env(self, name: &str) -> Self {
         self.redirect_uri(get_env(name))
     }
 
@@ -63,7 +62,7 @@ impl<S> OAuth2ContextBuilder<S> {
         self
     }
 
-    pub fn client_id_env(mut self, name: &str) -> Self {
+    pub fn client_id_env(self, name: &str) -> Self {
         self.client_id(get_env(name))
     }
 
@@ -72,7 +71,7 @@ impl<S> OAuth2ContextBuilder<S> {
         self
     }
 
-    pub fn client_secret_env(mut self, name: &str) -> Self {
+    pub fn client_secret_env(self, name: &str) -> Self {
         self.client_secret(get_env(name))
     }
 
@@ -81,7 +80,7 @@ impl<S> OAuth2ContextBuilder<S> {
         self
     }
 
-    pub fn auth_url_env(mut self, name: &str) -> Self {
+    pub fn auth_url_env(self, name: &str) -> Self {
         self.auth_url(get_env(name))
     }
 
@@ -90,7 +89,7 @@ impl<S> OAuth2ContextBuilder<S> {
         self
     }
 
-    pub fn token_url_env(mut self, name: &str) -> Self {
+    pub fn token_url_env(self, name: &str) -> Self {
         self.token_url(get_env(name))
     }
 
@@ -118,14 +117,14 @@ impl<S> OAuth2ContextBuilder<S> {
 
     pub fn build<T>(self, inner: T, dev: bool) -> OAuth2Context<T, S>
     where
-        S: SessionStore<State = OAuthSessionState>,
+        S: CookieStore<State = OAuthSessionState>,
     {
         self.try_build(inner, dev).unwrap()
     }
 
-    pub fn try_build<T>(mut self, inner: T, dev: bool) -> crate::Result<OAuth2Context<T, S>>
+    pub fn try_build<T>(self, inner: T, dev: bool) -> crate::Result<OAuth2Context<T, S>>
     where
-        S: SessionStore<State = OAuthSessionState>,
+        S: CookieStore<State = OAuthSessionState>,
     {
         let mut basic_client =
             Client::new(ClientId::new(self.client_id.context("client id missing")?))
@@ -147,22 +146,5 @@ impl<S> OAuth2ContextBuilder<S> {
             http_client: default_reqwest_client(),
             scopes: self.scopes,
         })))
-    }
-}
-
-fn default_dev_cookie(name: Cow<'static, str>) -> CookieBuilder {
-    Cookie::named(name)
-}
-
-fn default_secure_cookie(name: Cow<'static, str>, login_path: Option<&str>) -> CookieBuilder {
-    let mut builder = default_dev_cookie(name)
-        .secure()
-        .http_only()
-        .same_site(SameSite::Strict);
-
-    if let Some(login_path) = login_path {
-        builder.path(login_path.to_string())
-    } else {
-        builder
     }
 }

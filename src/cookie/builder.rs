@@ -1,12 +1,9 @@
 use std::sync::Arc;
 
-use axum::http::request::Parts;
+use axum::http::HeaderMap;
 use cookie_monster::{Cookie, CookieBuilder, CookieJar, SameSite};
 
-use crate::{
-    cookie::{CookieSession, MemoryStore, SessionId, SessionStore},
-    session::HttpSession,
-};
+use crate::cookie::{CookieSession, CookieStore, MemoryStore, SessionId};
 
 pub struct CookieContext<S>(Arc<CookieContextInner<S>>);
 
@@ -31,15 +28,30 @@ impl CookieContext<()> {
     }
 }
 
-impl<S: SessionStore> CookieContext<S> {
+impl<S: CookieStore> CookieContext<S> {
     pub fn get_cookie(&self, session_id: SessionId) -> Cookie {
-        self.0
-            .cookie_opts
-            .clone()
-            .value(session_id.into_inner())
-            .build()
+        self.0.cookie_opts.clone().value(session_id).build()
     }
-    pub async fn store_session(&self, state: <S as SessionStore>::State) -> Cookie {
+
+    pub(crate) async fn load_from_headers(
+        &self,
+        headers: &HeaderMap,
+    ) -> Option<CookieSession<S::State>> {
+        let cookies = CookieJar::from_headers(headers);
+
+        self.load_from_jar(&cookies).await
+    }
+
+    pub(crate) async fn load_from_jar(
+        &self,
+        cookies: &CookieJar,
+    ) -> Option<CookieSession<S::State>> {
+        let session_id = self.session_id_from_jar(cookies)?;
+
+        self.0.store.load_session(&session_id).await
+    }
+
+    pub async fn store_session(&self, state: <S as CookieStore>::State) -> Cookie {
         let session_id = self.0.store.store_state(state).await;
         self.get_cookie(session_id)
     }
@@ -47,7 +59,7 @@ impl<S: SessionStore> CookieContext<S> {
     pub async fn remove_session(
         &self,
         jar: &CookieJar,
-    ) -> Option<CookieSession<<S as SessionStore>::State>> {
+    ) -> Option<CookieSession<<S as CookieStore>::State>> {
         let session_id = self.session_id_from_jar(jar)?;
 
         self.0.store.remove_session(&session_id).await
@@ -59,8 +71,6 @@ impl<S: SessionStore> CookieContext<S> {
         Some(SessionId::from_cookie(cookie))
     }
 }
-
-impl<S> CookieContext<S> {}
 
 static DEFAULT_SESSION_COOKIE_NAME: &str = "session";
 
@@ -95,26 +105,14 @@ impl<S> CookieSessionBuilder<S> {
     }
 }
 
-impl<S: SessionStore> CookieSessionBuilder<S> {
+impl<S: CookieStore> CookieSessionBuilder<S> {
     pub fn build<T>(self, dev: bool) -> CookieContext<S>
     where
-        S: SessionStore<State = T>,
+        S: CookieStore<State = T>,
     {
         CookieContext(Arc::new(CookieContextInner {
             store: self.store,
             cookie_opts: if dev { self.dev_cookie } else { self.cookie },
         }))
-    }
-}
-
-impl<S: SessionStore> HttpSession for CookieContext<S> {
-    type State = S::State;
-
-    async fn load_from_request_parts(&self, parts: &mut Parts) -> Option<CookieSession<S::State>> {
-        let cookies = CookieJar::from_headers(&parts.headers);
-
-        let session_id = self.session_id_from_jar(&cookies)?;
-
-        self.0.store.load_session(&session_id).await
     }
 }

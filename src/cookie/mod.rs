@@ -6,4 +6,6 @@ mod store;
 pub use builder::{CookieContext, CookieSessionBuilder};
 pub use id::SessionId;
 pub use session::CookieSession;
-pub use store::{MemoryStore, SessionStore};
+pub use store::{CookieStore, MemoryStore};
+
+pub use cookie_monster::{Cookie, CookieBuilder, CookieJar, Error, Expires, SameSite};

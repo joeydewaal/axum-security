@@ -2,7 +2,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use tokio::sync::RwLock;
 
-use crate::cookie::{CookieSession, SessionId, SessionStore};
+use crate::cookie::{CookieSession, CookieStore, SessionId};
 
 pub struct MemoryStore<S> {
     inner: Arc<RwLock<HashMap<SessionId, CookieSession<S>>>>,
@@ -30,7 +30,7 @@ impl<S> MemoryStore<S> {
     }
 }
 
-impl<S: Send + Sync + Clone + 'static> SessionStore for MemoryStore<S> {
+impl<S: Send + Sync + Clone + 'static> CookieStore for MemoryStore<S> {
     type State = S;
 
     async fn store_session(&self, session: CookieSession<Self::State>) {

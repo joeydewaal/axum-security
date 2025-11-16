@@ -1,4 +1,4 @@
-use std::{env, fmt::format};
+use std::env;
 
 pub fn get_env(name: &str) -> String {
     env::var(name)
