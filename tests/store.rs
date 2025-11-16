@@ -6,7 +6,7 @@ use axum::{
     serve,
 };
 use axum_security::{
-    cookie::{CookieSession, CookieSessionContext, SessionId, SessionStore},
+    cookie::{CookieContext, CookieSession, SessionId, SessionStore},
     oauth2::RouterExt,
 };
 use serde::{Deserialize, Serialize};
@@ -30,7 +30,7 @@ struct LoginAttempt {
 }
 
 async fn login(
-    State(session): State<CookieSessionContext<SqlxStore>>,
+    State(session): State<CookieContext<SqlxStore>>,
     Query(login): Query<LoginAttempt>,
 ) -> impl IntoResponse {
     if login.username == "admin" && login.password == "admin" {
@@ -53,13 +53,13 @@ async fn test_cookie_simple() -> anyhow::Result<()> {
         pool: SqlitePool::connect(":memory:").await?,
     };
 
-    let session = CookieSessionContext::builder_with_store(store).build::<User>(true);
+    let session = CookieContext::builder_with_store(store).build::<User>(true);
 
     let router = Router::new()
         .route("/", get(|| async { "hello world" }))
         .route("/authorized", get(authorized))
         .route("/login", get(login))
-        .with_session(session.clone())
+        .with_cookie_session(session.clone())
         .with_state(session);
 
     let listener = TcpListener::bind("0.0.0.0:8081").await?;

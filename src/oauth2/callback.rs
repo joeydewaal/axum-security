@@ -22,7 +22,7 @@ pub(crate) async fn callback<T: OAuth2Handler, S: SessionStore<State = OAuthSess
     context.callback(jar, params.code, params.state).await
 }
 
-pub async fn start_challenge<T: OAuth2Handler, S: SessionStore<State = OAuthSessionState>>(
+pub async fn start_login<T: OAuth2Handler, S: SessionStore<State = OAuthSessionState>>(
     Extension(context): Extension<OAuth2Context<T, S>>,
 ) -> impl IntoResponse {
     context.start_challenge().await

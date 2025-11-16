@@ -11,7 +11,7 @@ use oauth2::{
 };
 
 use crate::{
-    cookie::{CookieSessionContext, MemoryStore, SessionStore},
+    cookie::{CookieContext, MemoryStore, SessionStore},
     oauth2::{
         OAuth2ClientTyped, OAuth2Handler, OAuthSessionState, TokenResponse,
         builder::OAuth2ContextBuilder,
@@ -28,9 +28,9 @@ impl<T, S> Clone for OAuth2Context<T, S> {
 
 pub(super) struct OAuth2ContextInner<T, S> {
     pub(super) inner: T,
-    pub(super) session: CookieSessionContext<S>,
+    pub(super) session: CookieContext<S>,
     pub(super) client: OAuth2ClientTyped,
-    pub(super) start_challenge_path: Option<Cow<'static, str>>,
+    pub(super) login_path: Option<Cow<'static, str>>,
     pub(super) scopes: Vec<Scope>,
     pub(super) http_client: ::oauth2::reqwest::Client,
 }
@@ -117,7 +117,7 @@ impl<T: OAuth2Handler, S: SessionStore<State = OAuthSessionState>> OAuth2Context
     }
 
     pub fn get_start_challenge_path(&self) -> Option<&str> {
-        self.0.start_challenge_path.as_deref()
+        self.0.login_path.as_deref()
     }
 
     pub async fn start_challenge(&self) -> axum::response::Response {

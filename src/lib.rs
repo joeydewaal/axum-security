@@ -10,4 +10,6 @@ pub mod cookie;
 pub mod http;
 pub mod jwt;
 
+pub(crate) mod utils;
+
 pub use router_ext::RouterExt;

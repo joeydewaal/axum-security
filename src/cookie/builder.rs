@@ -8,20 +8,20 @@ use crate::{
     session::HttpSession,
 };
 
-pub struct CookieSessionContext<S>(Arc<CookieSessionContextInner<S>>);
+pub struct CookieContext<S>(Arc<CookieContextInner<S>>);
 
-impl<S> Clone for CookieSessionContext<S> {
+impl<S> Clone for CookieContext<S> {
     fn clone(&self) -> Self {
-        CookieSessionContext(self.0.clone())
+        CookieContext(self.0.clone())
     }
 }
 
-struct CookieSessionContextInner<S> {
+struct CookieContextInner<S> {
     store: S,
     cookie_opts: CookieBuilder,
 }
 
-impl CookieSessionContext<()> {
+impl CookieContext<()> {
     pub fn builder<T>() -> CookieSessionBuilder<MemoryStore<T>> {
         CookieSessionBuilder::new(MemoryStore::new())
     }
@@ -31,7 +31,7 @@ impl CookieSessionContext<()> {
     }
 }
 
-impl<S: SessionStore> CookieSessionContext<S> {
+impl<S: SessionStore> CookieContext<S> {
     pub fn get_cookie(&self, session_id: SessionId) -> Cookie {
         self.0
             .cookie_opts
@@ -60,7 +60,7 @@ impl<S: SessionStore> CookieSessionContext<S> {
     }
 }
 
-impl<S> CookieSessionContext<S> {}
+impl<S> CookieContext<S> {}
 
 static DEFAULT_SESSION_COOKIE_NAME: &str = "session";
 
@@ -96,18 +96,18 @@ impl<S> CookieSessionBuilder<S> {
 }
 
 impl<S: SessionStore> CookieSessionBuilder<S> {
-    pub fn build<T>(self, dev: bool) -> CookieSessionContext<S>
+    pub fn build<T>(self, dev: bool) -> CookieContext<S>
     where
         S: SessionStore<State = T>,
     {
-        CookieSessionContext(Arc::new(CookieSessionContextInner {
+        CookieContext(Arc::new(CookieContextInner {
             store: self.store,
             cookie_opts: if dev { self.dev_cookie } else { self.cookie },
         }))
     }
 }
 
-impl<S: SessionStore> HttpSession for CookieSessionContext<S> {
+impl<S: SessionStore> HttpSession for CookieContext<S> {
     type State = S::State;
 
     async fn load_from_request_parts(&self, parts: &mut Parts) -> Option<CookieSession<S::State>> {

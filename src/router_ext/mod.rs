@@ -4,34 +4,34 @@ use axum::{
 };
 
 use crate::{
-    cookie::SessionStore,
-    oauth2::{OAuth2Context, OAuth2Handler, OAuthSessionState, callback, start_challenge},
+    cookie::{CookieContext, SessionStore},
+    oauth2::{OAuth2Context, OAuth2Handler, OAuthSessionState, callback, start_login},
     session::HttpSession,
 };
 
 pub trait RouterExt<S> {
     fn with_oauth2<T: OAuth2Handler, STORE: SessionStore<State = OAuthSessionState>>(
         self,
-        oauth2: &OAuth2Context<T, STORE>,
+        oauth2: OAuth2Context<T, STORE>,
     ) -> Router<S>;
 
-    fn with_session<SES: HttpSession + Clone>(self, session: SES) -> Router<S>
+    fn with_cookie_session<STORE: SessionStore>(self, session: CookieContext<STORE>) -> Router<S>
     where
-        SES::State: Clone;
+        STORE::State: Clone;
 }
 
 impl<S> RouterExt<S> for Router<S>
 where
     S: Send + Sync + Clone + 'static,
 {
-    fn with_oauth2<T, STORE>(mut self, oauth2: &OAuth2Context<T, STORE>) -> Router<S>
+    fn with_oauth2<T, STORE>(mut self, oauth2: OAuth2Context<T, STORE>) -> Router<S>
     where
         T: OAuth2Handler,
         STORE: SessionStore<State = OAuthSessionState>,
     {
         if let Some(start_challenge_path) = oauth2.get_start_challenge_path() {
             let challenge_route = MethodRouter::new()
-                .get(start_challenge::<T, STORE>)
+                .get(start_login::<T, STORE>)
                 .layer(Extension(oauth2.clone()));
 
             self = self.route(start_challenge_path, challenge_route);
@@ -44,21 +44,21 @@ where
         self.route(oauth2.callback_url(), route)
     }
 
-    fn with_session<SES: HttpSession + Clone>(self, session: SES) -> Router<S>
+    fn with_cookie_session<STORE: SessionStore>(self, session: CookieContext<STORE>) -> Router<S>
     where
-        SES::State: Clone,
+        STORE::State: Clone,
     {
-        let middleware = axum::middleware::from_fn(session_layer::<SES>);
+        let middleware = axum::middleware::from_fn(session_layer::<STORE>);
 
         self.layer(middleware).layer(Extension(session))
     }
 }
 
-async fn session_layer<S: HttpSession + Clone>(mut req: Request, next: Next) -> Response
+async fn session_layer<S: SessionStore>(mut req: Request, next: Next) -> Response
 where
     S::State: Send + Sync + 'static + Clone,
 {
-    let session = req.extensions_mut().remove::<S>().unwrap();
+    let session = req.extensions_mut().remove::<CookieContext<S>>().unwrap();
 
     let (mut parts, body) = req.into_parts();
 

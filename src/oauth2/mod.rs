@@ -4,7 +4,7 @@ mod context;
 pub mod providers;
 mod response;
 
-pub(crate) use callback::{callback, start_challenge};
+pub(crate) use callback::{callback, start_login};
 pub use context::OAuth2Context;
 
 pub use crate::RouterExt;

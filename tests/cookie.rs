@@ -8,7 +8,7 @@ use axum::{
     serve,
 };
 use axum_security::{
-    cookie::{CookieSession, CookieSessionContext, MemoryStore},
+    cookie::{CookieContext, CookieSession, MemoryStore},
     oauth2::RouterExt,
 };
 use serde::{Deserialize, Serialize};
@@ -31,7 +31,7 @@ struct LoginAttempt {
 }
 
 async fn login(
-    State(session): State<CookieSessionContext<MemoryStore<User>>>,
+    State(session): State<CookieContext<MemoryStore<User>>>,
     Query(login): Query<LoginAttempt>,
 ) -> impl IntoResponse {
     if login.username == "admin" && login.password == "admin" {
@@ -50,7 +50,7 @@ async fn login(
 
 #[tokio::test]
 async fn test_cookie() -> anyhow::Result<()> {
-    let session = CookieSessionContext::builder()
+    let session = CookieContext::builder()
         .cookie(|c| {
             c.name("session")
                 .domain("www.rust-lang.com")
@@ -64,7 +64,7 @@ async fn test_cookie() -> anyhow::Result<()> {
         .route("/", get(|| async { "hello world" }))
         .route("/me", get(authorized))
         .route("/login", get(login))
-        .with_session(session.clone())
+        .with_cookie_session(session.clone())
         .with_state(session);
 
     let listener = TcpListener::bind("0.0.0.0:8081").await?;
@@ -75,13 +75,13 @@ async fn test_cookie() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_cookie_simple() -> anyhow::Result<()> {
-    let session = CookieSessionContext::builder().build::<User>(true);
+    let session = CookieContext::builder().build::<User>(true);
 
     let router = Router::new()
         .route("/", get(|| async { "hello world" }))
         .route("/me", get(authorized))
         .route("/login", get(login))
-        .with_session(session.clone())
+        .with_cookie_session(session.clone())
         .with_state(session);
 
     let listener = TcpListener::bind("0.0.0.0:8081").await?;
