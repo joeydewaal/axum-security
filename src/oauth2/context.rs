@@ -11,12 +11,11 @@ use oauth2::{
 };
 
 use crate::{
+    cookie::{CookieSessionContext, MemoryStore, SessionStore},
     oauth2::{
         OAuth2ClientTyped, OAuth2Handler, OAuthSessionState, TokenResponse,
         builder::OAuth2ContextBuilder,
     },
-    session::CookieSession,
-    store::{MemoryStore, SessionStore},
 };
 
 pub struct OAuth2Context<T, S>(pub(super) Arc<OAuth2ContextInner<T, S>>);
@@ -29,7 +28,7 @@ impl<T, S> Clone for OAuth2Context<T, S> {
 
 pub(super) struct OAuth2ContextInner<T, S> {
     pub(super) inner: T,
-    pub(super) session: CookieSession<S>,
+    pub(super) session: CookieSessionContext<S>,
     pub(super) client: OAuth2ClientTyped,
     pub(super) start_challenge_path: Option<Cow<'static, str>>,
     pub(super) scopes: Vec<Scope>,

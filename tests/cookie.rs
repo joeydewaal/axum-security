@@ -8,9 +8,8 @@ use axum::{
     serve,
 };
 use axum_security::{
+    cookie::{CookieSession, CookieSessionContext, MemoryStore},
     oauth2::RouterExt,
-    session::{CookieSession, Session},
-    store::MemoryStore,
 };
 use serde::{Deserialize, Serialize};
 use tokio::net::TcpListener;
@@ -21,7 +20,7 @@ struct User {
     email: Option<String>,
 }
 
-async fn authorized(user: Session<User>) -> Json<User> {
+async fn authorized(user: CookieSession<User>) -> Json<User> {
     Json(user.into_state())
 }
 
@@ -32,7 +31,7 @@ struct LoginAttempt {
 }
 
 async fn login(
-    State(session): State<CookieSession<MemoryStore<User>>>,
+    State(session): State<CookieSessionContext<MemoryStore<User>>>,
     Query(login): Query<LoginAttempt>,
 ) -> impl IntoResponse {
     if login.username == "admin" && login.password == "admin" {
@@ -51,7 +50,7 @@ async fn login(
 
 #[tokio::test]
 async fn test_cookie() -> anyhow::Result<()> {
-    let session = CookieSession::builder()
+    let session = CookieSessionContext::builder()
         .cookie(|c| {
             c.name("session")
                 .domain("www.rust-lang.com")
@@ -63,7 +62,7 @@ async fn test_cookie() -> anyhow::Result<()> {
 
     let router = Router::new()
         .route("/", get(|| async { "hello world" }))
-        .route("/authorized", get(authorized))
+        .route("/me", get(authorized))
         .route("/login", get(login))
         .with_session(session.clone())
         .with_state(session);
@@ -76,11 +75,11 @@ async fn test_cookie() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_cookie_simple() -> anyhow::Result<()> {
-    let session = CookieSession::builder().build::<User>(true);
+    let session = CookieSessionContext::builder().build::<User>(true);
 
     let router = Router::new()
         .route("/", get(|| async { "hello world" }))
-        .route("/authorized", get(authorized))
+        .route("/me", get(authorized))
         .route("/login", get(login))
         .with_session(session.clone())
         .with_state(session);

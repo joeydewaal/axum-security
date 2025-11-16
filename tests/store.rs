@@ -6,9 +6,8 @@ use axum::{
     serve,
 };
 use axum_security::{
+    cookie::{CookieSession, CookieSessionContext, SessionId, SessionStore},
     oauth2::RouterExt,
-    session::{CookieSession, Session, SessionId},
-    store::SessionStore,
 };
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
@@ -20,7 +19,7 @@ struct User {
     email: Option<String>,
 }
 
-async fn authorized(user: Session<User>) -> Json<User> {
+async fn authorized(user: CookieSession<User>) -> Json<User> {
     Json(user.into_state())
 }
 
@@ -31,7 +30,7 @@ struct LoginAttempt {
 }
 
 async fn login(
-    State(session): State<CookieSession<SqlxStore>>,
+    State(session): State<CookieSessionContext<SqlxStore>>,
     Query(login): Query<LoginAttempt>,
 ) -> impl IntoResponse {
     if login.username == "admin" && login.password == "admin" {
@@ -54,7 +53,7 @@ async fn test_cookie_simple() -> anyhow::Result<()> {
         pool: SqlitePool::connect(":memory:").await?,
     };
 
-    let session = CookieSession::builder_with_store(store).build::<User>(true);
+    let session = CookieSessionContext::builder_with_store(store).build::<User>(true);
 
     let router = Router::new()
         .route("/", get(|| async { "hello world" }))
@@ -77,15 +76,15 @@ struct SqlxStore {
 impl SessionStore for SqlxStore {
     type State = User;
 
-    async fn load_session(&self, _id: &SessionId) -> Option<Session<User>> {
+    async fn load_session(&self, _id: &SessionId) -> Option<CookieSession<User>> {
         todo!();
     }
 
-    async fn store_session(&self, _session: Session<User>) -> () {
+    async fn store_session(&self, _session: CookieSession<User>) -> () {
         todo!();
     }
 
-    async fn remove_session(&self, _id: &SessionId) -> Option<Session<User>> {
+    async fn remove_session(&self, _id: &SessionId) -> Option<CookieSession<User>> {
         todo!();
     }
 }

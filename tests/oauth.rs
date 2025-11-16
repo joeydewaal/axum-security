@@ -7,19 +7,18 @@ use axum::{
     serve,
 };
 use axum_security::{
+    cookie::{CookieSession, CookieSessionContext, MemoryStore},
     oauth2::{OAuth2Context, OAuth2Handler, RouterExt, TokenResponse, providers::github},
-    session::{CookieSession, Session},
-    store::MemoryStore,
 };
 use serde::Serialize;
 use tokio::net::TcpListener;
 
 struct Oauth2Backend {
-    session: CookieSession<MemoryStore<User>>,
+    session: CookieSessionContext<MemoryStore<User>>,
 }
 
 impl Oauth2Backend {
-    pub fn new(session: CookieSession<MemoryStore<User>>) -> Self {
+    pub fn new(session: CookieSessionContext<MemoryStore<User>>) -> Self {
         Oauth2Backend { session }
     }
 }
@@ -49,7 +48,7 @@ impl OAuth2Handler for Oauth2Backend {
 
 #[tokio::test]
 async fn test1() -> anyhow::Result<()> {
-    let session = CookieSession::builder().build(true);
+    let session = CookieSessionContext::builder().build(true);
 
     let context = OAuth2Context::builder("github")
         .client_id(env::var("CLIENT_ID").unwrap())
@@ -67,7 +66,7 @@ async fn test1() -> anyhow::Result<()> {
         .with_oauth2(&context)
         .with_session(session);
 
-    async fn authorized(user: Session<User>) -> Json<User> {
+    async fn authorized(user: CookieSession<User>) -> Json<User> {
         Json(user.into_state())
     }
 

@@ -5,10 +5,9 @@ use cookie_monster::{Cookie, CookieBuilder, SameSite};
 use oauth2::{AuthUrl, Client, ClientId, ClientSecret, RedirectUrl, Scope, TokenUrl};
 
 use crate::{
+    cookie::{CookieSessionBuilder, CookieSessionContext, SessionStore},
     http::default_reqwest_client,
     oauth2::{OAuth2Context, OAuthSessionState, context::OAuth2ContextInner},
-    session::{CookieSession, CookieSessionBuilder},
-    store::SessionStore,
 };
 
 pub struct OAuth2ContextBuilder<S> {
@@ -36,7 +35,7 @@ impl<S> OAuth2ContextBuilder<S> {
 
         Self {
             name,
-            session: CookieSession::builder_with_store(store)
+            session: CookieSessionContext::builder_with_store(store)
                 .cookie(|_| cookie)
                 .dev_cookie(|_| dev_cookie),
             start_challenge_path: None,

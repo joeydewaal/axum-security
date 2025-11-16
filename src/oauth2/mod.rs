@@ -8,12 +8,11 @@ pub(crate) use callback::{callback, start_challenge};
 pub use context::OAuth2Context;
 
 pub use crate::RouterExt;
+use crate::cookie::SessionId;
 pub use response::TokenResponse;
 
 use ::oauth2::{CsrfToken, PkceCodeVerifier};
 use axum::response::IntoResponse;
-
-use crate::session::SessionId;
 
 use oauth2::{EndpointNotSet, EndpointSet, basic::BasicClient};
 pub(crate) type OAuth2ClientTyped =

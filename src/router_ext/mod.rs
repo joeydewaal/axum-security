@@ -4,9 +4,9 @@ use axum::{
 };
 
 use crate::{
+    cookie::SessionStore,
     oauth2::{OAuth2Context, OAuth2Handler, OAuthSessionState, callback, start_challenge},
     session::HttpSession,
-    store::SessionStore,
 };
 
 pub trait RouterExt<S> {

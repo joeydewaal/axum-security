@@ -4,8 +4,8 @@ use oauth2::{AuthorizationCode, CsrfToken};
 use serde::Deserialize;
 
 use crate::{
+    cookie::SessionStore,
     oauth2::{OAuth2Context, OAuth2Handler, OAuthSessionState},
-    store::SessionStore,
 };
 
 #[derive(Deserialize)]
