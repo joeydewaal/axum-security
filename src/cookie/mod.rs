@@ -1,5 +1,6 @@
 mod builder;
 mod id;
+mod inject;
 mod session;
 mod store;
 

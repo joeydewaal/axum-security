@@ -5,8 +5,9 @@ use axum::{
     serve,
 };
 use axum_security::{
+    RouterExt,
     cookie::{CookieContext, CookieSession, MemoryStore},
-    oauth2::{OAuth2Context, OAuth2Handler, RouterExt, TokenResponse, providers::github},
+    oauth2::{OAuth2Context, OAuth2Handler, TokenResponse, providers::github},
 };
 use serde::Serialize;
 use tokio::net::TcpListener;
@@ -61,8 +62,8 @@ async fn test1() -> anyhow::Result<()> {
     let router = Router::new()
         .route("/", get(|| async { "hello world" }))
         .route("/authorized", get(authorized))
-        .with_oauth2(context)
-        .with_cookie_session(session);
+        .with_auth(context)
+        .with_auth(session);
 
     async fn authorized(user: CookieSession<User>) -> Json<User> {
         Json(user.into_state())

@@ -6,8 +6,8 @@ use axum::{
     serve,
 };
 use axum_security::{
+    RouterExt,
     jwt::{JwtContext, JwtSession, get_current_timestamp},
-    oauth2::RouterExt,
 };
 use serde::{Deserialize, Serialize};
 use tokio::net::TcpListener;
@@ -57,7 +57,7 @@ async fn test_jwt() -> anyhow::Result<()> {
         .route("/", get(|| async { "hello world" }))
         .route("/login", get(login))
         .route("/authorized", get(authorized))
-        .with_jwt_session(jwt.clone())
+        .with_auth(jwt.clone())
         .with_state(jwt);
 
     let listener = TcpListener::bind("0.0.0.0:8081").await?;

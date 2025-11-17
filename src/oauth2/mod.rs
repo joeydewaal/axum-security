@@ -1,13 +1,13 @@
 mod builder;
 mod callback;
 mod context;
+mod inject;
 pub mod providers;
 mod response;
 
 pub(crate) use callback::{callback, start_login};
 pub use context::OAuth2Context;
 
-pub use crate::RouterExt;
 use crate::cookie::SessionId;
 pub use response::TokenResponse;
 

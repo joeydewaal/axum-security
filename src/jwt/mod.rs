@@ -1,4 +1,5 @@
 mod builder;
+mod inject;
 mod session;
 
 pub use builder::{JwtContext, JwtContextBuilder};
