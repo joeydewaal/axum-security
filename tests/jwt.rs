@@ -1,22 +1,22 @@
 use axum::{
-    Router,
+    Json, Router,
     extract::{Query, State},
     response::IntoResponse,
     routing::get,
     serve,
 };
 use axum_security::{
-    cookie::{CookieContext, MemoryStore},
-    jwt::{JwtContext, JwtSession},
+    jwt::{JwtContext, JwtSession, get_current_timestamp},
     oauth2::RouterExt,
 };
 use serde::{Deserialize, Serialize};
 use tokio::net::TcpListener;
 
 #[derive(Clone, Serialize, Deserialize)]
-struct User {
+struct AccessToken {
     username: String,
     email: Option<String>,
+    exp: u64,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -25,19 +25,23 @@ struct LoginAttempt {
     password: String,
 }
 
+async fn authorized(JwtSession(user): JwtSession<AccessToken>) -> Json<AccessToken> {
+    Json(user)
+}
+
 async fn login(
-    State(session): State<CookieContext<MemoryStore<User>>>,
+    State(session): State<JwtContext<AccessToken>>,
     Query(login): Query<LoginAttempt>,
 ) -> impl IntoResponse {
     if login.username == "admin" && login.password == "admin" {
-        let user = User {
+        let at = AccessToken {
             username: login.username,
             email: None,
+            exp: get_current_timestamp() + 10_000,
         };
 
-        let cookie = session.store_session(user).await;
-
-        (cookie, "Logged in").into_response()
+        let token = session.encode_token(&at).unwrap();
+        Json(token).into_response()
     } else {
         "failed to log in".into_response()
     }
@@ -45,11 +49,16 @@ async fn login(
 
 #[tokio::test]
 async fn test_jwt() -> anyhow::Result<()> {
-    let jwt = JwtContext::builder().jwt_secret("").build::<User>();
+    let jwt = JwtContext::builder()
+        .jwt_secret("TEST")
+        .build::<AccessToken>();
 
     let router = Router::new()
         .route("/", get(|| async { "hello world" }))
-        .with_jwt_session(jwt);
+        .route("/login", get(login))
+        .route("/authorized", get(authorized))
+        .with_jwt_session(jwt.clone())
+        .with_state(jwt);
 
     let listener = TcpListener::bind("0.0.0.0:8081").await?;
 

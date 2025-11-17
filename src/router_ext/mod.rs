@@ -89,7 +89,7 @@ where
 {
     let session = req.extensions_mut().remove::<JwtContext<T>>().unwrap();
 
-    if let Some(user) = session.decode_token(req.headers()) {
+    if let Some(user) = session.decode_from_headers(req.headers()) {
         req.extensions_mut().insert(JwtSession(user));
     }
 
