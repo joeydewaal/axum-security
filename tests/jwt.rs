@@ -50,14 +50,14 @@ async fn login(
 #[tokio::test]
 async fn test_jwt() -> anyhow::Result<()> {
     let jwt = JwtContext::builder()
-        .jwt_secret("TEST")
+        .jwt_secret_env("JWT_SECRET")
         .build::<AccessToken>();
 
     let router = Router::new()
         .route("/", get(|| async { "hello world" }))
         .route("/login", get(login))
         .route("/authorized", get(authorized))
-        .with_auth(jwt.clone())
+        .with_auth(&jwt)
         .with_state(jwt);
 
     let listener = TcpListener::bind("0.0.0.0:8081").await?;

@@ -61,7 +61,7 @@ async fn test_cookie_simple() -> anyhow::Result<()> {
         .route("/", get(|| async { "hello world" }))
         .route("/authorized", get(authorized))
         .route("/login", get(login))
-        .with_auth(session.clone())
+        .with_auth(&session)
         .with_state(session);
 
     let listener = TcpListener::bind("0.0.0.0:8081").await?;

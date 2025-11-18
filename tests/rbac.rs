@@ -78,7 +78,7 @@ async fn test_jwt() -> anyhow::Result<()> {
             "/authorized/any",
             get(authorized).requires_any([Role::Admin, Role::User]),
         )
-        .with_auth(jwt.clone())
+        .with_auth(&jwt)
         .with_state(jwt);
 
     let listener = TcpListener::bind("0.0.0.0:8081").await?;
