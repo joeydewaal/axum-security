@@ -76,6 +76,7 @@ static DEFAULT_SESSION_COOKIE_NAME: &str = "session";
 
 pub struct CookieSessionBuilder<S> {
     store: S,
+    pub(crate) dev: bool,
     pub(crate) dev_cookie: CookieBuilder,
     pub(crate) cookie: CookieBuilder,
 }
@@ -84,6 +85,7 @@ impl<S> CookieSessionBuilder<S> {
     pub fn new(store: S) -> Self {
         Self {
             store,
+            dev: false,
             dev_cookie: Cookie::named(DEFAULT_SESSION_COOKIE_NAME)
                 .same_site(SameSite::None)
                 .http_only(),
@@ -103,16 +105,29 @@ impl<S> CookieSessionBuilder<S> {
         self.dev_cookie = f(self.dev_cookie);
         self
     }
+
+    pub fn dev(mut self, dev: bool) -> Self {
+        self.dev = dev;
+        self
+    }
+
+    pub fn prod(self, prod: bool) -> Self {
+        self.dev(!prod)
+    }
 }
 
 impl<S: CookieStore> CookieSessionBuilder<S> {
-    pub fn build<T>(self, dev: bool) -> CookieContext<S>
+    pub fn build<T>(self) -> CookieContext<S>
     where
         S: CookieStore<State = T>,
     {
         CookieContext(Arc::new(CookieContextInner {
             store: self.store,
-            cookie_opts: if dev { self.dev_cookie } else { self.cookie },
+            cookie_opts: if self.dev {
+                self.dev_cookie
+            } else {
+                self.cookie
+            },
         }))
     }
 }

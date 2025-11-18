@@ -115,14 +115,23 @@ impl<S> OAuth2ContextBuilder<S> {
         self
     }
 
-    pub fn build<T>(self, inner: T, dev: bool) -> OAuth2Context<T, S>
+    pub fn dev(mut self, dev: bool) -> Self {
+        self.session = self.session.dev(dev);
+        self
+    }
+
+    pub fn prod(self, prod: bool) -> Self {
+        self.dev(!prod)
+    }
+
+    pub fn build<T>(self, inner: T) -> OAuth2Context<T, S>
     where
         S: CookieStore<State = OAuthSessionState>,
     {
-        self.try_build(inner, dev).unwrap()
+        self.try_build(inner).unwrap()
     }
 
-    pub fn try_build<T>(self, inner: T, dev: bool) -> crate::Result<OAuth2Context<T, S>>
+    pub fn try_build<T>(self, inner: T) -> crate::Result<OAuth2Context<T, S>>
     where
         S: CookieStore<State = OAuthSessionState>,
     {
@@ -141,7 +150,7 @@ impl<S> OAuth2ContextBuilder<S> {
         Ok(OAuth2Context(Arc::new(OAuth2ContextInner {
             client: basic_client,
             inner,
-            session: self.session.build(dev),
+            session: self.session.build(),
             login_path: self.login_path,
             http_client: default_reqwest_client(),
             scopes: self.scopes,

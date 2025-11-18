@@ -53,7 +53,9 @@ async fn test_cookie_simple() -> anyhow::Result<()> {
         pool: SqlitePool::connect(":memory:").await?,
     };
 
-    let session = CookieContext::builder_with_store(store).build::<User>(true);
+    let session = CookieContext::builder_with_store(store)
+        .dev(true)
+        .build::<User>();
 
     let router = Router::new()
         .route("/", get(|| async { "hello world" }))
