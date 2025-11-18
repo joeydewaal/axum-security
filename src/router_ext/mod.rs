@@ -6,7 +6,7 @@ use serde::de::DeserializeOwned;
 
 use crate::{
     cookie::{CookieContext, CookieStore},
-    jwt::{JwtContext, JwtSession},
+    jwt::{Jwt, JwtContext},
     oauth2::{OAuth2Context, OAuth2Handler, OAuthSessionState, callback, start_login},
 };
 

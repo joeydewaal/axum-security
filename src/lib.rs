@@ -9,6 +9,7 @@ pub mod session;
 pub mod cookie;
 pub mod http;
 pub mod jwt;
+pub mod rbac;
 
 pub(crate) mod utils;
 

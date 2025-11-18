@@ -8,15 +8,31 @@ use axum::{
 use axum_security::{
     RouterExt,
     jwt::{Jwt, JwtContext, get_current_timestamp},
+    rbac::{RBAC, RBACExt},
 };
 use serde::{Deserialize, Serialize};
 use tokio::net::TcpListener;
+
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
+enum Role {
+    Admin = 1,
+    User = 0,
+}
+
+impl RBAC for Role {
+    type Resource = AccessToken;
+
+    fn has_role(resource: &Self::Resource, role: &Self) -> bool {
+        resource.roles.contains(role)
+    }
+}
 
 #[derive(Clone, Serialize, Deserialize)]
 struct AccessToken {
     username: String,
     email: Option<String>,
     exp: u64,
+    roles: Vec<Role>,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -38,6 +54,7 @@ async fn login(
             username: login.username,
             email: None,
             exp: get_current_timestamp() + 10_000,
+            roles: vec![Role::Admin],
         };
 
         let token = session.encode_token(&at).unwrap();
@@ -56,7 +73,11 @@ async fn test_jwt() -> anyhow::Result<()> {
     let router = Router::new()
         .route("/", get(|| async { "hello world" }))
         .route("/login", get(login))
-        .route("/authorized", get(authorized))
+        .route("/authorized/admin", get(authorized).requires(Role::Admin))
+        .route(
+            "/authorized/any",
+            get(authorized).requires_any([Role::Admin, Role::User]),
+        )
         .with_auth(jwt.clone())
         .with_state(jwt);
 

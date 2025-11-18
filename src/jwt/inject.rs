@@ -2,7 +2,7 @@ use axum::{Extension, Router, extract::Request, middleware::Next, response::Resp
 use serde::de::DeserializeOwned;
 
 use crate::{
-    jwt::{JwtContext, JwtSession},
+    jwt::{Jwt, JwtContext},
     router_ext::AuthInjector,
 };
 
@@ -27,7 +27,7 @@ where
     let session = req.extensions_mut().remove::<JwtContext<T>>().unwrap();
 
     if let Some(user) = session.decode_from_headers(req.headers()) {
-        req.extensions_mut().insert(JwtSession(user));
+        req.extensions_mut().insert(Jwt(user));
     }
 
     next.run(req).await
