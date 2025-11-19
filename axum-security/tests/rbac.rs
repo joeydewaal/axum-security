@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use axum::{
     Json, Router,
     extract::{Query, State},
@@ -13,17 +15,17 @@ use axum_security::{
 use serde::{Deserialize, Serialize};
 use tokio::net::TcpListener;
 
-#[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
-enum Role {
-    Admin = 1,
-    User = 0,
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Copy)]
+enum UserRole {
+    Admin,
+    User,
 }
 
-impl RBAC for Role {
+impl RBAC for UserRole {
     type Resource = AccessToken;
 
-    fn has_role(resource: &Self::Resource, role: &Self) -> bool {
-        resource.roles.contains(role)
+    fn extract_roles(resource: &Self::Resource) -> impl IntoIterator<Item = &Self> {
+        &resource.roles
     }
 }
 
@@ -32,7 +34,7 @@ struct AccessToken {
     username: String,
     email: Option<String>,
     exp: u64,
-    roles: Vec<Role>,
+    roles: HashSet<UserRole>,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -41,7 +43,18 @@ struct LoginAttempt {
     password: String,
 }
 
-async fn authorized(Jwt(user): Jwt<AccessToken>) -> Json<AccessToken> {
+#[axum_security::rbac::requires_any(crate::UserRole::Admin, UserRole::User)]
+async fn authorized3(Jwt(user): Jwt<AccessToken>, _string: String) -> Json<AccessToken> {
+    Json(user)
+}
+
+#[axum_security::rbac::requires(UserRole::Admin, UserRole::User)]
+async fn authorized2(Jwt(user): Jwt<AccessToken>, _string: String) -> Json<AccessToken> {
+    Json(user)
+}
+
+#[axum_security::rbac::requires(UserRole::Admin)]
+async fn authorized1(Jwt(user): Jwt<AccessToken>, _string: String) -> Json<AccessToken> {
     Json(user)
 }
 
@@ -54,7 +67,7 @@ async fn login(
             username: login.username,
             email: None,
             exp: get_current_timestamp() + 10_000,
-            roles: vec![Role::Admin],
+            roles: HashSet::from_iter([UserRole::Admin]),
         };
 
         let token = session.encode_token(&at).unwrap();
@@ -73,11 +86,15 @@ async fn test_jwt() -> anyhow::Result<()> {
     let router = Router::new()
         .route("/", get(|| async { "hello world" }))
         .route("/login", get(login))
-        .route("/authorized/admin", get(authorized).requires(Role::Admin))
+        .route(
+            "/authorized/admin",
+            get(authorized1).requires(UserRole::Admin),
+        )
         .route(
             "/authorized/any",
-            get(authorized).requires_any([Role::Admin, Role::User]),
+            get(authorized2).requires_any([UserRole::Admin, UserRole::User]),
         )
+        .with_rbac()
         .with_auth(&jwt)
         .with_state(jwt);
 

@@ -25,6 +25,8 @@ where
 
 pub trait RouterExt<S> {
     fn with_auth(self, auth: impl AuthInjector) -> Router<S>;
+
+    fn with_rbac(self) -> Router<S>;
 }
 
 impl<S> RouterExt<S> for Router<S>
@@ -33,5 +35,10 @@ where
 {
     fn with_auth(self, auth: impl AuthInjector) -> Router<S> {
         auth.inject_into_router(self)
+    }
+
+    fn with_rbac(self) -> Router<S> {
+        todo!();
+        self
     }
 }

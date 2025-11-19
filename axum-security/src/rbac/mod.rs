@@ -1,20 +1,67 @@
-use std::convert::Infallible;
+use std::{convert::Infallible, marker::PhantomData};
 
 use axum::{
     Extension, Router,
-    extract::Request,
+    extract::{FromRequestParts, Request},
     http::StatusCode,
     middleware::Next,
     response::{IntoResponse, Response},
     routing::MethodRouter,
 };
+pub use axum_security_macros::{requires, requires_any};
 
 use crate::{cookie::CookieSession, jwt::Jwt};
 
-pub trait RBAC: Send + Sync + 'static + Clone {
+pub fn __requires<T: RBAC>(resource: RolesExtractor<T>, roles: &[T]) -> Option<Response> {
+    if resource.roles.iter().all(|r| roles.contains(r)) {
+        None
+    } else {
+        Some(StatusCode::UNAUTHORIZED.into_response())
+    }
+}
+
+pub fn __requires_any<T: RBAC>(resource: RolesExtractor<T>, roles: &[T]) -> Option<Response> {
+    if resource.roles.iter().any(|r| roles.contains(r)) {
+        None
+    } else {
+        Some(StatusCode::UNAUTHORIZED.into_response())
+    }
+}
+
+pub struct RolesExtractor<T: RBAC> {
+    roles: Vec<T>,
+    _p: PhantomData<T>,
+}
+
+impl<S: Send + Sync, R: RBAC> FromRequestParts<S> for RolesExtractor<R>
+where
+    R::Resource: Clone + Send + Sync + 'static,
+    R: Copy,
+{
+    type Rejection = StatusCode;
+
+    async fn from_request_parts(
+        parts: &mut axum::http::request::Parts,
+        state: &S,
+    ) -> Result<Self, Self::Rejection> {
+        if let Some(resource) = parts.extensions.remove::<R::Resource>() {
+            let roles: Vec<R> = R::extract_roles(&resource).into_iter().copied().collect();
+            parts.extensions.insert(resource);
+
+            Ok(RolesExtractor {
+                roles,
+                _p: PhantomData,
+            })
+        } else {
+            Err(StatusCode::UNAUTHORIZED)
+        }
+    }
+}
+
+pub trait RBAC: Send + Sync + 'static + Clone + Eq + Copy {
     type Resource: Send + Sync + 'static;
 
-    fn has_role(resource: &Self::Resource, role: &Self) -> bool;
+    fn extract_roles(resource: &Self::Resource) -> impl IntoIterator<Item = &Self>;
 }
 
 pub trait RBACExt {
@@ -74,12 +121,16 @@ async fn rbac_layer<R: RBAC>(mut req: Request, next: Next) -> Response {
 
     match auth_type {
         AuthType::RequiresAll(roles) => {
-            if roles.iter().any(|role| !R::has_role(&resource, role)) {
+            let mut extracted_roles = R::extract_roles(&resource).into_iter();
+
+            if extracted_roles.any(|r| !roles.contains(r)) {
                 return StatusCode::UNAUTHORIZED.into_response();
             }
         }
         AuthType::RequiresAny(roles) => {
-            if roles.iter().all(|role| !R::has_role(&resource, role)) {
+            let mut extracted_roles = R::extract_roles(&resource).into_iter();
+
+            if extracted_roles.all(|r| !roles.contains(r)) {
                 return StatusCode::UNAUTHORIZED.into_response();
             }
         }
