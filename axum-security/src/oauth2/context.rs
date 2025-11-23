@@ -5,15 +5,15 @@ use axum::{
     response::{IntoResponse, Redirect},
 };
 
-use cookie_monster::CookieJar;
+use cookie_monster::{CookieBuilder, CookieJar};
 use oauth2::{
     AuthorizationCode, CsrfToken, PkceCodeChallenge, PkceCodeVerifier, Scope, TokenResponse as _,
 };
 
 use crate::{
-    cookie::{CookieContext, CookieStore, MemoryStore},
+    cookie::{CookieContext, CookieStore, MemStore},
     oauth2::{
-        OAuth2ClientTyped, OAuth2Handler, OAuthSessionState, TokenResponse,
+        AfterLoginContext, OAuth2ClientTyped, OAuth2Handler, OAuthState, TokenResponse,
         builder::OAuth2ContextBuilder,
     },
 };
@@ -35,8 +35,8 @@ pub(super) struct OAuth2ContextInner<T, S> {
     pub(super) http_client: ::oauth2::reqwest::Client,
 }
 impl OAuth2Context<(), ()> {
-    pub fn builder() -> OAuth2ContextBuilder<MemoryStore<OAuthSessionState>> {
-        OAuth2ContextBuilder::new(MemoryStore::new())
+    pub fn builder() -> OAuth2ContextBuilder<MemStore<OAuthState>> {
+        OAuth2ContextBuilder::new(MemStore::new())
     }
 
     pub fn builder_with_store<S>(store: S) -> OAuth2ContextBuilder<S> {
@@ -44,7 +44,7 @@ impl OAuth2Context<(), ()> {
     }
 }
 
-impl<T: OAuth2Handler, S: CookieStore<State = OAuthSessionState>> OAuth2Context<T, S> {
+impl<T: OAuth2Handler, S: CookieStore<State = OAuthState>> OAuth2Context<T, S> {
     pub(crate) fn callback_url(&self) -> &str {
         self.0.client.redirect_uri().unwrap().url().path()
     }
@@ -59,7 +59,7 @@ impl<T: OAuth2Handler, S: CookieStore<State = OAuthSessionState>> OAuth2Context<
             return StatusCode::UNAUTHORIZED.into_response();
         };
 
-        let OAuthSessionState {
+        let OAuthState {
             csrf_token,
             pkce_verifier,
         } = session.into_state();
@@ -75,18 +75,19 @@ impl<T: OAuth2Handler, S: CookieStore<State = OAuthSessionState>> OAuth2Context<
         // tada, access token, maybe refresh token.
 
         // after login callback
-        self.after_login(token_response).await
-    }
+        let mut context = AfterLoginContext {
+            cookies: jar,
+            cookie_opts: self.0.session.cookie_builder(),
+        };
 
-    pub(crate) async fn after_login(
-        &self,
-        token_response: TokenResponse,
-    ) -> axum::response::Response {
-        self.0
+        let res = self
+            .0
             .inner
-            .after_login(token_response)
+            .after_login(token_response, &mut context)
             .await
-            .into_response()
+            .into_response();
+
+        (context.cookies, res).into_response()
     }
 
     pub(crate) async fn exchange_code(
@@ -108,6 +109,7 @@ impl<T: OAuth2Handler, S: CookieStore<State = OAuthSessionState>> OAuth2Context<
         Ok(TokenResponse {
             access_token,
             refresh_token,
+            _priv: (),
         })
     }
 
@@ -126,7 +128,7 @@ impl<T: OAuth2Handler, S: CookieStore<State = OAuthSessionState>> OAuth2Context<
             .url();
 
         // Store CSRF token on the server somewhere temp. (session)
-        let state = OAuthSessionState {
+        let state = OAuthState {
             csrf_token,
             pkce_verifier,
         };
@@ -136,5 +138,9 @@ impl<T: OAuth2Handler, S: CookieStore<State = OAuthSessionState>> OAuth2Context<
         // Send session cookie back
 
         (cookie, Redirect::to(url.as_str())).into_response()
+    }
+
+    pub fn cookie(&self, name: impl Into<Cow<'static, str>>) -> CookieBuilder {
+        self.0.session.build_cookie(name)
     }
 }

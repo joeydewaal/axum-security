@@ -9,7 +9,7 @@ use axum::{
 };
 use axum_security::{
     RouterExt,
-    cookie::{CookieContext, CookieSession, MemoryStore},
+    cookie::{CookieContext, CookieSession, MemStore},
 };
 use serde::{Deserialize, Serialize};
 use tokio::net::TcpListener;
@@ -31,7 +31,7 @@ struct LoginAttempt {
 }
 
 async fn login(
-    State(session): State<CookieContext<MemoryStore<User>>>,
+    State(session): State<CookieContext<MemStore<User>>>,
     Query(login): Query<LoginAttempt>,
 ) -> impl IntoResponse {
     if login.username == "admin" && login.password == "admin" {

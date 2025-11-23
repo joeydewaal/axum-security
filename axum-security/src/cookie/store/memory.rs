@@ -4,25 +4,25 @@ use tokio::sync::RwLock;
 
 use crate::cookie::{CookieSession, CookieStore, SessionId};
 
-pub struct MemoryStore<S> {
+pub struct MemStore<S> {
     inner: Arc<RwLock<HashMap<SessionId, CookieSession<S>>>>,
 }
 
-impl<S> Default for MemoryStore<S> {
+impl<S> Default for MemStore<S> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<S> Clone for MemoryStore<S> {
+impl<S> Clone for MemStore<S> {
     fn clone(&self) -> Self {
-        MemoryStore {
+        MemStore {
             inner: self.inner.clone(),
         }
     }
 }
 
-impl<S> MemoryStore<S> {
+impl<S> MemStore<S> {
     pub fn new() -> Self {
         Self {
             inner: RwLock::new(HashMap::new()).into(),
@@ -30,7 +30,7 @@ impl<S> MemoryStore<S> {
     }
 }
 
-impl<S: Send + Sync + Clone + 'static> CookieStore for MemoryStore<S> {
+impl<S: Send + Sync + Clone + 'static> CookieStore for MemStore<S> {
     type State = S;
 
     async fn store_session(&self, session: CookieSession<Self::State>) {

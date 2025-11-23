@@ -1,18 +1,15 @@
-use axum::{
-    Extension, Router, extract::Request, middleware::Next, response::Response,
-    routing::MethodRouter,
-};
+use axum::{Extension, Router, routing::MethodRouter};
 
 use crate::{
-    cookie::{CookieContext, CookieStore},
-    oauth2::{OAuth2Context, OAuth2Handler, OAuthSessionState, callback, start_login},
+    cookie::CookieStore,
+    oauth2::{OAuth2Context, OAuth2Handler, OAuthState, callback, start_login},
     router_ext::AuthInjector,
 };
 
 impl<T, STORE> AuthInjector for OAuth2Context<T, STORE>
 where
     T: OAuth2Handler,
-    STORE: CookieStore<State = OAuthSessionState>,
+    STORE: CookieStore<State = OAuthState>,
 {
     fn inject_into_router<S: Send + Sync + Clone + 'static>(
         self,

@@ -1,24 +1,28 @@
 use axum::{
     Json, Router,
+    extract::{Query, State},
     response::{IntoResponse, Redirect},
     routing::get,
     serve,
 };
 use axum_security::{
     RouterExt,
-    cookie::{CookieContext, CookieSession, MemoryStore},
-    oauth2::{OAuth2Context, OAuth2Handler, TokenResponse, providers::github},
+    cookie::{CookieContext, CookieSession, MemStore},
+    oauth2::{
+        AfterLoginContext, OAuth2Context, OAuth2Handler, OAuthState, TokenResponse,
+        providers::github,
+    },
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tokio::net::TcpListener;
 
-struct Oauth2Backend {
-    session: CookieContext<MemoryStore<User>>,
+struct OAuth2Backend {
+    session: CookieContext<MemStore<User>>,
 }
 
-impl Oauth2Backend {
-    pub fn new(session: CookieContext<MemoryStore<User>>) -> Self {
-        Oauth2Backend { session }
+impl OAuth2Backend {
+    pub fn new(session: CookieContext<MemStore<User>>) -> Self {
+        OAuth2Backend { session }
     }
 }
 
@@ -28,8 +32,30 @@ struct User {
     username: String,
 }
 
-impl OAuth2Handler for Oauth2Backend {
-    async fn after_login(&self, res: TokenResponse) -> impl IntoResponse {
+#[derive(Deserialize)]
+struct NextUrl {
+    after_login: Option<String>,
+}
+
+async fn login(
+    State(oauth): State<OAuth2Context<OAuth2Backend, MemStore<OAuthState>>>,
+    Query(query): Query<NextUrl>,
+) -> impl IntoResponse {
+    let cookie = query
+        .after_login
+        .map(|path| oauth.cookie("after-login-redirect").value(path).build());
+
+    let res = oauth.start_challenge().await;
+
+    (cookie, res)
+}
+
+impl OAuth2Handler for OAuth2Backend {
+    async fn after_login(
+        &self,
+        res: TokenResponse,
+        context: &mut AfterLoginContext<'_>,
+    ) -> impl IntoResponse {
         println!("user logged in");
         println!("at: {}", res.access_token());
         println!("refresh token:: {:?}", res.refresh_token());
@@ -41,7 +67,15 @@ impl OAuth2Handler for Oauth2Backend {
 
         let cookie = self.session.store_session(user).await;
 
-        (cookie, Redirect::to("/"))
+        context.cookies.add(cookie);
+
+        let redirect_cookie = context.cookie("after-login-url");
+
+        if let Some(c) = context.cookies.remove(redirect_cookie) {
+            Redirect::to(c.value())
+        } else {
+            Redirect::to("/")
+        }
     }
 }
 
@@ -55,16 +89,17 @@ async fn test1() -> anyhow::Result<()> {
         .redirect_uri_env("REDIRECT_URL")
         .token_url(github::TOKEN_URL)
         .auth_url(github::AUTH_URL)
-        .login_path("/login")
-        .cookie(|c| c.http_only().secure())
+        .cookie(|c| c.path("/login"))
         .dev(true)
-        .build(Oauth2Backend::new(session.clone()));
+        .build(OAuth2Backend::new(session.clone()));
 
     let router = Router::new()
         .route("/", get(|| async { "hello world" }))
         .route("/authorized", get(authorized))
-        .with_auth(context)
-        .with_auth(session);
+        .route("/login", get(login))
+        .with_auth(&context)
+        .with_auth(session)
+        .with_state(context);
 
     async fn authorized(user: CookieSession<User>) -> Json<User> {
         Json(user.into_state())

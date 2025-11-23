@@ -1,6 +1,6 @@
 mod memory;
 
-pub use memory::MemoryStore;
+pub use memory::MemStore;
 
 use crate::cookie::{CookieSession, SessionId};
 

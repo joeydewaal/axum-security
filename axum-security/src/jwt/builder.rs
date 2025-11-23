@@ -1,9 +1,6 @@
 use std::{borrow::Cow, marker::PhantomData, sync::Arc};
 
-use axum::http::{
-    HeaderMap, HeaderName,
-    header::{AUTHORIZATION, AsHeaderName, IntoHeaderName},
-};
+use axum::http::{HeaderMap, HeaderName, header::AUTHORIZATION};
 use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation, decode, encode};
 use serde::{Serialize, de::DeserializeOwned};
 
@@ -61,7 +58,7 @@ impl<T: DeserializeOwned> JwtContext<T> {
     }
 
     pub fn decode_from_headers(&self, headers: &HeaderMap) -> Option<T> {
-        let mut authorization_header = headers.get(&self.0.header)?.to_str().ok()?;
+        let authorization_header = headers.get(&self.0.header)?.to_str().ok()?;
 
         self.decode_from_header_value(authorization_header)
     }
@@ -143,7 +140,6 @@ impl JwtContextBuilder {
 
 #[cfg(test)]
 mod test {
-    use axum::http::{HeaderMap, HeaderValue, header::AUTHORIZATION};
     use serde::{Deserialize, Serialize};
 
     use crate::jwt::JwtContext;

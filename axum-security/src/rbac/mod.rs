@@ -1,7 +1,7 @@
 use std::{convert::Infallible, marker::PhantomData};
 
 use axum::{
-    Extension, Router,
+    Extension,
     extract::{FromRequestParts, Request},
     http::StatusCode,
     middleware::Next,
@@ -42,7 +42,7 @@ where
 
     async fn from_request_parts(
         parts: &mut axum::http::request::Parts,
-        state: &S,
+        _state: &S,
     ) -> Result<Self, Self::Rejection> {
         if let Some(resource) = parts.extensions.remove::<R::Resource>() {
             let roles: Vec<R> = R::extract_roles(&resource).into_iter().copied().collect();

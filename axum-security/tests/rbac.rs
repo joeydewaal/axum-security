@@ -94,7 +94,6 @@ async fn test_jwt() -> anyhow::Result<()> {
             "/authorized/any",
             get(authorized2).requires_any([UserRole::Admin, UserRole::User]),
         )
-        .with_rbac()
         .with_auth(&jwt)
         .with_state(jwt);
 

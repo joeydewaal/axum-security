@@ -7,7 +7,7 @@ use oauth2::{AuthUrl, Client, ClientId, ClientSecret, RedirectUrl, Scope, TokenU
 use crate::{
     cookie::{CookieContext, CookieSessionBuilder, CookieStore},
     http::default_reqwest_client,
-    oauth2::{OAuth2Context, OAuthSessionState, context::OAuth2ContextInner},
+    oauth2::{OAuth2Context, OAuthState, context::OAuth2ContextInner},
     utils::get_env,
 };
 
@@ -109,9 +109,7 @@ impl<S> OAuth2ContextBuilder<S> {
     }
 
     pub fn login_path(mut self, path: impl Into<Cow<'static, str>>) -> Self {
-        let path = path.into();
-        self.login_path = Some(path.clone());
-        self.session = self.session.cookie(|c| c.path(path));
+        self.login_path = Some(path.into());
         self
     }
 
@@ -126,14 +124,14 @@ impl<S> OAuth2ContextBuilder<S> {
 
     pub fn build<T>(self, inner: T) -> OAuth2Context<T, S>
     where
-        S: CookieStore<State = OAuthSessionState>,
+        S: CookieStore<State = OAuthState>,
     {
         self.try_build(inner).unwrap()
     }
 
     pub fn try_build<T>(self, inner: T) -> crate::Result<OAuth2Context<T, S>>
     where
-        S: CookieStore<State = OAuthSessionState>,
+        S: CookieStore<State = OAuthState>,
     {
         let mut basic_client =
             Client::new(ClientId::new(self.client_id.context("client id missing")?))

@@ -1,9 +1,9 @@
-use std::sync::Arc;
+use std::{borrow::Cow, sync::Arc};
 
 use axum::http::HeaderMap;
 use cookie_monster::{Cookie, CookieBuilder, CookieJar, SameSite};
 
-use crate::cookie::{CookieSession, CookieStore, MemoryStore, SessionId};
+use crate::cookie::{CookieSession, CookieStore, MemStore, SessionId};
 
 pub struct CookieContext<S>(Arc<CookieContextInner<S>>);
 
@@ -19,8 +19,8 @@ struct CookieContextInner<S> {
 }
 
 impl CookieContext<()> {
-    pub fn builder<T>() -> CookieSessionBuilder<MemoryStore<T>> {
-        CookieSessionBuilder::new(MemoryStore::new())
+    pub fn builder<T>() -> CookieSessionBuilder<MemStore<T>> {
+        CookieSessionBuilder::new(MemStore::new())
     }
 
     pub fn builder_with_store<S>(store: S) -> CookieSessionBuilder<S> {
@@ -69,6 +69,14 @@ impl<S: CookieStore> CookieContext<S> {
         let cookie = jar.get(self.0.cookie_opts.get_name())?;
 
         Some(SessionId::from_cookie(cookie))
+    }
+
+    pub fn build_cookie(&self, name: impl Into<Cow<'static, str>>) -> CookieBuilder {
+        self.0.cookie_opts.clone().name(name)
+    }
+
+    pub fn cookie_builder(&self) -> &CookieBuilder {
+        &self.0.cookie_opts
     }
 }
 

@@ -5,7 +5,7 @@ use serde::Deserialize;
 
 use crate::{
     cookie::CookieStore,
-    oauth2::{OAuth2Context, OAuth2Handler, OAuthSessionState},
+    oauth2::{OAuth2Context, OAuth2Handler, OAuthState},
 };
 
 #[derive(Deserialize)]
@@ -14,7 +14,7 @@ pub struct OAuth2Params {
     state: CsrfToken,
 }
 
-pub(crate) async fn callback<T: OAuth2Handler, S: CookieStore<State = OAuthSessionState>>(
+pub(crate) async fn callback<T: OAuth2Handler, S: CookieStore<State = OAuthState>>(
     Extension(context): Extension<OAuth2Context<T, S>>,
     Query(params): Query<OAuth2Params>,
     jar: CookieJar,
@@ -22,7 +22,7 @@ pub(crate) async fn callback<T: OAuth2Handler, S: CookieStore<State = OAuthSessi
     context.callback(jar, params.code, params.state).await
 }
 
-pub async fn start_login<T: OAuth2Handler, S: CookieStore<State = OAuthSessionState>>(
+pub async fn start_login<T: OAuth2Handler, S: CookieStore<State = OAuthState>>(
     Extension(context): Extension<OAuth2Context<T, S>>,
 ) -> impl IntoResponse {
     context.start_challenge().await
