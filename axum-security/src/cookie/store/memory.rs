@@ -35,7 +35,7 @@ impl<S: Send + Sync + Clone + 'static> CookieStore for MemStore<S> {
 
     async fn store_session(&self, session: CookieSession<Self::State>) {
         let mut lock = self.inner.write().await;
-        let id = session.id().clone();
+        let id = session.id.clone();
         lock.insert(id, session);
     }
 

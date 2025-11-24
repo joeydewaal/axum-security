@@ -21,7 +21,7 @@ struct User {
 }
 
 async fn authorized(user: CookieSession<User>) -> Json<User> {
-    Json(user.into_state())
+    Json(user.state)
 }
 
 #[derive(Deserialize)]
@@ -42,9 +42,9 @@ async fn login(
 
         let cookie = session.store_session(user).await;
 
-        (cookie, "Logged in").into_response()
+        (Some(cookie), "Logged in")
     } else {
-        "failed to log in".into_response()
+        (None, "failed to log in")
     }
 }
 

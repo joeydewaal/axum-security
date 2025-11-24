@@ -105,7 +105,7 @@ fn extract_resource<R: RBAC>(req: &mut Request) -> Result<R::Resource, Response>
     if let Some(user) = req.extensions_mut().remove::<Jwt<R::Resource>>() {
         Ok(user.0)
     } else if let Some(user) = req.extensions_mut().remove::<CookieSession<R::Resource>>() {
-        Ok(user.into_state())
+        Ok(user.state)
     } else {
         Err(StatusCode::UNAUTHORIZED.into_response())
     }

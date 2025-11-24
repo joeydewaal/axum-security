@@ -62,7 +62,7 @@ impl<T: OAuth2Handler, S: CookieStore<State = OAuthState>> OAuth2Context<T, S> {
         let OAuthState {
             csrf_token,
             pkce_verifier,
-        } = session.into_state();
+        } = session.state;
 
         // verify that csrf token is equal
         if csrf_token.secret() != state.secret() {
@@ -109,7 +109,6 @@ impl<T: OAuth2Handler, S: CookieStore<State = OAuthState>> OAuth2Context<T, S> {
         Ok(TokenResponse {
             access_token,
             refresh_token,
-            _priv: (),
         })
     }
 

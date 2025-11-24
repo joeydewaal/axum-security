@@ -20,7 +20,7 @@ struct User {
 }
 
 async fn authorized(user: CookieSession<User>) -> Json<User> {
-    Json(user.into_state())
+    Json(user.state)
 }
 
 #[derive(Deserialize)]

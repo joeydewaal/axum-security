@@ -8,26 +8,15 @@ use axum::{
 use crate::cookie::SessionId;
 
 #[derive(Clone)]
+#[non_exhaustive]
 pub struct CookieSession<S> {
-    id: SessionId,
-    value: S,
+    pub id: SessionId,
+    pub state: S,
 }
 
 impl<S> CookieSession<S> {
-    pub fn id(&self) -> &SessionId {
-        &self.id
-    }
-
     pub fn new(id: SessionId, value: S) -> Self {
-        Self { id, value }
-    }
-
-    pub fn state(&self) -> &S {
-        &self.value
-    }
-
-    pub fn into_state(self) -> S {
-        self.value
+        Self { id, state: value }
     }
 }
 
@@ -41,7 +30,7 @@ impl<S> Eq for CookieSession<S> {}
 
 impl<S> PartialEq for CookieSession<S> {
     fn eq(&self, other: &Self) -> bool {
-        self.id() == other.id()
+        self.id == other.id
     }
 }
 

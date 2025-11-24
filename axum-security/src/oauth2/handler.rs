@@ -5,10 +5,10 @@ use cookie_monster::{CookieBuilder, CookieJar};
 
 use crate::cookie::SessionId;
 
+#[non_exhaustive]
 pub struct TokenResponse {
     pub access_token: String,
     pub refresh_token: Option<String>,
-    pub(crate) _priv: (),
 }
 
 pub trait OAuth2Handler: Send + Sync + 'static {

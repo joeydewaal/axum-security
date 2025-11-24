@@ -26,7 +26,7 @@ pub struct OAuth2ContextBuilder<S> {
 
 impl<S> OAuth2ContextBuilder<S> {
     pub fn new(store: S) -> OAuth2ContextBuilder<S> {
-        let dev_cookie = Cookie::named(DEFAULT_COOKIE_NAME).same_site(SameSite::Lax);
+        let dev_cookie = Cookie::named(DEFAULT_COOKIE_NAME).same_site(SameSite::None);
 
         let cookie = dev_cookie
             .clone()

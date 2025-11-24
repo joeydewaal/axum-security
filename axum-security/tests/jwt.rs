@@ -51,6 +51,9 @@ async fn login(
 async fn test_jwt() -> anyhow::Result<()> {
     let jwt = JwtContext::builder()
         .jwt_secret_env("JWT_SECRET")
+        .extract_header("x-auth-header")
+        .extract_header_with_prefix("x-auth-header", "some-prefix ")
+        .extract_cookie("auth-cookie")
         .build::<AccessToken>();
 
     let router = Router::new()

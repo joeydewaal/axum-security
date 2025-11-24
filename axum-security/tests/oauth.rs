@@ -102,7 +102,7 @@ async fn test1() -> anyhow::Result<()> {
         .with_state(context);
 
     async fn authorized(user: CookieSession<User>) -> Json<User> {
-        Json(user.into_state())
+        Json(user.state)
     }
 
     let listener = TcpListener::bind("0.0.0.0:8081").await?;

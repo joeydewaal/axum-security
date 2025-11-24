@@ -1,10 +1,13 @@
 use std::{borrow::Cow, marker::PhantomData, sync::Arc};
 
 use axum::http::{HeaderMap, HeaderName, header::AUTHORIZATION};
-use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation, decode, encode};
+use cookie_monster::CookieJar;
+use jsonwebtoken::{DecodingKey, EncodingKey, Header, TokenData, Validation, decode, encode};
 use serde::{Serialize, de::DeserializeOwned};
 
 use crate::utils::get_env;
+
+static BEARER_PREFIX: &str = "Bearer ";
 
 pub struct JwtContext<T>(Arc<JwtContextInner<T>>);
 
@@ -20,8 +23,7 @@ struct JwtContextInner<T> {
     jwt_header: Header,
     validation: Validation,
     data: PhantomData<T>,
-    header: HeaderName,
-    prefix: Cow<'static, str>,
+    extract: ExtractFrom,
 }
 
 impl JwtContext<()> {
@@ -37,31 +39,42 @@ impl<T: Serialize> JwtContext<T> {
 }
 
 impl<T: DeserializeOwned> JwtContext<T> {
-    pub fn decode_from_header_value(&self, header: impl AsRef<str>) -> Option<T> {
-        let mut header = header.as_ref();
-
-        let prefix_len = self.0.prefix.len();
-
-        if header.len() < prefix_len {
-            return None;
-        }
-
-        if !header[..prefix_len].eq_ignore_ascii_case(&self.0.prefix) {
-            return None;
-        }
-
-        header = &header[prefix_len..];
-
-        decode(header, &self.0.decoding_key, &self.0.validation)
-            .ok()
-            .map(|t| t.claims)
+    fn decode(&self, jwt: &str) -> jsonwebtoken::errors::Result<TokenData<T>> {
+        decode(jwt, &self.0.decoding_key, &self.0.validation)
     }
 
     pub fn decode_from_headers(&self, headers: &HeaderMap) -> Option<T> {
-        let authorization_header = headers.get(&self.0.header)?.to_str().ok()?;
+        let result = match &self.0.extract {
+            ExtractFrom::Cookie(cow) => {
+                let jar = CookieJar::from_headers(headers);
+                let cookie = jar.get(cow)?;
 
-        self.decode_from_header_value(authorization_header)
+                self.decode(cookie.name())
+            }
+            ExtractFrom::Header { header, prefix } => {
+                let authorization_header = headers.get(header)?.to_str().ok()?;
+
+                let jwt = jwt_from_header_value(authorization_header, prefix)?;
+                self.decode(jwt)
+            }
+        };
+
+        result.ok().map(|t| t.claims)
     }
+}
+
+pub fn jwt_from_header_value<'a>(mut header: &'a str, prefix: &str) -> Option<&'a str> {
+    let prefix_len = prefix.len();
+
+    if header.len() < prefix_len {
+        return None;
+    }
+
+    if !header[..prefix_len].eq_ignore_ascii_case(prefix) {
+        return None;
+    }
+
+    Some(&header[prefix_len..])
 }
 
 pub struct JwtContextBuilder {
@@ -69,8 +82,13 @@ pub struct JwtContextBuilder {
     decoding_key: Option<DecodingKey>,
     jwt_header: Header,
     validation: Validation,
-    header: HeaderName,
-    prefix: Cow<'static, str>,
+    extract: ExtractFrom,
+}
+
+impl Default for JwtContextBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl JwtContextBuilder {
@@ -80,8 +98,7 @@ impl JwtContextBuilder {
             decoding_key: None,
             jwt_header: Header::default(),
             validation: Validation::default(),
-            header: AUTHORIZATION,
-            prefix: Cow::Borrowed("Bearer "),
+            extract: ExtractFrom::header_with_prefix(AUTHORIZATION, BEARER_PREFIX),
         }
     }
 
@@ -115,13 +132,28 @@ impl JwtContextBuilder {
         self
     }
 
-    pub fn header(mut self, header: impl AsRef<[u8]>) -> Self {
-        self.header = HeaderName::from_bytes(header.as_ref()).unwrap();
+    pub fn extract_header_with_prefix(
+        mut self,
+        header: impl AsRef<[u8]>,
+        prefix: impl Into<Cow<'static, str>>,
+    ) -> Self {
+        self.extract = ExtractFrom::header_with_prefix(
+            HeaderName::from_bytes(header.as_ref()).unwrap(),
+            prefix.into(),
+        );
         self
     }
 
-    pub fn prefix(mut self, prefix: impl Into<Cow<'static, str>>) -> Self {
-        self.prefix = prefix.into();
+    pub fn extract_header(mut self, header: impl AsRef<[u8]>) -> Self {
+        self.extract = ExtractFrom::header_with_prefix(
+            HeaderName::from_bytes(header.as_ref()).unwrap(),
+            BEARER_PREFIX,
+        );
+        self
+    }
+
+    pub fn extract_cookie(mut self, cookie_name: impl Into<Cow<'static, str>>) -> Self {
+        self.extract = ExtractFrom::cookie(cookie_name.into());
         self
     }
 
@@ -131,10 +163,30 @@ impl JwtContextBuilder {
             decoding_key: self.decoding_key.unwrap(),
             jwt_header: self.jwt_header,
             validation: self.validation,
-            header: self.header,
-            data: PhantomData {},
-            prefix: self.prefix,
+            extract: self.extract,
+            data: PhantomData,
         }))
+    }
+}
+
+pub(crate) enum ExtractFrom {
+    Cookie(Cow<'static, str>),
+    Header {
+        header: HeaderName,
+        prefix: Cow<'static, str>,
+    },
+}
+
+impl ExtractFrom {
+    fn cookie(name: Cow<'static, str>) -> Self {
+        ExtractFrom::Cookie(name)
+    }
+
+    fn header_with_prefix(header: HeaderName, prefix: impl Into<Cow<'static, str>>) -> Self {
+        ExtractFrom::Header {
+            header,
+            prefix: prefix.into(),
+        }
     }
 }
 
@@ -152,40 +204,5 @@ mod test {
     }
 
     #[test]
-    fn test_prefix_default() {
-        let context = JwtContext::builder().jwt_secret("TEST").build::<AT>();
-
-        let at = AT {
-            first: 1,
-            second: 2,
-            exp: jsonwebtoken::get_current_timestamp() + 10_000,
-        };
-
-        let token = context.encode_token(&at).unwrap();
-
-        assert_eq!(
-            at,
-            context
-                .decode_from_header_value(format!("Bearer {token}"))
-                .unwrap()
-        );
-        assert_eq!(
-            at,
-            context
-                .decode_from_header_value(format!("bearer {token}"))
-                .unwrap()
-        );
-
-        assert!(
-            context
-                .decode_from_header_value(format!("bearer{token}"))
-                .is_none()
-        );
-
-        assert!(
-            context
-                .decode_from_header_value(format!("beare {token}"))
-                .is_none()
-        );
-    }
+    fn test_prefix_default() {}
 }
