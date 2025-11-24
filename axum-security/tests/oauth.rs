@@ -57,8 +57,8 @@ impl OAuth2Handler for OAuth2Backend {
         context: &mut AfterLoginContext<'_>,
     ) -> impl IntoResponse {
         println!("user logged in");
-        println!("at: {}", res.access_token());
-        println!("refresh token:: {:?}", res.refresh_token());
+        println!("at: {}", res.access_token);
+        println!("refresh token:: {:?}", res.refresh_token);
 
         let id = "".into();
         let username = "user".into();
@@ -94,7 +94,7 @@ async fn test1() -> anyhow::Result<()> {
         .build(OAuth2Backend::new(session.clone()));
 
     let router = Router::new()
-        .route("/", get(|| async { "hello world" }))
+        .route("/", get(|_u: CookieSession<User>| async { "hello world" }))
         .route("/authorized", get(authorized))
         .route("/login", get(login))
         .with_auth(&context)

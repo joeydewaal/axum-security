@@ -1,4 +1,9 @@
-use axum::{Extension, Router, extract::Request, middleware::Next, response::Response};
+use axum::{
+    Extension, Router,
+    extract::{Request, State},
+    middleware::Next,
+    response::Response,
+};
 
 use crate::{
     cookie::{CookieContext, CookieStore},
@@ -11,18 +16,20 @@ where
     STORE::State: Clone,
 {
     fn inject_into_router<S: Send + Sync + Clone + 'static>(self, router: Router<S>) -> Router<S> {
-        let middleware = axum::middleware::from_fn(cookie_session_layer::<STORE>);
+        let middleware = axum::middleware::from_fn_with_state(self, cookie_session_layer::<STORE>);
 
-        router.layer(middleware).layer(Extension(self))
+        router.layer(middleware)
     }
 }
 
-async fn cookie_session_layer<S: CookieStore>(mut req: Request, next: Next) -> Response
+async fn cookie_session_layer<S: CookieStore>(
+    State(session): State<CookieContext<S>>,
+    mut req: Request,
+    next: Next,
+) -> Response
 where
     S::State: Send + Sync + 'static + Clone,
 {
-    let session = req.extensions_mut().remove::<CookieContext<S>>().unwrap();
-
     if let Some(session) = session.load_from_headers(req.headers()).await {
         req.extensions_mut().insert(session);
     };

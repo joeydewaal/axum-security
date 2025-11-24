@@ -1,4 +1,9 @@
-use axum::{Extension, Router, extract::Request, middleware::Next, response::Response};
+use axum::{
+    Extension, Router,
+    extract::{Request, State},
+    middleware::Next,
+    response::Response,
+};
 use serde::de::DeserializeOwned;
 
 use crate::{
@@ -14,18 +19,20 @@ where
         self,
         router: Router<S>,
     ) -> axum::Router<S> {
-        let middleware = axum::middleware::from_fn(jwt_session_layer::<T>);
+        let middleware = axum::middleware::from_fn_with_state(self, jwt_session_layer::<T>);
 
-        router.layer(middleware).layer(Extension(self))
+        router.layer(middleware)
     }
 }
 
-async fn jwt_session_layer<T>(mut req: Request, next: Next) -> Response
+async fn jwt_session_layer<T>(
+    State(session): State<JwtContext<T>>,
+    mut req: Request,
+    next: Next,
+) -> Response
 where
     T: DeserializeOwned + Send + Sync + 'static + Clone,
 {
-    let session = req.extensions_mut().remove::<JwtContext<T>>().unwrap();
-
     if let Some(user) = session.decode_from_headers(req.headers()) {
         req.extensions_mut().insert(Jwt(user));
     }

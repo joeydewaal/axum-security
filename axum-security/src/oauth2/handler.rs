@@ -11,16 +11,6 @@ pub struct TokenResponse {
     pub(crate) _priv: (),
 }
 
-impl TokenResponse {
-    pub fn access_token(&self) -> &str {
-        &self.access_token
-    }
-
-    pub fn refresh_token(&self) -> Option<&str> {
-        self.refresh_token.as_deref()
-    }
-}
-
 pub trait OAuth2Handler: Send + Sync + 'static {
     fn generate_session_id(&self) -> SessionId {
         SessionId::new_uuid_v7()

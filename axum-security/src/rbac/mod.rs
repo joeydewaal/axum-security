@@ -2,7 +2,7 @@ use std::{convert::Infallible, marker::PhantomData};
 
 use axum::{
     Extension,
-    extract::{FromRequestParts, Request},
+    extract::{FromRequestParts, Request, State},
     http::StatusCode,
     middleware::Next,
     response::{IntoResponse, Response},
@@ -80,24 +80,24 @@ enum AuthType<T: RBAC> {
 
 impl<S: Clone + 'static> RBACExt for MethodRouter<S, Infallible> {
     fn requires<T: RBAC>(self, rol: T) -> Self {
-        let middleware = axum::middleware::from_fn(rbac_layer::<T>);
+        let auth_type = AuthType::RequiresAll(vec![rol]);
+        let middleware = axum::middleware::from_fn_with_state(auth_type, rbac_layer::<T>);
 
         self.layer::<_, Infallible>(middleware)
-            .layer(Extension(AuthType::RequiresAll(vec![rol])))
     }
 
     fn requires_all<T: RBAC>(self, rol: impl Into<Vec<T>>) -> Self {
-        let middleware = axum::middleware::from_fn(rbac_layer::<T>);
+        let auth_type = AuthType::RequiresAll(rol.into());
+        let middleware = axum::middleware::from_fn_with_state(auth_type, rbac_layer::<T>);
 
         self.layer::<_, Infallible>(middleware)
-            .layer(Extension(AuthType::RequiresAll(rol.into())))
     }
 
     fn requires_any<T: RBAC>(self, rol: impl Into<Vec<T>>) -> Self {
-        let middleware = axum::middleware::from_fn(rbac_layer::<T>);
+        let auth_type = AuthType::RequiresAny(rol.into());
+        let middleware = axum::middleware::from_fn_with_state(auth_type, rbac_layer::<T>);
 
         self.layer::<_, Infallible>(middleware)
-            .layer(Extension(AuthType::RequiresAny(rol.into())))
     }
 }
 
@@ -111,13 +111,15 @@ fn extract_resource<R: RBAC>(req: &mut Request) -> Result<R::Resource, Response>
     }
 }
 
-async fn rbac_layer<R: RBAC>(mut req: Request, next: Next) -> Response {
+async fn rbac_layer<R: RBAC>(
+    State(auth_type): State<AuthType<R>>,
+    mut req: Request,
+    next: Next,
+) -> Response {
     let resource = match extract_resource::<R>(&mut req) {
         Ok(r) => r,
         Err(e) => return e,
     };
-
-    let auth_type = req.extensions_mut().remove::<AuthType<R>>().unwrap();
 
     match auth_type {
         AuthType::RequiresAll(roles) => {
