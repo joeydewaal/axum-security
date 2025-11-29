@@ -65,7 +65,7 @@ impl OAuth2Handler for OAuth2Backend {
 
         let user = User { id, username };
 
-        let cookie = self.session.store_session(user).await;
+        let cookie = self.session.create_session(user).await.unwrap();
 
         context.cookies.add(cookie);
 
@@ -81,7 +81,7 @@ impl OAuth2Handler for OAuth2Backend {
 
 #[tokio::test]
 async fn test1() -> anyhow::Result<()> {
-    let session = CookieContext::builder().dev(true).build();
+    let session = CookieContext::builder().enable_dev_cookie(true).build();
 
     let context = OAuth2Context::builder()
         .client_id_env("CLIENT_ID")

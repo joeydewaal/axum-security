@@ -40,7 +40,7 @@ async fn login(
             email: None,
         };
 
-        let cookie = session.store_session(user).await;
+        let cookie = session.create_session(user).await.unwrap();
 
         (Some(cookie), "Logged in")
     } else {
@@ -58,8 +58,11 @@ async fn test_cookie() -> anyhow::Result<()> {
                 .max_age(Duration::from_mins(15))
         })
         .dev_cookie(|c| c.path("/"))
-        .dev(true)
-        .prod(false)
+        .enable_dev_cookie(cfg!(debug_assertions))
+        .disable_dev_cookie(false)
+        .expires_after(Duration::from_hours(24))
+        .expires_none()
+        .expires_max_age()
         .build::<User>();
 
     let router = Router::new()
@@ -77,7 +80,9 @@ async fn test_cookie() -> anyhow::Result<()> {
 
 #[tokio::test]
 async fn test_cookie_simple() -> anyhow::Result<()> {
-    let session = CookieContext::builder().dev(true).build::<User>();
+    let session = CookieContext::builder()
+        .enable_dev_cookie(true)
+        .build::<User>();
 
     let router = Router::new()
         .route("/", get(|| async { "hello world" }))

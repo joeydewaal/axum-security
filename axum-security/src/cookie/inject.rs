@@ -1,8 +1,9 @@
 use axum::{
     Extension, Router,
     extract::{Request, State},
+    http::StatusCode,
     middleware::Next,
-    response::Response,
+    response::{IntoResponse, Response},
 };
 
 use crate::{
@@ -30,9 +31,13 @@ async fn cookie_session_layer<S: CookieStore>(
 where
     S::State: Send + Sync + 'static + Clone,
 {
-    if let Some(session) = session.load_from_headers(req.headers()).await {
-        req.extensions_mut().insert(session);
-    };
+    match session.load_from_headers(req.headers()).await {
+        Ok(Some(session)) => {
+            req.extensions_mut().insert(session);
+        }
+        Ok(None) => {}
+        Err(_) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    }
 
     next.run(req).await
 }

@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, convert::Infallible, hash::Hash, sync::Arc};
 
 use tokio::sync::RwLock;
 
@@ -32,20 +32,34 @@ impl<S> MemStore<S> {
 
 impl<S: Send + Sync + Clone + 'static> CookieStore for MemStore<S> {
     type State = S;
+    type Error = Infallible;
 
-    async fn store_session(&self, session: CookieSession<Self::State>) {
+    async fn store_session(&self, session: CookieSession<Self::State>) -> Result<(), Self::Error> {
         let mut lock = self.inner.write().await;
-        let id = session.id.clone();
+        let id = session.session_id.clone();
         lock.insert(id, session);
+        Ok(())
     }
 
-    async fn remove_session(&self, id: &SessionId) -> Option<CookieSession<Self::State>> {
+    async fn remove_session(
+        &self,
+        id: &SessionId,
+    ) -> Result<Option<CookieSession<Self::State>>, Self::Error> {
         let mut lock = self.inner.write().await;
-        lock.remove(id)
+        Ok(lock.remove(id))
     }
 
-    async fn load_session(&self, id: &SessionId) -> Option<CookieSession<Self::State>> {
+    async fn load_session(
+        &self,
+        id: &SessionId,
+    ) -> Result<Option<CookieSession<Self::State>>, Self::Error> {
         let lock = self.inner.read().await;
-        lock.get(id).cloned()
+        Ok(lock.get(id).cloned())
+    }
+
+    async fn remove_after(&self, deadline: u64) -> Result<(), Self::Error> {
+        let mut lock = self.inner.write().await;
+        lock.retain(|_, v| v.created_at > deadline);
+        Ok(())
     }
 }

@@ -114,7 +114,7 @@ impl<S> OAuth2ContextBuilder<S> {
     }
 
     pub fn dev(mut self, dev: bool) -> Self {
-        self.session = self.session.dev(dev);
+        self.session = self.session.enable_dev_cookie(dev);
         self
     }
 

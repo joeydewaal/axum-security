@@ -55,8 +55,10 @@ impl<T: OAuth2Handler, S: CookieStore<State = OAuthState>> OAuth2Context<T, S> {
         code: AuthorizationCode,
         state: CsrfToken,
     ) -> axum::response::Response {
-        let Some(session) = self.0.session.remove_session(&jar).await else {
-            return StatusCode::UNAUTHORIZED.into_response();
+        let session = match self.0.session.remove_session(&jar).await {
+            Ok(Some(session)) => session,
+            Ok(None) => return StatusCode::UNAUTHORIZED.into_response(),
+            Err(_) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
         };
 
         let OAuthState {
@@ -132,7 +134,10 @@ impl<T: OAuth2Handler, S: CookieStore<State = OAuthState>> OAuth2Context<T, S> {
             pkce_verifier,
         };
 
-        let cookie = self.0.session.store_session(state).await;
+        let cookie = match self.0.session.create_session(state).await {
+            Ok(c) => c,
+            Err(_) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+        };
 
         // Send session cookie back
 

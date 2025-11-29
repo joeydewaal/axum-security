@@ -7,6 +7,10 @@ use uuid::Uuid;
 pub struct SessionId(String);
 
 impl SessionId {
+    pub fn new(id: String) -> Self {
+        SessionId(id)
+    }
+
     pub fn new_uuid_v7() -> Self {
         SessionId(Uuid::now_v7().to_string())
     }
@@ -17,6 +21,10 @@ impl SessionId {
 
     pub fn into_inner(self) -> String {
         self.0
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
     }
 }
 

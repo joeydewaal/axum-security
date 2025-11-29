@@ -1,9 +1,9 @@
-use std::{borrow::Cow, sync::Arc};
+use std::{borrow::Cow, sync::Arc, time::Duration};
 
 use axum::http::HeaderMap;
 use cookie_monster::{Cookie, CookieBuilder, CookieJar, SameSite};
 
-use crate::cookie::{CookieSession, CookieStore, MemStore, SessionId};
+use crate::cookie::{CookieSession, CookieStore, MemStore, SessionId, expiry::SessionExpiry};
 
 pub struct CookieContext<S>(Arc<CookieContextInner<S>>);
 
@@ -36,7 +36,7 @@ impl<S: CookieStore> CookieContext<S> {
     pub(crate) async fn load_from_headers(
         &self,
         headers: &HeaderMap,
-    ) -> Option<CookieSession<S::State>> {
+    ) -> Result<Option<CookieSession<S::State>>, S::Error> {
         let cookies = CookieJar::from_headers(headers);
 
         self.load_from_jar(&cookies).await
@@ -45,22 +45,29 @@ impl<S: CookieStore> CookieContext<S> {
     pub(crate) async fn load_from_jar(
         &self,
         cookies: &CookieJar,
-    ) -> Option<CookieSession<S::State>> {
-        let session_id = self.session_id_from_jar(cookies)?;
+    ) -> Result<Option<CookieSession<S::State>>, S::Error> {
+        let Some(session_id) = self.session_id_from_jar(cookies) else {
+            return Ok(None);
+        };
 
         self.0.store.load_session(&session_id).await
     }
 
-    pub async fn store_session(&self, state: <S as CookieStore>::State) -> Cookie {
-        let session_id = self.0.store.store_state(state).await;
-        self.get_cookie(session_id)
+    pub async fn create_session(
+        &self,
+        state: <S as CookieStore>::State,
+    ) -> Result<Cookie, S::Error> {
+        let session_id = self.0.store.create_session(state).await?;
+        Ok(self.get_cookie(session_id))
     }
 
     pub async fn remove_session(
         &self,
         jar: &CookieJar,
-    ) -> Option<CookieSession<<S as CookieStore>::State>> {
-        let session_id = self.session_id_from_jar(jar)?;
+    ) -> Result<Option<CookieSession<<S as CookieStore>::State>>, S::Error> {
+        let Some(session_id) = self.session_id_from_jar(jar) else {
+            return Ok(None);
+        };
 
         self.0.store.remove_session(&session_id).await
     }
@@ -78,6 +85,10 @@ impl<S: CookieStore> CookieContext<S> {
     pub fn cookie_builder(&self) -> &CookieBuilder {
         &self.0.cookie_opts
     }
+
+    pub async fn remove_after(&self, deadline: u64) -> Result<(), <S as CookieStore>::Error> {
+        self.0.store.remove_after(deadline).await
+    }
 }
 
 static DEFAULT_SESSION_COOKIE_NAME: &str = "session";
@@ -87,6 +98,7 @@ pub struct CookieSessionBuilder<S> {
     pub(crate) dev: bool,
     pub(crate) dev_cookie: CookieBuilder,
     pub(crate) cookie: CookieBuilder,
+    pub(crate) expiry: Option<SessionExpiry>,
 }
 
 impl<S> CookieSessionBuilder<S> {
@@ -94,6 +106,7 @@ impl<S> CookieSessionBuilder<S> {
         Self {
             store,
             dev: false,
+            expiry: None,
             dev_cookie: Cookie::named(DEFAULT_SESSION_COOKIE_NAME)
                 .same_site(SameSite::None)
                 .http_only(),
@@ -114,13 +127,28 @@ impl<S> CookieSessionBuilder<S> {
         self
     }
 
-    pub fn dev(mut self, dev: bool) -> Self {
+    pub fn enable_dev_cookie(mut self, dev: bool) -> Self {
         self.dev = dev;
         self
     }
 
-    pub fn prod(self, prod: bool) -> Self {
-        self.dev(!prod)
+    pub fn disable_dev_cookie(self, prod: bool) -> Self {
+        self.enable_dev_cookie(!prod)
+    }
+
+    pub fn expires_max_age(mut self) -> Self {
+        self.expiry = Some(SessionExpiry::CookieMaxAge);
+        self
+    }
+
+    pub fn expires_after(mut self, session_duration: Duration) -> Self {
+        self.expiry = Some(SessionExpiry::Duration(session_duration));
+        self
+    }
+
+    pub fn expires_none(mut self) -> Self {
+        self.expiry = None;
+        self
     }
 }
 
@@ -129,13 +157,27 @@ impl<S: CookieStore> CookieSessionBuilder<S> {
     where
         S: CookieStore<State = T>,
     {
-        CookieContext(Arc::new(CookieContextInner {
+        let session_expiry = self.expiry.map(|e| match e {
+            SessionExpiry::CookieMaxAge => self.cookie.get_max_age().expect("No max-age set"),
+            SessionExpiry::Duration(duration) => duration,
+        });
+
+        let cookie_context = CookieContext(Arc::new(CookieContextInner {
             store: self.store,
             cookie_opts: if self.dev {
                 self.dev_cookie
             } else {
                 self.cookie
             },
-        }))
+        }));
+
+        if let Some(e) = session_expiry
+            && cookie_context.0.store.spawn_maintenance_task()
+        {
+            let this = cookie_context.clone();
+            let _ = tokio::spawn(super::expiry::maintenance_task(this, e));
+        }
+
+        cookie_context
     }
 }

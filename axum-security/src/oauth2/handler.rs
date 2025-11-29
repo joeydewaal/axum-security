@@ -12,10 +12,6 @@ pub struct TokenResponse {
 }
 
 pub trait OAuth2Handler: Send + Sync + 'static {
-    fn generate_session_id(&self) -> SessionId {
-        SessionId::new_uuid_v7()
-    }
-
     fn after_login(
         &self,
         token_res: TokenResponse,
