@@ -1,4 +1,7 @@
-use std::convert::Infallible;
+use std::{
+    convert::Infallible,
+    task::{Context, Poll},
+};
 
 use axum::{
     Router,
@@ -8,6 +11,7 @@ use axum::{
     routing::MethodRouter,
 };
 use serde::de::DeserializeOwned;
+use tower::{Layer, Service};
 
 use crate::{
     jwt::{Jwt, JwtContext},
@@ -20,9 +24,7 @@ where
     T: DeserializeOwned + Send + Sync + 'static + Clone,
 {
     fn inject_into(self, router: Router<S>) -> axum::Router<S> {
-        let middleware = axum::middleware::from_fn_with_state(self, jwt_session_layer::<T>);
-
-        router.layer(middleware)
+        router.layer(self)
     }
 }
 
@@ -32,23 +34,60 @@ where
     T: DeserializeOwned + Send + Sync + 'static + Clone,
 {
     fn inject_into(self, router: MethodRouter<S, Infallible>) -> MethodRouter<S, Infallible> {
-        let middleware = axum::middleware::from_fn_with_state(self, jwt_session_layer::<T>);
-
-        router.layer(middleware)
+        router.layer(self)
     }
 }
 
-async fn jwt_session_layer<T>(
-    State(session): State<JwtContext<T>>,
-    mut req: Request,
-    next: Next,
-) -> Response
+pub struct JwtService<T, SERV> {
+    inner: JwtContext<T>,
+    rest: SERV,
+}
+
+impl<T, SERV> Clone for JwtService<T, SERV>
 where
+    SERV: Clone,
+{
+    fn clone(&self) -> Self {
+        Self {
+            inner: self.inner.clone(),
+            rest: self.rest.clone(),
+        }
+    }
+}
+
+impl<T, SERV> Service<Request> for JwtService<T, SERV>
+where
+    SERV: Service<Request>,
     T: DeserializeOwned + Send + Sync + 'static + Clone,
 {
-    if let Some(user) = session.decode_from_headers(req.headers()) {
-        req.extensions_mut().insert(Jwt(user));
+    type Response = <SERV>::Response;
+
+    type Error = <SERV>::Error;
+
+    type Future = <SERV>::Future;
+
+    fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        self.rest.poll_ready(cx)
     }
 
-    next.run(req).await
+    fn call(&mut self, mut req: Request) -> Self::Future {
+        if let Some(user) = self.inner.decode_from_headers(req.headers()) {
+            req.extensions_mut().insert(Jwt(user));
+        }
+        self.rest.call(req)
+    }
+}
+
+impl<SERV, T> Layer<SERV> for JwtContext<T>
+where
+    T: 'static,
+{
+    type Service = JwtService<T, SERV>;
+
+    fn layer(&self, inner: SERV) -> Self::Service {
+        JwtService {
+            inner: self.clone(),
+            rest: inner,
+        }
+    }
 }

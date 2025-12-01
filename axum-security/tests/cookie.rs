@@ -96,3 +96,14 @@ async fn test_cookie_simple() -> anyhow::Result<()> {
     serve(listener, router).await?;
     Ok(())
 }
+
+#[test]
+fn cookie_compiles() {
+    let session = CookieContext::builder()
+        .enable_dev_cookie(true)
+        .build::<User>();
+
+    let _ = Router::<()>::new()
+        .route("/", get(|| async {}).layer(session.clone()))
+        .layer(session);
+}

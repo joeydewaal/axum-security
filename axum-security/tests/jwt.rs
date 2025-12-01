@@ -22,12 +22,6 @@ struct AccessToken {
     exp: u64,
 }
 
-#[derive(Deserialize, Serialize)]
-struct LoginAttempt {
-    username: String,
-    password: String,
-}
-
 async fn authorized(Jwt(_): Jwt<AccessToken>) -> StatusCode {
     StatusCode::OK
 }
@@ -191,4 +185,16 @@ async fn jwt_default_method_router() -> anyhow::Result<()> {
 
     assert_eq!(res.status(), StatusCode::OK);
     Ok(())
+}
+
+#[test]
+fn jwt_compiles() {
+    let jwt_context = JwtContext::builder()
+        .jwt_secret(JWT_SECRET)
+        .build::<AccessToken>();
+
+    let _ = Router::<()>::new()
+        .route("/", get(|| async move { StatusCode::OK }))
+        .route("/auth", get(authorized).layer(jwt_context.clone()))
+        .layer(jwt_context);
 }
