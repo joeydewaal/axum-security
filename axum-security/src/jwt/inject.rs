@@ -1,8 +1,11 @@
+use std::convert::Infallible;
+
 use axum::{
     Router,
     extract::{Request, State},
     middleware::Next,
     response::Response,
+    routing::MethodRouter,
 };
 use serde::de::DeserializeOwned;
 
@@ -11,14 +14,24 @@ use crate::{
     router_ext::AuthInjector,
 };
 
-impl<T> AuthInjector for JwtContext<T>
+impl<T, S> AuthInjector<Router<S>> for JwtContext<T>
 where
+    S: Send + Sync + Clone + 'static,
     T: DeserializeOwned + Send + Sync + 'static + Clone,
 {
-    fn inject_into_router<S: Send + Sync + Clone + 'static>(
-        self,
-        router: Router<S>,
-    ) -> axum::Router<S> {
+    fn inject_into(self, router: Router<S>) -> axum::Router<S> {
+        let middleware = axum::middleware::from_fn_with_state(self, jwt_session_layer::<T>);
+
+        router.layer(middleware)
+    }
+}
+
+impl<T, S> AuthInjector<MethodRouter<S, Infallible>> for JwtContext<T>
+where
+    S: Send + Sync + Clone + 'static,
+    T: DeserializeOwned + Send + Sync + 'static + Clone,
+{
+    fn inject_into(self, router: MethodRouter<S, Infallible>) -> MethodRouter<S, Infallible> {
         let middleware = axum::middleware::from_fn_with_state(self, jwt_session_layer::<T>);
 
         router.layer(middleware)

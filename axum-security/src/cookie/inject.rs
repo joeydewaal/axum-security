@@ -11,12 +11,13 @@ use crate::{
     router_ext::AuthInjector,
 };
 
-impl<STORE> AuthInjector for CookieContext<STORE>
+impl<STORE, S> AuthInjector<Router<S>> for CookieContext<STORE>
 where
+    S: Send + Sync + Clone + 'static,
     STORE: CookieStore,
     STORE::State: Clone,
 {
-    fn inject_into_router<S: Send + Sync + Clone + 'static>(self, router: Router<S>) -> Router<S> {
+    fn inject_into(self, router: Router<S>) -> Router<S> {
         let middleware = axum::middleware::from_fn_with_state(self, cookie_session_layer::<STORE>);
 
         router.layer(middleware)

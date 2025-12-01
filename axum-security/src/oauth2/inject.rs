@@ -6,15 +6,13 @@ use crate::{
     router_ext::AuthInjector,
 };
 
-impl<T, STORE> AuthInjector for OAuth2Context<T, STORE>
+impl<T, STORE, S> AuthInjector<Router<S>> for OAuth2Context<T, STORE>
 where
+    S: Send + Sync + 'static + Clone,
     T: OAuth2Handler,
     STORE: CookieStore<State = OAuthState>,
 {
-    fn inject_into_router<S: Send + Sync + Clone + 'static>(
-        self,
-        mut router: Router<S>,
-    ) -> Router<S> {
+    fn inject_into(self, mut router: Router<S>) -> Router<S> {
         if let Some(start_challenge_path) = self.get_start_challenge_path() {
             let challenge_route = MethodRouter::new()
                 .get(start_login::<T, STORE>)

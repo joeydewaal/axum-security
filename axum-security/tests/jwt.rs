@@ -147,3 +147,48 @@ async fn jwt_cookie() -> anyhow::Result<()> {
     assert_eq!(res.status(), StatusCode::OK);
     Ok(())
 }
+
+#[tokio::test]
+async fn jwt_default_method_router() -> anyhow::Result<()> {
+    let jwt_context = JwtContext::builder()
+        .jwt_secret(JWT_SECRET)
+        .build::<AccessToken>();
+
+    let jwt = jwt_context.encode_token(&AccessToken {
+        foo: 1,
+        exp: get_current_timestamp() + 1000,
+    })?;
+
+    let mut router = Router::new()
+        .route("/", get(|| async move { StatusCode::OK }))
+        .route("/auth", get(authorized).with_auth(jwt_context));
+
+    let req = Request::builder()
+        .method(Method::GET)
+        .uri("/")
+        .body(Body::empty())?;
+
+    let res = router.call(req).await?;
+
+    assert_eq!(res.status(), StatusCode::OK);
+
+    let req = Request::builder()
+        .method(Method::GET)
+        .uri("/auth")
+        .body(Body::empty())?;
+
+    let res = router.call(req).await?;
+
+    assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+
+    let req = Request::builder()
+        .method(Method::GET)
+        .header(AUTHORIZATION, &format!("Bearer {jwt}"))
+        .uri("/auth")
+        .body(Body::empty())?;
+
+    let res = router.call(req).await?;
+
+    assert_eq!(res.status(), StatusCode::OK);
+    Ok(())
+}

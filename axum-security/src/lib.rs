@@ -1,4 +1,4 @@
-// #![allow(unused)]
+#![allow(unused)]
 
 type Result<O, E = anyhow::Error> = ::std::result::Result<O, E>;
 

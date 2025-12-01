@@ -59,7 +59,7 @@ impl<S: Send + Sync + Clone + 'static> CookieStore for MemStore<S> {
 
     async fn remove_after(&self, deadline: u64) -> Result<(), Self::Error> {
         let mut lock = self.inner.write().await;
-        lock.retain(|_, v| v.created_at > deadline);
+        lock.retain(|_, v| v.created_at < deadline);
         Ok(())
     }
 }

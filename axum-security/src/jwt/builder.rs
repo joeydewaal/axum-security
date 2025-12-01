@@ -190,20 +190,3 @@ impl ExtractFrom {
         }
     }
 }
-
-#[cfg(test)]
-mod test {
-    use serde::{Deserialize, Serialize};
-
-    use crate::jwt::JwtContext;
-
-    #[derive(Serialize, Deserialize, PartialEq, Eq, Debug)]
-    struct AT {
-        first: usize,
-        second: usize,
-        exp: u64,
-    }
-
-    #[test]
-    fn test_prefix_default() {}
-}
