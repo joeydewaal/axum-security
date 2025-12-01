@@ -1,21 +1,24 @@
 use axum::{
-    Json, Router,
-    extract::{Query, State},
-    response::IntoResponse,
+    Router,
+    body::Body,
+    http::{
+        Method, Request, StatusCode,
+        header::{AUTHORIZATION, COOKIE},
+    },
     routing::get,
-    serve,
 };
 use axum_security::{
     RouterExt,
     jwt::{Jwt, JwtContext, get_current_timestamp},
 };
 use serde::{Deserialize, Serialize};
-use tokio::net::TcpListener;
+use tower::Service;
+
+const JWT_SECRET: &str = "test";
 
 #[derive(Clone, Serialize, Deserialize)]
 struct AccessToken {
-    username: String,
-    email: Option<String>,
+    foo: u8,
     exp: u64,
 }
 
@@ -25,46 +28,122 @@ struct LoginAttempt {
     password: String,
 }
 
-async fn authorized(Jwt(user): Jwt<AccessToken>) -> Json<AccessToken> {
-    Json(user)
+async fn authorized(Jwt(_): Jwt<AccessToken>) -> StatusCode {
+    StatusCode::OK
 }
 
-async fn login(
-    State(session): State<JwtContext<AccessToken>>,
-    Query(login): Query<LoginAttempt>,
-) -> impl IntoResponse {
-    if login.username == "admin" && login.password == "admin" {
-        let at = AccessToken {
-            username: login.username,
-            email: None,
-            exp: get_current_timestamp() + 10_000,
-        };
-
-        let token = session.encode_token(&at).unwrap();
-        Json(token).into_response()
-    } else {
-        "failed to log in".into_response()
-    }
+fn test_router() -> Router<()> {
+    Router::new().route("/", get(authorized))
 }
 
 #[tokio::test]
-async fn test_jwt() -> anyhow::Result<()> {
-    let jwt = JwtContext::builder()
-        .jwt_secret_env("JWT_SECRET")
-        .extract_header("x-auth-header")
-        .extract_header_with_prefix("x-auth-header", "some-prefix ")
-        .extract_cookie("auth-cookie")
+async fn jwt_default() -> anyhow::Result<()> {
+    let context = JwtContext::builder()
+        .jwt_secret(JWT_SECRET)
         .build::<AccessToken>();
 
-    let router = Router::new()
-        .route("/", get(|| async { "hello world" }))
-        .route("/login", get(login))
-        .route("/authorized", get(authorized))
-        .with_auth(&jwt)
-        .with_state(jwt);
+    let jwt = context.encode_token(&AccessToken {
+        foo: 1,
+        exp: get_current_timestamp() + 1000,
+    })?;
 
-    let listener = TcpListener::bind("0.0.0.0:8081").await?;
+    let mut router = test_router().with_auth(context);
 
-    serve(listener, router).await?;
+    let req = Request::builder()
+        .method(Method::GET)
+        .uri("/")
+        .body(Body::empty())?;
+
+    let res = router.call(req).await?;
+
+    assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+
+    let req = Request::builder()
+        .method(Method::GET)
+        .header(AUTHORIZATION, &format!("Bearer {jwt}"))
+        .uri("/")
+        .body(Body::empty())?;
+
+    let res = router.call(req).await?;
+
+    assert_eq!(res.status(), StatusCode::OK);
+    Ok(())
+}
+
+#[tokio::test]
+async fn jwt_header() -> anyhow::Result<()> {
+    let context = JwtContext::builder()
+        .jwt_secret(JWT_SECRET)
+        .extract_header("x-api-token")
+        .build::<AccessToken>();
+
+    let jwt = context.encode_token(&AccessToken {
+        foo: 1,
+        exp: get_current_timestamp() + 1000,
+    })?;
+
+    let mut router = test_router().with_auth(context);
+
+    let req = Request::builder()
+        .method(Method::GET)
+        .header("x-api-token", jwt)
+        .uri("/")
+        .body(Body::empty())?;
+
+    let res = router.call(req).await?;
+
+    assert_eq!(res.status(), StatusCode::OK);
+    Ok(())
+}
+
+#[tokio::test]
+async fn jwt_header_with_prefix() -> anyhow::Result<()> {
+    let context = JwtContext::builder()
+        .jwt_secret(JWT_SECRET)
+        .extract_header_with_prefix("x-api-token", "Bearer ")
+        .build::<AccessToken>();
+
+    let jwt = context.encode_token(&AccessToken {
+        foo: 1,
+        exp: get_current_timestamp() + 1000,
+    })?;
+
+    let mut router = test_router().with_auth(context);
+
+    let req = Request::builder()
+        .method(Method::GET)
+        .header("x-api-token", &format!("Bearer {jwt}"))
+        .uri("/")
+        .body(Body::empty())?;
+
+    let res = router.call(req).await?;
+
+    assert_eq!(res.status(), StatusCode::OK);
+    Ok(())
+}
+
+#[tokio::test]
+async fn jwt_cookie() -> anyhow::Result<()> {
+    let context = JwtContext::builder()
+        .jwt_secret(JWT_SECRET)
+        .extract_cookie("session-cookie")
+        .build::<AccessToken>();
+
+    let jwt = context.encode_token(&AccessToken {
+        foo: 1,
+        exp: get_current_timestamp() + 1000,
+    })?;
+
+    let mut router = test_router().with_auth(context);
+
+    let req = Request::builder()
+        .method(Method::GET)
+        .header(COOKIE, &format!("session-cookie={jwt}"))
+        .uri("/")
+        .body(Body::empty())?;
+
+    let res = router.call(req).await?;
+
+    assert_eq!(res.status(), StatusCode::OK);
     Ok(())
 }

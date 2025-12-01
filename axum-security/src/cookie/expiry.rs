@@ -15,10 +15,10 @@ pub(crate) async fn maintenance_task<S: CookieStore>(
     expires_after: Duration,
 ) {
     let deadline = utc_now_sec() - expires_after;
-    this.remove_after(deadline.as_secs()).await;
+    this.remove_after(deadline.as_secs()).await.unwrap();
     loop {
         tokio::time::sleep(expires_after).await;
         let deadline = utc_now_sec() - expires_after;
-        this.remove_after(deadline.as_secs()).await;
+        this.remove_after(deadline.as_secs()).await.unwrap();
     }
 }

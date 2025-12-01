@@ -1,5 +1,5 @@
 use axum::{
-    Extension, Router,
+    Router,
     extract::{Request, State},
     http::StatusCode,
     middleware::Next,

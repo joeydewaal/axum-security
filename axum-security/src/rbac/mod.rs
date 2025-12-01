@@ -1,7 +1,6 @@
 use std::{convert::Infallible, marker::PhantomData};
 
 use axum::{
-    Extension,
     extract::{FromRequestParts, Request, State},
     http::StatusCode,
     middleware::Next,

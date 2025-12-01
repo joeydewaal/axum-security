@@ -8,6 +8,7 @@ use serde::{Serialize, de::DeserializeOwned};
 use crate::utils::get_env;
 
 static BEARER_PREFIX: &str = "Bearer ";
+static EMPTY_PREFIX: &str = "";
 
 pub struct JwtContext<T>(Arc<JwtContextInner<T>>);
 
@@ -49,7 +50,7 @@ impl<T: DeserializeOwned> JwtContext<T> {
                 let jar = CookieJar::from_headers(headers);
                 let cookie = jar.get(cow)?;
 
-                self.decode(cookie.name())
+                self.decode(cookie.value())
             }
             ExtractFrom::Header { header, prefix } => {
                 let authorization_header = headers.get(header)?.to_str().ok()?;
@@ -63,7 +64,7 @@ impl<T: DeserializeOwned> JwtContext<T> {
     }
 }
 
-pub fn jwt_from_header_value<'a>(mut header: &'a str, prefix: &str) -> Option<&'a str> {
+pub fn jwt_from_header_value<'a>(header: &'a str, prefix: &str) -> Option<&'a str> {
     let prefix_len = prefix.len();
 
     if header.len() < prefix_len {
@@ -144,10 +145,10 @@ impl JwtContextBuilder {
         self
     }
 
-    pub fn extract_header(mut self, header: impl AsRef<[u8]>) -> Self {
+    pub fn extract_header(mut self, header: impl AsRef<str>) -> Self {
         self.extract = ExtractFrom::header_with_prefix(
-            HeaderName::from_bytes(header.as_ref()).unwrap(),
-            BEARER_PREFIX,
+            HeaderName::from_bytes(header.as_ref().as_bytes()).unwrap(),
+            EMPTY_PREFIX,
         );
         self
     }

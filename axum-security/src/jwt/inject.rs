@@ -1,5 +1,5 @@
 use axum::{
-    Extension, Router,
+    Router,
     extract::{Request, State},
     middleware::Next,
     response::Response,

@@ -3,8 +3,6 @@ use std::borrow::Cow;
 use axum::response::IntoResponse;
 use cookie_monster::{CookieBuilder, CookieJar};
 
-use crate::cookie::SessionId;
-
 #[non_exhaustive]
 pub struct TokenResponse {
     pub access_token: String,
