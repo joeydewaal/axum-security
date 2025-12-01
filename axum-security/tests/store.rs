@@ -39,7 +39,7 @@ async fn login(
         let user = User {
             username: login.username,
             email: None,
-            user_id: todo!(),
+            user_id: 1,
         };
 
         let Ok(cookie) = session.create_session(user).await else {
@@ -58,8 +58,9 @@ async fn test_cookie_simple() -> anyhow::Result<()> {
         pool: SqlitePool::connect(":memory:").await?,
     };
 
-    let session = CookieContext::builder_with_store(store)
+    let session = CookieContext::builder()
         .enable_dev_cookie(true)
+        .store(store)
         .build::<User>();
 
     let router = Router::new()

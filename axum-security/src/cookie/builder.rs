@@ -3,7 +3,7 @@ use std::{borrow::Cow, sync::Arc, time::Duration};
 use axum::http::HeaderMap;
 use cookie_monster::{Cookie, CookieBuilder, CookieJar, SameSite};
 
-use crate::cookie::{CookieSession, CookieStore, MemStore, SessionId, expiry::SessionExpiry};
+use crate::cookie::{CookieSession, CookieStore, SessionId, expiry::SessionExpiry};
 
 pub struct CookieContext<S>(Arc<CookieContextInner<S>>);
 
@@ -19,12 +19,8 @@ struct CookieContextInner<S> {
 }
 
 impl CookieContext<()> {
-    pub fn builder<T>() -> CookieSessionBuilder<MemStore<T>> {
-        CookieSessionBuilder::new(MemStore::new())
-    }
-
-    pub fn builder_with_store<S>(store: S) -> CookieSessionBuilder<S> {
-        CookieSessionBuilder::new(store)
+    pub fn builder() -> CookieSessionBuilder<()> {
+        CookieSessionBuilder::new()
     }
 }
 
@@ -101,10 +97,10 @@ pub struct CookieSessionBuilder<S> {
     pub(crate) expiry: Option<SessionExpiry>,
 }
 
-impl<S> CookieSessionBuilder<S> {
-    pub fn new(store: S) -> Self {
+impl CookieSessionBuilder<()> {
+    pub fn new() -> CookieSessionBuilder<()> {
         Self {
-            store,
+            store: (),
             dev: false,
             expiry: None,
             dev_cookie: Cookie::named(DEFAULT_SESSION_COOKIE_NAME)
@@ -116,7 +112,9 @@ impl<S> CookieSessionBuilder<S> {
                 .secure(),
         }
     }
+}
 
+impl<S> CookieSessionBuilder<S> {
     pub fn cookie(mut self, f: impl FnOnce(CookieBuilder) -> CookieBuilder) -> Self {
         self.cookie = f(self.cookie);
         self
@@ -150,11 +148,22 @@ impl<S> CookieSessionBuilder<S> {
         self.expiry = None;
         self
     }
+
+    pub fn store<S1>(self, store: S1) -> CookieSessionBuilder<S1> {
+        CookieSessionBuilder {
+            store,
+            dev: self.dev,
+            dev_cookie: self.dev_cookie,
+            cookie: self.cookie,
+            expiry: self.expiry,
+        }
+    }
 }
 
-impl<S: CookieStore> CookieSessionBuilder<S> {
+impl<S> CookieSessionBuilder<S> {
     pub fn build<T>(self) -> CookieContext<S>
     where
+        T: Send + Sync + 'static,
         S: CookieStore<State = T>,
     {
         let session_expiry = self.expiry.map(|e| match e {
@@ -175,7 +184,7 @@ impl<S: CookieStore> CookieSessionBuilder<S> {
             && cookie_context.0.store.spawn_maintenance_task()
         {
             let this = cookie_context.clone();
-            let _ = tokio::spawn(super::expiry::maintenance_task(this, e));
+            tokio::spawn(super::expiry::maintenance_task(this, e));
         }
 
         cookie_context

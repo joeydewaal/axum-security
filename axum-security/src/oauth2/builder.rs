@@ -35,7 +35,8 @@ impl<S> OAuth2ContextBuilder<S> {
             .same_site(SameSite::Strict);
 
         Self {
-            session: CookieContext::builder_with_store(store)
+            session: CookieContext::<()>::builder()
+                .store(store)
                 .cookie(|_| cookie)
                 .dev_cookie(|_| dev_cookie),
             login_path: None,
@@ -120,6 +121,19 @@ impl<S> OAuth2ContextBuilder<S> {
 
     pub fn prod(self, prod: bool) -> Self {
         self.dev(!prod)
+    }
+
+    pub fn store<S1>(self, store: S1) -> OAuth2ContextBuilder<S1> {
+        OAuth2ContextBuilder {
+            session: self.session.store(store),
+            login_path: self.login_path,
+            redirect_url: self.redirect_url,
+            client_id: self.client_id,
+            client_secret: self.client_secret,
+            scopes: self.scopes,
+            auth_url: self.auth_url,
+            token_url: self.token_url,
+        }
     }
 
     pub fn build<T>(self, inner: T) -> OAuth2Context<T, S>

@@ -63,6 +63,7 @@ async fn test_cookie() -> anyhow::Result<()> {
         .expires_after(Duration::from_hours(24))
         .expires_none()
         .expires_max_age()
+        .store(MemStore::new())
         .build::<User>();
 
     let router = Router::new()
@@ -82,6 +83,7 @@ async fn test_cookie() -> anyhow::Result<()> {
 async fn test_cookie_simple() -> anyhow::Result<()> {
     let session = CookieContext::builder()
         .enable_dev_cookie(true)
+        .store(MemStore::new())
         .build::<User>();
 
     let router = Router::new()
@@ -101,6 +103,7 @@ async fn test_cookie_simple() -> anyhow::Result<()> {
 fn cookie_compiles() {
     let session = CookieContext::builder()
         .enable_dev_cookie(true)
+        .store(MemStore::new())
         .build::<User>();
 
     let _ = Router::<()>::new()

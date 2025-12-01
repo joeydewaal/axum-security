@@ -5,14 +5,9 @@ use std::{
 };
 
 use axum::{
-    Router,
-    extract::{Request, State},
-    http::StatusCode,
-    middleware::Next,
-    response::{IntoResponse, Response},
-    routing::MethodRouter,
+    Router, extract::Request, http::StatusCode, response::IntoResponse, routing::MethodRouter,
 };
-use tower::{Layer, Service, ServiceExt};
+use tower::{Layer, Service};
 
 use crate::{
     cookie::{CookieContext, CookieStore},

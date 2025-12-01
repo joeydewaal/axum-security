@@ -3,13 +3,7 @@ use std::{
     task::{Context, Poll},
 };
 
-use axum::{
-    Router,
-    extract::{Request, State},
-    middleware::Next,
-    response::Response,
-    routing::MethodRouter,
-};
+use axum::{Router, extract::Request, routing::MethodRouter};
 use serde::de::DeserializeOwned;
 use tower::{Layer, Service};
 

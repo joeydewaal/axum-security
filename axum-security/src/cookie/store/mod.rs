@@ -21,8 +21,8 @@ pub trait CookieStore: Send + Sync + 'static {
     ) -> impl Future<Output = Result<SessionId, Self::Error>> + Send {
         async {
             let id = SessionId::new_uuid_v7();
-            let now = utc_now_sec();
-            let session = CookieSession::new(id.clone(), now.as_secs(), state);
+            let now = utc_now_sec().as_secs();
+            let session = CookieSession::new(id.clone(), now, state);
             self.store_session(session).await?;
             Ok(id)
         }

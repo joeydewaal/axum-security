@@ -14,9 +14,9 @@ where
 }
 
 pub trait RouterExt: Sized {
-    fn with_auth<I: Sized>(self, auth: I) -> Self
+    fn with_auth<I>(self, auth: I) -> Self
     where
-        I: AuthInjector<Self>;
+        I: AuthInjector<Self> + Sized;
 }
 
 impl<S> RouterExt for Router<S>
