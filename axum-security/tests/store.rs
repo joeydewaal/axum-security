@@ -11,7 +11,7 @@ use axum_security::{
     cookie::{CookieContext, CookieSession, CookieStore, SessionId},
 };
 use serde::{Deserialize, Serialize};
-use sqlx::{FromRow, SqlitePool};
+use sqlx::{FromRow, SqliteExecutor, SqlitePool};
 use tokio::net::TcpListener;
 
 #[derive(Clone, Serialize, FromRow)]
@@ -81,24 +81,22 @@ struct SqlxStore {
     pool: SqlitePool,
 }
 
-impl CookieStore for SqlxStore {
-    type State = User;
-    type Error = sqlx::Error;
+#[derive(FromRow)]
+struct UserWithSession {
+    #[sqlx(flatten)]
+    user: User,
+    #[sqlx(try_from = "String")]
+    session_id: SessionId,
+    #[sqlx(try_from = "i64")]
+    created_at: u64,
+}
 
-    async fn load_session(
-        &self,
-        id: &SessionId,
-    ) -> sqlx::Result<Option<CookieSession<Self::State>>> {
-        #[derive(FromRow)]
-        struct UserWithSession {
-            #[sqlx(flatten)]
-            user: User,
-            session_id: String,
-            created_at: i64,
-        }
-
-        let user: Option<UserWithSession> = sqlx::query_as(
-            "
+async fn load_user(
+    id: &SessionId,
+    exec: impl SqliteExecutor<'_>,
+) -> sqlx::Result<Option<UserWithSession>> {
+    sqlx::query_as(
+        "
             SELECT
                 user_id,
                 username,
@@ -109,20 +107,29 @@ impl CookieStore for SqlxStore {
             JOIN user_ssessions using (user_id)
             WHERE session_id = $1
             ",
-        )
-        .bind(id.as_str())
-        .fetch_optional(&self.pool)
-        .await?;
+    )
+    .bind(id.as_str())
+    .fetch_optional(exec)
+    .await
+}
+
+impl CookieStore for SqlxStore {
+    type State = User;
+    type Error = sqlx::Error;
+
+    async fn load_session(
+        &self,
+        id: &SessionId,
+    ) -> sqlx::Result<Option<CookieSession<Self::State>>> {
+        let user = load_user(id, &self.pool).await?;
 
         let Some(user) = user else {
             return Ok(None);
         };
 
-        let session_id = SessionId::new(user.session_id);
-
         Ok(Some(CookieSession::new(
-            session_id,
-            user.created_at as u64,
+            user.session_id,
+            user.created_at,
             user.user,
         )))
     }
@@ -148,19 +155,19 @@ impl CookieStore for SqlxStore {
     }
 
     async fn remove_session(&self, id: &SessionId) -> sqlx::Result<Option<CookieSession<User>>> {
-        let session_id: Option<String> =
-            sqlx::query_scalar("DELETE FROM user_sessions WHERE session_id = $1")
+        let mut tx = self.pool.begin().await?;
+
+        let user = load_user(id, &mut *tx).await?;
+
+        if user.is_some() {
+            sqlx::query("DELETE FROM user_sessions WHERE session_id = $1")
                 .bind(id.as_str())
-                .fetch_optional(&self.pool)
+                .execute(&mut *tx)
                 .await?;
+        }
+        tx.commit().await?;
 
-        let Some(session_id) = session_id else {
-            return Ok(None);
-        };
-
-        let session_id = SessionId::new(session_id);
-        // TODO!!
-        self.load_session(&session_id).await
+        Ok(user.map(|u| CookieSession::new(u.session_id, u.created_at, u.user)))
     }
 
     async fn remove_after(&self, deadline: u64) -> sqlx::Result<()> {

@@ -1,7 +1,6 @@
 use std::{borrow::Cow, marker::PhantomData, sync::Arc};
 
 use axum::http::{HeaderMap, HeaderName, header::AUTHORIZATION};
-use cookie_monster::CookieJar;
 use jsonwebtoken::{DecodingKey, EncodingKey, Header, TokenData, Validation, decode, encode};
 use serde::{Serialize, de::DeserializeOwned};
 
@@ -40,14 +39,15 @@ impl<T: Serialize> JwtContext<T> {
 }
 
 impl<T: DeserializeOwned> JwtContext<T> {
-    fn decode(&self, jwt: &str) -> jsonwebtoken::errors::Result<TokenData<T>> {
-        decode(jwt, &self.0.decoding_key, &self.0.validation)
+    pub fn decode(&self, jwt: impl AsRef<[u8]>) -> jsonwebtoken::errors::Result<TokenData<T>> {
+        decode(jwt.as_ref(), &self.0.decoding_key, &self.0.validation)
     }
 
     pub fn decode_from_headers(&self, headers: &HeaderMap) -> Option<T> {
         let result = match &self.0.extract {
+            #[cfg(feature = "cookie")]
             ExtractFrom::Cookie(cow) => {
-                let jar = CookieJar::from_headers(headers);
+                let jar = cookie_monster::CookieJar::from_headers(headers);
                 let cookie = jar.get(cow)?;
 
                 self.decode(cookie.value())
@@ -153,6 +153,7 @@ impl JwtContextBuilder {
         self
     }
 
+    #[cfg(feature = "cookie")]
     pub fn extract_cookie(mut self, cookie_name: impl Into<Cow<'static, str>>) -> Self {
         self.extract = ExtractFrom::cookie(cookie_name.into());
         self
@@ -171,6 +172,7 @@ impl JwtContextBuilder {
 }
 
 pub(crate) enum ExtractFrom {
+    #[cfg(feature = "cookie")]
     Cookie(Cow<'static, str>),
     Header {
         header: HeaderName,
@@ -179,6 +181,7 @@ pub(crate) enum ExtractFrom {
 }
 
 impl ExtractFrom {
+    #[cfg(feature = "cookie")]
     fn cookie(name: Cow<'static, str>) -> Self {
         ExtractFrom::Cookie(name)
     }

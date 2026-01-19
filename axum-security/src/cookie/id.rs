@@ -33,3 +33,9 @@ impl From<SessionId> for Cow<'static, str> {
         Cow::Owned(value.0)
     }
 }
+
+impl From<String> for SessionId {
+    fn from(value: String) -> Self {
+        Self::new(value)
+    }
+}
