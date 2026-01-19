@@ -1,15 +1,16 @@
-use std::{convert::Infallible, marker::PhantomData};
+use std::{convert::Infallible, fmt::Debug, marker::PhantomData};
 
 use axum::{
     extract::{FromRequestParts, Request, State},
-    http::StatusCode,
+    http::{StatusCode, request::Parts},
     middleware::Next,
     response::{IntoResponse, Response},
     routing::MethodRouter,
 };
 pub use axum_security_macros::{requires, requires_any};
 
-use crate::{cookie::CookieSession, jwt::Jwt};
+#[cfg(feature = "cookie")]
+use crate::cookie::CookieSession;
 
 pub fn __requires<T: RBAC>(resource: RolesExtractor<T>, roles: &[T]) -> Option<Response> {
     if resource.roles.iter().all(|r| roles.contains(r)) {
@@ -43,21 +44,41 @@ where
         parts: &mut axum::http::request::Parts,
         _state: &S,
     ) -> Result<Self, Self::Rejection> {
-        if let Some(resource) = parts.extensions.remove::<R::Resource>() {
-            let roles: Vec<R> = R::extract_roles(&resource).into_iter().copied().collect();
-            parts.extensions.insert(resource);
+        let Some(roles) = extract_roles(parts) else {
+            return Err(StatusCode::UNAUTHORIZED);
+        };
 
-            Ok(RolesExtractor {
-                roles,
-                _p: PhantomData,
-            })
-        } else {
-            Err(StatusCode::UNAUTHORIZED)
-        }
+        Ok(RolesExtractor {
+            roles,
+            _p: PhantomData,
+        })
     }
 }
 
-pub trait RBAC: Send + Sync + 'static + Clone + Eq + Copy {
+fn extract_roles<R>(parts: &mut Parts) -> Option<Vec<R>>
+where
+    R: RBAC,
+    R::Resource: Clone,
+    R: Copy,
+{
+    #[cfg(feature = "jwt")]
+    if let Some(resource) = parts.extensions.remove::<crate::jwt::Jwt<R::Resource>>() {
+        let roles: Vec<R> = R::extract_roles(&resource.0).into_iter().copied().collect();
+        parts.extensions.insert(resource);
+        return Some(roles);
+    }
+
+    #[cfg(feature = "cookie")]
+    if let Some(resource) = parts.extensions.remove::<CookieSession<R::Resource>>() {
+        let roles: Vec<R> = R::extract_roles(&resource).into_iter().copied().collect();
+        parts.extensions.insert(resource);
+        return Some(roles);
+    }
+
+    None
+}
+
+pub trait RBAC: Send + Sync + 'static + Clone + Eq + Copy + Debug {
     type Resource: Send + Sync + 'static;
 
     fn extract_roles(resource: &Self::Resource) -> impl IntoIterator<Item = &Self>;
@@ -101,13 +122,23 @@ impl<S: Clone + 'static> RBACExt for MethodRouter<S, Infallible> {
 }
 
 fn extract_resource<R: RBAC>(req: &mut Request) -> Result<R::Resource, Response> {
-    if let Some(user) = req.extensions_mut().remove::<Jwt<R::Resource>>() {
-        Ok(user.0)
-    } else if let Some(user) = req.extensions_mut().remove::<CookieSession<R::Resource>>() {
-        Ok(user.state)
-    } else {
-        Err(StatusCode::UNAUTHORIZED.into_response())
+    #[cfg(feature = "jwt")]
+    if let Some(user) = req
+        .extensions_mut()
+        .remove::<crate::jwt::Jwt<R::Resource>>()
+    {
+        return Ok(user.0);
     }
+
+    #[cfg(feature = "cookie")]
+    if let Some(user) = req
+        .extensions_mut()
+        .remove::<crate::cookie::CookieSession<R::Resource>>()
+    {
+        return Ok(user.state);
+    }
+
+    Err(StatusCode::UNAUTHORIZED.into_response())
 }
 
 async fn rbac_layer<R: RBAC>(

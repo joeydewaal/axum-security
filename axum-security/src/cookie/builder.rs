@@ -103,9 +103,8 @@ impl CookieSessionBuilder<()> {
             store: (),
             dev: false,
             expiry: None,
-            dev_cookie: Cookie::named(DEFAULT_SESSION_COOKIE_NAME)
-                .same_site(SameSite::None)
-                .http_only(),
+            // Make sure to use the / as path so all paths can see the cookie in dev mode.
+            dev_cookie: Cookie::named(DEFAULT_SESSION_COOKIE_NAME).path("/"),
             cookie: Cookie::named(DEFAULT_SESSION_COOKIE_NAME)
                 .same_site(SameSite::Strict)
                 .http_only()
