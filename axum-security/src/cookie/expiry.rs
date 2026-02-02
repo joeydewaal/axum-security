@@ -57,4 +57,13 @@ mod expiry {
         let session = cookie_context.load_from_cookie(&cookie).await.unwrap();
         assert!(session.is_none());
     }
+
+    #[test]
+    #[should_panic]
+    fn no_max_age() {
+        CookieContext::builder()
+            .expires_max_age()
+            .store(MemStore::new())
+            .build::<()>();
+    }
 }

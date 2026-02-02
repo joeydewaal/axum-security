@@ -16,12 +16,12 @@ pub use store::{CookieStore, MemStore};
 pub use cookie_monster::{Cookie, CookieBuilder, CookieJar, Error, Expires, SameSite};
 use tokio::task::JoinHandle;
 
-pub struct CookieContext<S>(pub(super) Arc<CookieContextInner<S>>);
+pub struct CookieContext<S>(Arc<CookieContextInner<S>>);
 
 struct CookieContextInner<S> {
     store: Arc<S>,
     cookie_opts: CookieBuilder,
-    pub(super) handle: Option<JoinHandle<()>>,
+    handle: Option<JoinHandle<()>>,
 }
 
 impl CookieContext<()> {

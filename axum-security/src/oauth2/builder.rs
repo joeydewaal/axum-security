@@ -2,7 +2,8 @@ use std::{borrow::Cow, sync::Arc};
 
 use cookie_monster::{Cookie, CookieBuilder, SameSite};
 use oauth2::{
-    AuthUrl, Client, ClientId, ClientSecret, RedirectUrl, Scope, TokenUrl, reqwest::Client, url,
+    AuthUrl, Client, ClientId, ClientSecret, RedirectUrl, Scope, TokenUrl,
+    reqwest::Client as HttpClient, url,
 };
 
 use crate::{
@@ -15,7 +16,7 @@ use crate::{
 static DEFAULT_COOKIE_NAME: &str = "oauth2-session";
 
 pub struct OAuth2ContextBuilder<S> {
-    session: CookieSessionBuilder<S>,
+    cookie_session: CookieSessionBuilder<S>,
     login_path: Option<Cow<'static, str>>,
     redirect_url: Option<String>,
     client_id: Option<String>,
@@ -23,7 +24,7 @@ pub struct OAuth2ContextBuilder<S> {
     scopes: Vec<Scope>,
     auth_url: Option<String>,
     token_url: Option<String>,
-    http_client: Client,
+    http_client: HttpClient,
 }
 
 impl<S> OAuth2ContextBuilder<S> {
@@ -37,7 +38,7 @@ impl<S> OAuth2ContextBuilder<S> {
             .secure();
 
         Self {
-            session: CookieContext::<()>::builder()
+            cookie_session: CookieContext::<()>::builder()
                 .store(store)
                 .cookie(|_| cookie)
                 .dev_cookie(|_| dev_cookie),
@@ -103,12 +104,12 @@ impl<S> OAuth2ContextBuilder<S> {
     }
 
     pub fn cookie(mut self, f: impl FnOnce(CookieBuilder) -> CookieBuilder) -> Self {
-        self.session = self.session.cookie(f);
+        self.cookie_session = self.cookie_session.cookie(f);
         self
     }
 
     pub fn dev_cookie(mut self, f: impl FnOnce(CookieBuilder) -> CookieBuilder) -> Self {
-        self.session = self.session.dev_cookie(f);
+        self.cookie_session = self.cookie_session.dev_cookie(f);
         self
     }
 
@@ -118,7 +119,7 @@ impl<S> OAuth2ContextBuilder<S> {
     }
 
     pub fn use_dev_cookies(mut self, dev: bool) -> Self {
-        self.session = self.session.use_dev_cookie(dev);
+        self.cookie_session = self.cookie_session.use_dev_cookie(dev);
         self
     }
 
@@ -128,7 +129,7 @@ impl<S> OAuth2ContextBuilder<S> {
 
     pub fn store<S1>(self, store: S1) -> OAuth2ContextBuilder<S1> {
         OAuth2ContextBuilder {
-            session: self.session.store(store),
+            cookie_session: self.cookie_session.store(store),
             login_path: self.login_path,
             redirect_url: self.redirect_url,
             client_id: self.client_id,
@@ -187,7 +188,7 @@ impl<S> OAuth2ContextBuilder<S> {
         Ok(OAuth2Context(Arc::new(OAuth2ContextInner {
             client: basic_client,
             inner,
-            session: self.session.build(),
+            session: self.cookie_session.build(),
             login_path: self.login_path,
             http_client: self.http_client,
             scopes: self.scopes,

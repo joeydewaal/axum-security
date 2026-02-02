@@ -140,7 +140,7 @@ mod cookie {
         let user = cookie_context.load_from_jar(&jar).await.unwrap();
 
         assert!(user.is_some());
-        assert!(test_user_id == user.unwrap().id);
+        assert!(test_user_id == user.unwrap().state.id);
     }
 
     #[tokio::test]
@@ -160,7 +160,7 @@ mod cookie {
         let user = cookie_context.remove_session(&jar).await.unwrap();
 
         assert!(user.is_some());
-        assert!(test_user_id == user.unwrap().id);
+        assert!(test_user_id == user.unwrap().state.id);
 
         let after = cookie_context.load_from_jar(&jar).await.unwrap();
         assert!(after.is_none());

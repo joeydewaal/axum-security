@@ -1,7 +1,4 @@
-use std::{
-    hash::Hash,
-    ops::{Deref, DerefMut},
-};
+use std::hash::Hash;
 
 use axum::{
     extract::FromRequestParts,
@@ -16,20 +13,6 @@ pub struct CookieSession<S> {
     pub session_id: SessionId,
     pub created_at: u64,
     pub state: S,
-}
-
-impl<S> Deref for CookieSession<S> {
-    type Target = S;
-
-    fn deref(&self) -> &Self::Target {
-        &self.state
-    }
-}
-
-impl<S> DerefMut for CookieSession<S> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.state
-    }
 }
 
 impl<S> CookieSession<S> {
@@ -83,7 +66,7 @@ mod extract_cookie {
 
     #[tokio::test]
     async fn extract() {
-        let cookie = CookieSession::new(SessionId::new_uuid_v7(), 0, ());
+        let cookie = CookieSession::new(SessionId::new(), 0, ());
 
         let (mut parts, _) = Request::builder()
             .extension(cookie.clone())

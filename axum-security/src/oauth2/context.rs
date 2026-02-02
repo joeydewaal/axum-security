@@ -20,12 +20,6 @@ use crate::{
 
 pub struct OAuth2Context<T, S>(pub(super) Arc<OAuth2ContextInner<T, S>>);
 
-impl<T, S> Clone for OAuth2Context<T, S> {
-    fn clone(&self) -> Self {
-        OAuth2Context(self.0.clone())
-    }
-}
-
 pub(super) struct OAuth2ContextInner<T, S> {
     pub(super) inner: T,
     pub(super) session: CookieContext<S>,
@@ -96,14 +90,15 @@ impl<T: OAuth2Handler, S: CookieStore<State = OAuthState>> OAuth2Context<T, S> {
         &self,
         code: AuthorizationCode,
         pkce_verifier: PkceCodeVerifier,
-    ) -> crate::Result<TokenResponse> {
+    ) -> Result<TokenResponse, String> {
         let response = self
             .0
             .client
             .exchange_code(code)
             .set_pkce_verifier(pkce_verifier)
             .request_async(&self.0.http_client)
-            .await?;
+            .await
+            .map_err(|e| e.to_string())?;
 
         let access_token = response.access_token().secret().clone();
         let refresh_token = response.refresh_token().map(|t| t.secret().clone());
@@ -146,5 +141,11 @@ impl<T: OAuth2Handler, S: CookieStore<State = OAuthState>> OAuth2Context<T, S> {
 
     pub fn cookie(&self, name: impl Into<Cow<'static, str>>) -> CookieBuilder {
         self.0.session.build_cookie(name)
+    }
+}
+
+impl<T, S> Clone for OAuth2Context<T, S> {
+    fn clone(&self) -> Self {
+        OAuth2Context(self.0.clone())
     }
 }

@@ -72,7 +72,7 @@ mod mem_store {
     async fn create() {
         let store = MemStore::<i32>::new();
 
-        let session_id = SessionId::new_uuid_v7();
+        let session_id = SessionId::new();
         let created_at = 100;
         let value = 1;
 
@@ -106,7 +106,7 @@ mod mem_store {
     async fn remove() {
         let store = MemStore::<i32>::new();
 
-        let session_id = SessionId::new_uuid_v7();
+        let session_id = SessionId::new();
         let created_at = 100;
         let value = 1;
 
