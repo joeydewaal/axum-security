@@ -4,37 +4,10 @@ use std::{
     task::{Context, Poll},
 };
 
-use axum::{
-    Router, extract::Request, http::StatusCode, response::IntoResponse, routing::MethodRouter,
-};
+use axum::{extract::Request, http::StatusCode, response::IntoResponse};
 use tower::{Layer, Service};
 
-use crate::{
-    cookie::{CookieContext, CookieStore},
-    router_ext::AuthInjector,
-};
-
-impl<STORE, S> AuthInjector<Router<S>> for CookieContext<STORE>
-where
-    S: Send + Sync + Clone + 'static,
-    STORE: CookieStore,
-    STORE::State: Clone,
-{
-    fn inject_into(self, router: Router<S>) -> Router<S> {
-        router.layer(self)
-    }
-}
-
-impl<STORE, S> AuthInjector<MethodRouter<S, Infallible>> for CookieContext<STORE>
-where
-    S: Send + Sync + Clone + 'static,
-    STORE: CookieStore,
-    STORE::State: Clone,
-{
-    fn inject_into(self, router: MethodRouter<S, Infallible>) -> MethodRouter<S, Infallible> {
-        router.layer(self)
-    }
-}
+use crate::cookie::{CookieContext, CookieStore};
 
 pub struct CookieService<STORE, SERV> {
     inner: CookieContext<STORE>,

@@ -38,6 +38,8 @@ async fn login(
 ) -> Result<String, StatusCode> {
     if login.username == "admin" && login.password == "admin" {
         let now = Zoned::now();
+
+        // This token is only valid for 1 day.
         let expires = &now + 1.day();
 
         let user = AccessToken {
@@ -57,6 +59,7 @@ async fn login(
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
+    // By default the `JwtContext` looks for a bearer token in the `AUTHORIZATION` header.
     let jwt_service = JwtContext::builder()
         // The secret we're using for the jwt token.
         .jwt_secret(JWT_SECRET)

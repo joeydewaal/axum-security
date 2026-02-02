@@ -4,7 +4,7 @@ pub use memory::MemStore;
 
 use crate::{
     cookie::{CookieSession, SessionId},
-    utils::utc_now_sec,
+    utils::utc_now,
 };
 
 pub trait CookieStore: Send + Sync + 'static {
@@ -21,7 +21,7 @@ pub trait CookieStore: Send + Sync + 'static {
     ) -> impl Future<Output = Result<SessionId, Self::Error>> + Send {
         async {
             let id = SessionId::new_uuid_v7();
-            let now = utc_now_sec().as_secs();
+            let now = utc_now().as_secs();
             let session = CookieSession::new(id.clone(), now, state);
             self.store_session(session).await?;
             Ok(id)

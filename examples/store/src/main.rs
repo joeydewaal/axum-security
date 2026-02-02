@@ -1,3 +1,5 @@
+use std::error::Error;
+
 use axum::{
     Json, Router,
     extract::{Query, State},
@@ -6,10 +8,7 @@ use axum::{
     routing::get,
     serve,
 };
-use axum_security::{
-    RouterExt,
-    cookie::{CookieContext, CookieSession, CookieStore, SessionId},
-};
+use axum_security::cookie::{CookieContext, CookieSession, CookieStore, SessionId};
 use serde::{Deserialize, Serialize};
 use sqlx::{FromRow, SqliteExecutor, SqlitePool};
 use tokio::net::TcpListener;
@@ -52,32 +51,7 @@ async fn login(
     }
 }
 
-#[tokio::test]
-async fn test_cookie_simple() -> anyhow::Result<()> {
-    let store = SqlxStore {
-        pool: SqlitePool::connect(":memory:").await?,
-    };
-
-    let session = CookieContext::builder()
-        .enable_dev_cookie(true)
-        .store(store)
-        .build::<User>();
-
-    let router = Router::new()
-        .route("/", get(|| async { "hello world" }))
-        .route("/authorized", get(authorized))
-        .route("/login", get(login))
-        .with_auth(&session)
-        .with_state(session);
-
-    let listener = TcpListener::bind("0.0.0.0:8081").await?;
-
-    serve(listener, router).await?;
-    Ok(())
-}
-
 struct SqlxStore {
-    #[allow(unused)]
     pool: SqlitePool,
 }
 
@@ -97,15 +71,15 @@ async fn load_user(
 ) -> sqlx::Result<Option<UserWithSession>> {
     sqlx::query_as(
         "
-            SELECT
-                user_id,
-                username,
-                emailadres,
-                session_id,
-                created_at
-            FROM users
-            JOIN user_ssessions using (user_id)
-            WHERE session_id = $1
+        SELECT
+            user_id,
+            username,
+            emailadres,
+            session_id,
+            created_at
+        FROM users
+        JOIN user_ssessions using (user_id)
+        WHERE session_id = $1
             ",
     )
     .bind(id.as_str())
@@ -177,4 +151,27 @@ impl CookieStore for SqlxStore {
             .await?;
         Ok(())
     }
+}
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn Error>> {
+    let store = SqlxStore {
+        pool: SqlitePool::connect(":memory:").await?,
+    };
+
+    let session = CookieContext::builder()
+        .enable_dev_cookie(true)
+        .store(store)
+        .build::<User>();
+
+    let router = Router::new()
+        .route("/", get(|| async { "hello world" }))
+        .route("/authorized", get(authorized))
+        .route("/login", get(login))
+        .layer(session.clone())
+        .with_state(session);
+
+    let listener = TcpListener::bind("0.0.0.0:8081").await?;
+
+    serve(listener, router).await?;
+    Ok(())
 }

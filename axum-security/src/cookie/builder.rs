@@ -179,11 +179,11 @@ impl<S> CookieSessionBuilder<S> {
             },
         }));
 
-        if let Some(e) = session_expiry
+        if let Some(expiry) = session_expiry
             && cookie_context.0.store.spawn_maintenance_task()
         {
             let this = cookie_context.clone();
-            tokio::spawn(super::expiry::maintenance_task(this, e));
+            tokio::spawn(super::expiry::maintenance_task(this, expiry));
         }
 
         cookie_context

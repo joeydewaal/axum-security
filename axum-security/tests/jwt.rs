@@ -1,16 +1,14 @@
+#![cfg(feature = "jwt")]
+
+use std::error::Error;
+
 use axum::{
     Router,
     body::Body,
-    http::{
-        Method, Request, StatusCode,
-        header::{AUTHORIZATION, COOKIE},
-    },
+    http::{Method, Request, StatusCode, header::AUTHORIZATION},
     routing::get,
 };
-use axum_security::{
-    RouterExt,
-    jwt::{Jwt, JwtContext, get_current_timestamp},
-};
+use axum_security::jwt::{Jwt, JwtContext, get_current_timestamp};
 use serde::{Deserialize, Serialize};
 use tower::Service;
 
@@ -26,22 +24,28 @@ async fn authorized(Jwt(_): Jwt<AccessToken>) -> StatusCode {
     StatusCode::OK
 }
 
+async fn unauthorized() -> StatusCode {
+    StatusCode::OK
+}
+
 fn test_router() -> Router<()> {
-    Router::new().route("/", get(authorized))
+    Router::new()
+        .route("/", get(authorized))
+        .route("/unauthorized", get(unauthorized))
 }
 
 #[tokio::test]
-async fn jwt_default() -> anyhow::Result<()> {
+async fn jwt_default() -> Result<(), Box<dyn Error>> {
     let context = JwtContext::builder()
         .jwt_secret(JWT_SECRET)
         .build::<AccessToken>();
 
     let jwt = context.encode_token(&AccessToken {
         foo: 1,
-        exp: get_current_timestamp() + 1000,
+        exp: get_current_timestamp() + 3,
     })?;
 
-    let mut router = test_router().with_auth(context);
+    let mut router = test_router().layer(context);
 
     let req = Request::builder()
         .method(Method::GET)
@@ -65,7 +69,7 @@ async fn jwt_default() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
-async fn jwt_header() -> anyhow::Result<()> {
+async fn jwt_header() -> Result<(), Box<dyn Error>> {
     let context = JwtContext::builder()
         .jwt_secret(JWT_SECRET)
         .extract_header("x-api-token")
@@ -76,7 +80,7 @@ async fn jwt_header() -> anyhow::Result<()> {
         exp: get_current_timestamp() + 1000,
     })?;
 
-    let mut router = test_router().with_auth(context);
+    let mut router = test_router().layer(context);
 
     let req = Request::builder()
         .method(Method::GET)
@@ -91,7 +95,7 @@ async fn jwt_header() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
-async fn jwt_header_with_prefix() -> anyhow::Result<()> {
+async fn jwt_header_with_prefix() -> Result<(), Box<dyn Error>> {
     let context = JwtContext::builder()
         .jwt_secret(JWT_SECRET)
         .extract_header_with_prefix("x-api-token", "Bearer ")
@@ -102,7 +106,7 @@ async fn jwt_header_with_prefix() -> anyhow::Result<()> {
         exp: get_current_timestamp() + 1000,
     })?;
 
-    let mut router = test_router().with_auth(context);
+    let mut router = test_router().layer(context);
 
     let req = Request::builder()
         .method(Method::GET)
@@ -117,7 +121,10 @@ async fn jwt_header_with_prefix() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
+#[cfg(feature = "cookie")]
 async fn jwt_cookie() -> anyhow::Result<()> {
+    use axum::http::header::COOKIE;
+
     let context = JwtContext::builder()
         .jwt_secret(JWT_SECRET)
         .extract_cookie("session-cookie")
@@ -128,7 +135,7 @@ async fn jwt_cookie() -> anyhow::Result<()> {
         exp: get_current_timestamp() + 1000,
     })?;
 
-    let mut router = test_router().with_auth(context);
+    let mut router = test_router().layer(context);
 
     let req = Request::builder()
         .method(Method::GET)
@@ -155,7 +162,7 @@ async fn jwt_default_method_router() -> anyhow::Result<()> {
 
     let mut router = Router::new()
         .route("/", get(|| async move { StatusCode::OK }))
-        .route("/auth", get(authorized).with_auth(jwt_context));
+        .route("/auth", get(authorized).layer(jwt_context));
 
     let req = Request::builder()
         .method(Method::GET)

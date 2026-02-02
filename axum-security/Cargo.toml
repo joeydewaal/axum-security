@@ -4,7 +4,7 @@ version = "0.0.1"
 edition = "2024"
 
 [features]
-cookie = ["dep:cookie-monster"]
+cookie = ["dep:cookie-monster", "dep:uuid"]
 jwt = ["dep:jsonwebtoken"]
 oauth2 = ["dep:oauth2", "cookie"]
 rbac = ["dep:axum-security-macros"]
@@ -15,8 +15,8 @@ time = ["cookie-monster?/time"]
 
 
 [dependencies]
-axum = { version = "0.8", features = ["macros" ]}
-tokio = { version = "1.0", features = ["full"]}
+axum = { version = "0.8", features = ["tokio"],  default-features = false }
+tokio = { version = "1.0", features = ["full"] }
 tower = "0.5"
 
 cookie-monster = { path = "../../cookie-monster", features = ["axum"], optional = true }
@@ -24,7 +24,7 @@ jsonwebtoken = { version = "10.2.0", features = ["aws_lc_rs"], optional = true }
 
 anyhow = "1.0.100"
 
-uuid = { version = "1.18.1", features = ["v7"] }
+uuid = { version = "1.18.1", features = ["v7"], optional = true }
 
 oauth2 = { version = "5.0.0", features = ["reqwest", "rustls-tls"], default-features = false, optional = true }
 
@@ -33,8 +33,8 @@ serde = { version = "1.0.228", features = ["derive"] }
 axum-security-macros = { path = "../axum-security-macros", optional = true }
 
 [dev-dependencies]
-axum = { version = "0.8.6", features = ["macros" ]}
-tokio = { version = "1.0", features = ["full"]}
+axum = { version = "0.8.8", features = ["macros"] }
+tokio = { version = "1.0", features = ["full"] }
 serde = { version = "1.0.228", features = ["derive"] }
 sqlx = { version = "0.9.0-alpha.1", features = ["sqlite"] }
 

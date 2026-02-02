@@ -6,9 +6,11 @@ use axum::{
     routing::get,
 };
 use axum_security::{
-    RouterExt,
     cookie::{CookieContext, CookieSession, MemStore},
-    oauth2::{AfterLoginContext, OAuth2Context, OAuth2Handler, TokenResponse, providers::github},
+    oauth2::{
+        AfterLoginContext, OAuth2Context, OAuth2Ext, OAuth2Handler, TokenResponse,
+        providers::github,
+    },
 };
 use jiff::Timestamp;
 use reqwest::{Client, StatusCode, header::USER_AGENT};
@@ -65,7 +67,11 @@ impl OAuth2Handler for LoginHandler {
         };
 
         // Create a new session for the user.
-        let session_cookie = self.cookie_service.create_session(user).await.unwrap();
+        let session_cookie = self
+            .cookie_service
+            .create_session(user)
+            .await
+            .expect("MemStore doesn't return an error");
 
         // Make sure to add the session cookie to the cookiejar.
         context.cookies.add(session_cookie);
@@ -96,8 +102,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .token_url(github::TOKEN_URL)
         .client_id_env("CLIENT_ID")
         .client_secret_env("CLIENT_SECRET")
+        // Where the app is redirected to after login in.
         .redirect_uri("http://localhost:3000/redirect")
+        // Where the user should go to to start the login flow.
         .login_path("/login")
+        // e
         .cookie(|c| c.path("/login"))
         .dev(true)
         .store(MemStore::new())
@@ -106,7 +115,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let router = Router::new()
         .route("/me", get(authorized))
         .layer(cookie_service)
-        .with_auth(oauth2_service);
+        .with_oauth2(oauth2_service);
 
     let listener = TcpListener::bind("0.0.0.0:3000").await?;
 

@@ -1,8 +1,8 @@
 mod builder;
-mod inject;
+mod service;
 mod session;
 
-pub use builder::{JwtContext, JwtContextBuilder};
+pub use builder::{JwtBuilderError, JwtContext, JwtContextBuilder};
 pub use session::Jwt;
 
-pub use jsonwebtoken::{Header, Validation, get_current_timestamp};
+pub use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation, get_current_timestamp};

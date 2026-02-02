@@ -1,36 +1,10 @@
-use std::{
-    convert::Infallible,
-    task::{Context, Poll},
-};
+use std::task::{Context, Poll};
 
-use axum::{Router, extract::Request, routing::MethodRouter};
+use axum::extract::Request;
 use serde::de::DeserializeOwned;
 use tower::{Layer, Service};
 
-use crate::{
-    jwt::{Jwt, JwtContext},
-    router_ext::AuthInjector,
-};
-
-impl<T, S> AuthInjector<Router<S>> for JwtContext<T>
-where
-    S: Send + Sync + Clone + 'static,
-    T: DeserializeOwned + Send + Sync + 'static + Clone,
-{
-    fn inject_into(self, router: Router<S>) -> axum::Router<S> {
-        router.layer(self)
-    }
-}
-
-impl<T, S> AuthInjector<MethodRouter<S, Infallible>> for JwtContext<T>
-where
-    S: Send + Sync + Clone + 'static,
-    T: DeserializeOwned + Send + Sync + 'static + Clone,
-{
-    fn inject_into(self, router: MethodRouter<S, Infallible>) -> MethodRouter<S, Infallible> {
-        router.layer(self)
-    }
-}
+use crate::jwt::{Jwt, JwtContext};
 
 pub struct JwtService<T, SERV> {
     inner: JwtContext<T>,

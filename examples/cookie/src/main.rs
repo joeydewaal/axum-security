@@ -72,11 +72,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .dev_cookie(|c| c.name("dev-session"))
         // Enable dev cookie when we are using the debug profile.
         .enable_dev_cookie(cfg!(debug_assertions))
-        // Store the cookies in memory for now.
+        // Store the cookies in memory for now. You should not use this in a production scenario.
         .store(MemStore::new())
         // A sessions expires at the same time as the max age setting of the cookie that is used.
         .expires_max_age()
-        // A User is connected to a session.
+        // A `User` is connected to a session.
         .build::<User>();
 
     // The cookie service is also used as state to create cookies.
@@ -86,6 +86,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .route("/me", get(authorized))
         .route("/login", get(login))
         .route("/logout", get(logout))
+        // Inject the cookie service into this router.
         .layer(cookie_service)
         .with_state(state);
 

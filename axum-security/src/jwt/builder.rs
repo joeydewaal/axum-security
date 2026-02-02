@@ -6,16 +6,10 @@ use serde::{Serialize, de::DeserializeOwned};
 
 use crate::utils::get_env;
 
-static BEARER_PREFIX: &str = "Bearer ";
-static EMPTY_PREFIX: &str = "";
+static PREFIX_BEARER: &str = "Bearer ";
+static PREFIX_NONE: &str = "";
 
 pub struct JwtContext<T>(Arc<JwtContextInner<T>>);
-
-impl<T> Clone for JwtContext<T> {
-    fn clone(&self) -> Self {
-        JwtContext(self.0.clone())
-    }
-}
 
 struct JwtContextInner<T> {
     encoding_key: EncodingKey,
@@ -43,12 +37,12 @@ impl<T: DeserializeOwned> JwtContext<T> {
         decode(jwt.as_ref(), &self.0.decoding_key, &self.0.validation)
     }
 
-    pub fn decode_from_headers(&self, headers: &HeaderMap) -> Option<T> {
+    pub(crate) fn decode_from_headers(&self, headers: &HeaderMap) -> Option<T> {
         let result = match &self.0.extract {
             #[cfg(feature = "cookie")]
-            ExtractFrom::Cookie(cow) => {
+            ExtractFrom::Cookie(cookie_name) => {
                 let jar = cookie_monster::CookieJar::from_headers(headers);
-                let cookie = jar.get(cow)?;
+                let cookie = jar.get(cookie_name)?;
 
                 self.decode(cookie.value())
             }
@@ -64,7 +58,7 @@ impl<T: DeserializeOwned> JwtContext<T> {
     }
 }
 
-pub fn jwt_from_header_value<'a>(header: &'a str, prefix: &str) -> Option<&'a str> {
+fn jwt_from_header_value<'a>(header: &'a str, prefix: &str) -> Option<&'a str> {
     let prefix_len = prefix.len();
 
     if header.len() < prefix_len {
@@ -99,7 +93,7 @@ impl JwtContextBuilder {
             decoding_key: None,
             jwt_header: Header::default(),
             validation: Validation::default(),
-            extract: ExtractFrom::header_with_prefix(AUTHORIZATION, BEARER_PREFIX),
+            extract: ExtractFrom::header_with_prefix(AUTHORIZATION, PREFIX_BEARER),
         }
     }
 
@@ -139,7 +133,8 @@ impl JwtContextBuilder {
         prefix: impl Into<Cow<'static, str>>,
     ) -> Self {
         self.extract = ExtractFrom::header_with_prefix(
-            HeaderName::from_bytes(header.as_ref()).unwrap(),
+            HeaderName::from_bytes(header.as_ref())
+                .expect("header value contains invalid characters"),
             prefix.into(),
         );
         self
@@ -147,8 +142,9 @@ impl JwtContextBuilder {
 
     pub fn extract_header(mut self, header: impl AsRef<str>) -> Self {
         self.extract = ExtractFrom::header_with_prefix(
-            HeaderName::from_bytes(header.as_ref().as_bytes()).unwrap(),
-            EMPTY_PREFIX,
+            HeaderName::from_bytes(header.as_ref().as_bytes())
+                .expect("header value contains invalid characters"),
+            PREFIX_NONE,
         );
         self
     }
@@ -159,16 +155,34 @@ impl JwtContextBuilder {
         self
     }
 
-    pub fn build<T>(self) -> JwtContext<T> {
-        JwtContext(Arc::new(JwtContextInner {
-            encoding_key: self.encoding_key.unwrap(),
-            decoding_key: self.decoding_key.unwrap(),
+    pub fn try_build<T>(self) -> Result<JwtContext<T>, JwtBuilderError> {
+        let encoding_key = self
+            .encoding_key
+            .ok_or_else(|| JwtBuilderError::EncodingKeyMissing)?;
+
+        let decoding_key = self
+            .decoding_key
+            .ok_or_else(|| JwtBuilderError::DecodingKeyMissing)?;
+
+        Ok(JwtContext(Arc::new(JwtContextInner {
+            encoding_key,
+            decoding_key,
             jwt_header: self.jwt_header,
             validation: self.validation,
             extract: self.extract,
             data: PhantomData,
-        }))
+        })))
     }
+
+    pub fn build<T>(self) -> JwtContext<T> {
+        self.try_build().unwrap()
+    }
+}
+
+#[derive(Debug)]
+pub enum JwtBuilderError {
+    EncodingKeyMissing,
+    DecodingKeyMissing,
 }
 
 pub(crate) enum ExtractFrom {
@@ -191,5 +205,34 @@ impl ExtractFrom {
             header,
             prefix: prefix.into(),
         }
+    }
+}
+
+impl<T> Clone for JwtContext<T> {
+    fn clone(&self) -> Self {
+        JwtContext(self.0.clone())
+    }
+}
+
+#[cfg(test)]
+mod jwt_builder {
+    use crate::jwt::{DecodingKey, EncodingKey, JwtBuilderError, JwtContext};
+
+    #[test]
+    fn encoding_key_missing() {
+        let result = JwtContext::builder()
+            .decoding_key(DecodingKey::from_secret(b"test"))
+            .try_build::<()>();
+
+        assert!(matches!(result, Err(JwtBuilderError::EncodingKeyMissing)));
+    }
+
+    #[test]
+    fn decoding_key_missing() {
+        let result = JwtContext::builder()
+            .encoding_key(EncodingKey::from_secret(b"test"))
+            .try_build::<()>();
+
+        assert!(matches!(result, Err(JwtBuilderError::DecodingKeyMissing)));
     }
 }

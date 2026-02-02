@@ -8,6 +8,7 @@ pub mod providers;
 pub(crate) use callback::{callback, start_login};
 pub use context::OAuth2Context;
 pub use handler::{AfterLoginContext, OAuth2Handler, TokenResponse};
+pub use inject::OAuth2Ext;
 
 use ::oauth2::{CsrfToken, PkceCodeVerifier};
 

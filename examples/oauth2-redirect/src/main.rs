@@ -1,3 +1,5 @@
+use std::error::Error;
+
 use axum::{
     Json, Router,
     extract::{Query, State},
@@ -6,25 +8,14 @@ use axum::{
     serve,
 };
 use axum_security::{
-    RouterExt,
     cookie::{CookieContext, CookieSession, MemStore},
     oauth2::{
-        AfterLoginContext, OAuth2Context, OAuth2Handler, OAuthState, TokenResponse,
+        AfterLoginContext, OAuth2Context, OAuth2Ext, OAuth2Handler, OAuthState, TokenResponse,
         providers::github,
     },
 };
 use serde::{Deserialize, Serialize};
 use tokio::net::TcpListener;
-
-struct OAuth2Backend {
-    session: CookieContext<MemStore<User>>,
-}
-
-impl OAuth2Backend {
-    pub fn new(session: CookieContext<MemStore<User>>) -> Self {
-        OAuth2Backend { session }
-    }
-}
 
 #[derive(Serialize, Clone)]
 struct User {
@@ -35,6 +26,10 @@ struct User {
 #[derive(Deserialize)]
 struct NextUrl {
     after_login: Option<String>,
+}
+
+async fn authorized(user: CookieSession<User>) -> Json<User> {
+    Json(user.state)
 }
 
 async fn login(
@@ -48,6 +43,16 @@ async fn login(
     let res = oauth.start_challenge().await;
 
     (cookie, res)
+}
+
+struct OAuth2Backend {
+    session: CookieContext<MemStore<User>>,
+}
+
+impl OAuth2Backend {
+    pub fn new(session: CookieContext<MemStore<User>>) -> Self {
+        OAuth2Backend { session }
+    }
 }
 
 impl OAuth2Handler for OAuth2Backend {
@@ -79,8 +84,8 @@ impl OAuth2Handler for OAuth2Backend {
     }
 }
 
-#[tokio::test]
-async fn test1() -> anyhow::Result<()> {
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn Error>> {
     let session = CookieContext::builder()
         .enable_dev_cookie(true)
         .store(MemStore::new())
@@ -101,13 +106,9 @@ async fn test1() -> anyhow::Result<()> {
         .route("/", get(|_u: CookieSession<User>| async { "hello world" }))
         .route("/authorized", get(authorized))
         .route("/login", get(login))
-        .with_auth(&context)
-        .with_auth(session)
+        .with_oauth2(context.clone())
+        .layer(session)
         .with_state(context);
-
-    async fn authorized(user: CookieSession<User>) -> Json<User> {
-        Json(user.state)
-    }
 
     let listener = TcpListener::bind("0.0.0.0:8081").await?;
 

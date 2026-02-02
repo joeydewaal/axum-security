@@ -9,7 +9,8 @@ pub fn get_env(name: &str) -> String {
         .unwrap()
 }
 
-pub fn utc_now_sec() -> Duration {
+#[allow(unused)]
+pub fn utc_now() -> Duration {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .expect("time went backwards")

@@ -1,3 +1,3 @@
 [workspace]
 resolver = "3"
-members = ["axum-security", "axum-security-macros", "examples/cookie", "examples/jwt", "examples/oauth2", "examples/rbac"]
+members = ["axum-security", "axum-security-macros", "examples/cookie", "examples/jwt", "examples/oauth2", "examples/oauth2-redirect", "examples/rbac", "examples/store"]
