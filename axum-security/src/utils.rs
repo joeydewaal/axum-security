@@ -16,3 +16,7 @@ pub fn utc_now() -> Duration {
         .duration_since(UNIX_EPOCH)
         .expect("time went backwards")
 }
+#[allow(unused)]
+pub fn utc_now_secs() -> u64 {
+    utc_now().as_secs()
+}

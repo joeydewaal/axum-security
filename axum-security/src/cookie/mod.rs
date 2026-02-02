@@ -14,12 +14,14 @@ pub use session::CookieSession;
 pub use store::{CookieStore, MemStore};
 
 pub use cookie_monster::{Cookie, CookieBuilder, CookieJar, Error, Expires, SameSite};
+use tokio::task::JoinHandle;
 
-pub struct CookieContext<S>(Arc<CookieContextInner<S>>);
+pub struct CookieContext<S>(pub(super) Arc<CookieContextInner<S>>);
 
 struct CookieContextInner<S> {
-    store: S,
+    store: Arc<S>,
     cookie_opts: CookieBuilder,
+    pub(super) handle: Option<JoinHandle<()>>,
 }
 
 impl CookieContext<()> {
@@ -60,7 +62,7 @@ impl<S: CookieStore> CookieContext<S> {
         &self.0.cookie_opts
     }
 
-    pub async fn remove_after(&self, deadline: u64) -> Result<(), <S as CookieStore>::Error> {
+    pub async fn remove_before(&self, deadline: u64) -> Result<(), <S as CookieStore>::Error> {
         self.0.store.remove_before(deadline).await
     }
 
@@ -89,10 +91,30 @@ impl<S: CookieStore> CookieContext<S> {
 
         Some(SessionId::from_cookie(cookie))
     }
+
+    pub async fn load_from_cookie(
+        &self,
+        cookie: &Cookie,
+    ) -> Result<Option<CookieSession<S::State>>, S::Error> {
+        let session_id = SessionId::from_cookie(cookie);
+
+        self.0.store.load_session(&session_id).await
+    }
 }
 
 impl<S> Clone for CookieContext<S> {
     fn clone(&self) -> Self {
         CookieContext(self.0.clone())
+    }
+}
+
+impl<S> Drop for CookieContextInner<S> {
+    fn drop(&mut self) {
+        // Make sure to cancel the bg task if the cookie context is dropped. This is only
+        // implemented for the Inner type because we don't to cancel the task if a weak reference
+        // is dropped.
+        if let Some(handle) = &self.handle {
+            handle.abort();
+        }
     }
 }

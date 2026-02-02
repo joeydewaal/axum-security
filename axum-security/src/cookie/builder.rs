@@ -87,21 +87,26 @@ impl<S> CookieSessionBuilder<S> {
             SessionExpiry::Duration(duration) => duration,
         });
 
+        let store = Arc::new(self.store);
+
+        let handle = if let Some(expiry) = session_expiry
+            && store.spawn_maintenance_task()
+        {
+            let this = store.clone();
+            Some(tokio::spawn(super::expiry::maintenance_task(this, expiry)))
+        } else {
+            None
+        };
+
         let cookie_context = CookieContext(Arc::new(CookieContextInner {
-            store: self.store,
+            store,
             cookie_opts: if self.dev {
                 self.dev_cookie
             } else {
                 self.cookie
             },
+            handle,
         }));
-
-        if let Some(expiry) = session_expiry
-            && cookie_context.0.store.spawn_maintenance_task()
-        {
-            let this = cookie_context.clone();
-            tokio::spawn(super::expiry::maintenance_task(this, expiry));
-        }
 
         cookie_context
     }
