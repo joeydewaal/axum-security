@@ -57,9 +57,66 @@ impl<S: Send + Sync + Clone + 'static> CookieStore for MemStore<S> {
         Ok(lock.get(id).cloned())
     }
 
-    async fn remove_after(&self, deadline: u64) -> Result<(), Self::Error> {
+    async fn remove_before(&self, deadline: u64) -> Result<(), Self::Error> {
         let mut lock = self.inner.write().await;
-        lock.retain(|_, v| v.created_at < deadline);
+        lock.retain(|_, v| v.created_at >= deadline);
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod mem_store {
+    use crate::cookie::{CookieSession, CookieStore, MemStore, SessionId};
+
+    #[tokio::test]
+    async fn create() {
+        let store = MemStore::<i32>::new();
+
+        let session_id = SessionId::new_uuid_v7();
+        let created_at = 100;
+        let value = 1;
+
+        let session = CookieSession::new(session_id.clone(), created_at, value);
+
+        store.store_session(session).await.unwrap();
+
+        let session = store
+            .load_session(&session_id)
+            .await
+            .unwrap()
+            .expect("session to be created");
+
+        assert!(session.created_at == created_at);
+        assert!(session.state == value);
+
+        let session = store
+            .remove_session(&session_id)
+            .await
+            .unwrap()
+            .expect("session should exists");
+
+        assert!(session.created_at == created_at);
+        assert!(session.state == value);
+
+        let session = store.load_session(&session_id).await.unwrap();
+        assert!(session.is_none());
+    }
+
+    #[tokio::test]
+    async fn remove() {
+        let store = MemStore::<i32>::new();
+
+        let session_id = SessionId::new_uuid_v7();
+        let created_at = 100;
+        let value = 1;
+
+        let session = CookieSession::new(session_id.clone(), created_at, value);
+
+        store.store_session(session).await.unwrap();
+
+        store.remove_before(101).await;
+
+        let session = store.load_session(&session_id).await.unwrap();
+        assert!(session.is_none());
     }
 }

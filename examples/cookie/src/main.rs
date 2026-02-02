@@ -71,7 +71,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         // The cookie that is used in dev mode.
         .dev_cookie(|c| c.name("dev-session"))
         // Enable dev cookie when we are using the debug profile.
-        .enable_dev_cookie(cfg!(debug_assertions))
+        .use_dev_cookie(cfg!(debug_assertions))
         // Store the cookies in memory for now. You should not use this in a production scenario.
         .store(MemStore::new())
         // A sessions expires at the same time as the max age setting of the cookie that is used.

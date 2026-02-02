@@ -144,7 +144,7 @@ impl CookieStore for SqlxStore {
         Ok(user.map(|u| CookieSession::new(u.session_id, u.created_at, u.user)))
     }
 
-    async fn remove_after(&self, deadline: u64) -> sqlx::Result<()> {
+    async fn remove_before(&self, deadline: u64) -> sqlx::Result<()> {
         sqlx::query("DELETE FROM user_sessions WHERE created_at < $1")
             .bind(deadline as i64)
             .execute(&self.pool)
@@ -159,7 +159,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     };
 
     let session = CookieContext::builder()
-        .enable_dev_cookie(true)
+        .use_dev_cookie(true)
         .store(store)
         .build::<User>();
 

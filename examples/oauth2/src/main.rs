@@ -108,7 +108,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .login_path("/login")
         // e
         .cookie(|c| c.path("/login"))
-        .dev(true)
+        .use_dev_cookies(true)
         .store(MemStore::new())
         .build(handler);
 

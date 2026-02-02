@@ -1,91 +1,8 @@
-use std::{borrow::Cow, sync::Arc, time::Duration};
+use std::{sync::Arc, time::Duration};
 
-use axum::http::HeaderMap;
-use cookie_monster::{Cookie, CookieBuilder, CookieJar, SameSite};
+use cookie_monster::{Cookie, CookieBuilder, SameSite};
 
-use crate::cookie::{CookieSession, CookieStore, SessionId, expiry::SessionExpiry};
-
-pub struct CookieContext<S>(Arc<CookieContextInner<S>>);
-
-impl<S> Clone for CookieContext<S> {
-    fn clone(&self) -> Self {
-        CookieContext(self.0.clone())
-    }
-}
-
-struct CookieContextInner<S> {
-    store: S,
-    cookie_opts: CookieBuilder,
-}
-
-impl CookieContext<()> {
-    pub fn builder() -> CookieSessionBuilder<()> {
-        CookieSessionBuilder::new()
-    }
-}
-
-impl<S: CookieStore> CookieContext<S> {
-    pub fn get_cookie(&self, session_id: SessionId) -> Cookie {
-        self.0.cookie_opts.clone().value(session_id).build()
-    }
-
-    pub(crate) async fn load_from_headers(
-        &self,
-        headers: &HeaderMap,
-    ) -> Result<Option<CookieSession<S::State>>, S::Error> {
-        let cookies = CookieJar::from_headers(headers);
-
-        self.load_from_jar(&cookies).await
-    }
-
-    pub(crate) async fn load_from_jar(
-        &self,
-        cookies: &CookieJar,
-    ) -> Result<Option<CookieSession<S::State>>, S::Error> {
-        let Some(session_id) = self.session_id_from_jar(cookies) else {
-            return Ok(None);
-        };
-
-        self.0.store.load_session(&session_id).await
-    }
-
-    pub async fn create_session(
-        &self,
-        state: <S as CookieStore>::State,
-    ) -> Result<Cookie, S::Error> {
-        let session_id = self.0.store.create_session(state).await?;
-        Ok(self.get_cookie(session_id))
-    }
-
-    pub async fn remove_session(
-        &self,
-        jar: &CookieJar,
-    ) -> Result<Option<CookieSession<<S as CookieStore>::State>>, S::Error> {
-        let Some(session_id) = self.session_id_from_jar(jar) else {
-            return Ok(None);
-        };
-
-        self.0.store.remove_session(&session_id).await
-    }
-
-    pub(crate) fn session_id_from_jar(&self, jar: &CookieJar) -> Option<SessionId> {
-        let cookie = jar.get(self.0.cookie_opts.get_name())?;
-
-        Some(SessionId::from_cookie(cookie))
-    }
-
-    pub fn build_cookie(&self, name: impl Into<Cow<'static, str>>) -> CookieBuilder {
-        self.0.cookie_opts.clone().name(name)
-    }
-
-    pub fn cookie_builder(&self) -> &CookieBuilder {
-        &self.0.cookie_opts
-    }
-
-    pub async fn remove_after(&self, deadline: u64) -> Result<(), <S as CookieStore>::Error> {
-        self.0.store.remove_after(deadline).await
-    }
-}
+use crate::cookie::{CookieContext, CookieContextInner, CookieStore, expiry::SessionExpiry};
 
 static DEFAULT_SESSION_COOKIE_NAME: &str = "session";
 
@@ -103,7 +20,7 @@ impl CookieSessionBuilder<()> {
             store: (),
             dev: false,
             expiry: None,
-            // Make sure to use the / as path so all paths can see the cookie in dev mode.
+            // Make sure to use "/" as path so all paths can see the cookie in dev mode.
             dev_cookie: Cookie::named(DEFAULT_SESSION_COOKIE_NAME).path("/"),
             cookie: Cookie::named(DEFAULT_SESSION_COOKIE_NAME)
                 .same_site(SameSite::Strict)
@@ -115,22 +32,22 @@ impl CookieSessionBuilder<()> {
 
 impl<S> CookieSessionBuilder<S> {
     pub fn cookie(mut self, f: impl FnOnce(CookieBuilder) -> CookieBuilder) -> Self {
-        self.cookie = f(self.cookie);
+        self.cookie = f(Cookie::named(DEFAULT_SESSION_COOKIE_NAME));
         self
     }
 
     pub fn dev_cookie(mut self, f: impl FnOnce(CookieBuilder) -> CookieBuilder) -> Self {
-        self.dev_cookie = f(self.dev_cookie);
+        self.dev_cookie = f(Cookie::named(DEFAULT_SESSION_COOKIE_NAME));
         self
     }
 
-    pub fn enable_dev_cookie(mut self, dev: bool) -> Self {
+    pub fn use_dev_cookie(mut self, dev: bool) -> Self {
         self.dev = dev;
         self
     }
 
-    pub fn disable_dev_cookie(self, prod: bool) -> Self {
-        self.enable_dev_cookie(!prod)
+    pub fn use_normal_cookie(self, prod: bool) -> Self {
+        self.use_dev_cookie(!prod)
     }
 
     pub fn expires_max_age(mut self) -> Self {
@@ -187,5 +104,84 @@ impl<S> CookieSessionBuilder<S> {
         }
 
         cookie_context
+    }
+}
+
+#[cfg(test)]
+mod cookie {
+    use cookie_monster::CookieJar;
+
+    use crate::cookie::{CookieContext, MemStore};
+
+    #[derive(Clone)]
+    struct User {
+        id: i32,
+    }
+
+    #[tokio::test]
+    async fn create() {
+        let cookie_context = CookieContext::builder()
+            .store(MemStore::new())
+            .build::<User>();
+
+        let test_user = User { id: 1 };
+        let test_user_id = test_user.id;
+
+        let cookie = cookie_context.create_session(test_user).await.unwrap();
+
+        let mut jar = CookieJar::new();
+        jar.add(cookie);
+
+        let user = cookie_context.load_from_jar(&jar).await.unwrap();
+
+        assert!(user.is_some());
+        assert!(test_user_id == user.unwrap().id);
+    }
+
+    #[tokio::test]
+    async fn delete() {
+        let cookie_context = CookieContext::builder()
+            .store(MemStore::new())
+            .build::<User>();
+
+        let test_user = User { id: 1 };
+        let test_user_id = test_user.id;
+
+        let cookie = cookie_context.create_session(test_user).await.unwrap();
+
+        let mut jar = CookieJar::new();
+        jar.add(cookie);
+
+        let user = cookie_context.remove_session(&jar).await.unwrap();
+
+        assert!(user.is_some());
+        assert!(test_user_id == user.unwrap().id);
+
+        let after = cookie_context.load_from_jar(&jar).await.unwrap();
+        assert!(after.is_none());
+    }
+
+    #[tokio::test]
+    async fn defaults() {
+        let cookie = CookieContext::builder()
+            .store(MemStore::new())
+            .cookie(|c| c.name("test"))
+            .build::<()>()
+            .create_session(())
+            .await
+            .unwrap();
+
+        assert!(cookie.name() == "test");
+
+        let cookie = CookieContext::builder()
+            .store(MemStore::new())
+            .dev_cookie(|c| c.name("test"))
+            .use_dev_cookie(true)
+            .build::<()>()
+            .create_session(())
+            .await
+            .unwrap();
+
+        assert!(cookie.name() == "test");
     }
 }

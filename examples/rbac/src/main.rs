@@ -55,7 +55,7 @@ async fn admin_only(cookie: CookieSession<User>) -> String {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     let cookie_service = CookieContext::builder()
-        .enable_dev_cookie(true)
+        .use_dev_cookie(true)
         .dev_cookie(|c| c.name("rbac-cookie"))
         .store(MemStore::new())
         .build::<User>();

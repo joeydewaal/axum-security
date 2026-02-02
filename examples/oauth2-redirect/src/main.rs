@@ -87,7 +87,7 @@ impl OAuth2Handler for OAuth2Backend {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     let session = CookieContext::builder()
-        .enable_dev_cookie(true)
+        .use_dev_cookie(true)
         .store(MemStore::new())
         .build();
 
@@ -98,7 +98,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .token_url(github::TOKEN_URL)
         .auth_url(github::AUTH_URL)
         .cookie(|c| c.path("/login"))
-        .dev(true)
+        .use_dev_cookies(true)
         .store(MemStore::new())
         .build(OAuth2Backend::new(session.clone()));
 

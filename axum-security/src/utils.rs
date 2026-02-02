@@ -3,7 +3,8 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-pub fn get_env(name: &str) -> String {
+#[allow(unused)]
+pub(crate) fn get_env(name: &str) -> String {
     env::var(name)
         .map_err(|_| format!("env: {name} does not exist"))
         .unwrap()

@@ -43,5 +43,5 @@ pub trait CookieStore: Send + Sync + 'static {
         id: &SessionId,
     ) -> impl Future<Output = Result<Option<CookieSession<Self::State>>, Self::Error>> + Send;
 
-    fn remove_after(&self, deadline: u64) -> impl Future<Output = Result<(), Self::Error>> + Send;
+    fn remove_before(&self, deadline: u64) -> impl Future<Output = Result<(), Self::Error>> + Send;
 }

@@ -122,7 +122,7 @@ async fn jwt_header_with_prefix() -> Result<(), Box<dyn Error>> {
 
 #[tokio::test]
 #[cfg(feature = "cookie")]
-async fn jwt_cookie() -> anyhow::Result<()> {
+async fn jwt_cookie() -> Result<(), Box<dyn Error>> {
     use axum::http::header::COOKIE;
 
     let context = JwtContext::builder()
@@ -150,7 +150,7 @@ async fn jwt_cookie() -> anyhow::Result<()> {
 }
 
 #[tokio::test]
-async fn jwt_default_method_router() -> anyhow::Result<()> {
+async fn jwt_default_method_router() -> Result<(), Box<dyn Error>> {
     let jwt_context = JwtContext::builder()
         .jwt_secret(JWT_SECRET)
         .build::<AccessToken>();

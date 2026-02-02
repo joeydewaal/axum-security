@@ -1,7 +1,5 @@
 // #![allow(unused)]
 
-type Result<O, E = anyhow::Error> = ::std::result::Result<O, E>;
-
 #[cfg(feature = "oauth2")]
 pub mod oauth2;
 

@@ -3,7 +3,7 @@ use std::borrow::Cow;
 use cookie_monster::Cookie;
 use uuid::Uuid;
 
-#[derive(Hash, Clone, PartialEq, Eq)]
+#[derive(Debug, Hash, Clone, PartialEq, Eq)]
 pub struct SessionId(String);
 
 impl SessionId {

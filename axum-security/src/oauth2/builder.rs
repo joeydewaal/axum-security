@@ -1,8 +1,9 @@
 use std::{borrow::Cow, sync::Arc};
 
-use anyhow::Context;
 use cookie_monster::{Cookie, CookieBuilder, SameSite};
-use oauth2::{AuthUrl, Client, ClientId, ClientSecret, RedirectUrl, Scope, TokenUrl};
+use oauth2::{
+    AuthUrl, Client, ClientId, ClientSecret, RedirectUrl, Scope, TokenUrl, reqwest::Client, url,
+};
 
 use crate::{
     cookie::{CookieContext, CookieSessionBuilder, CookieStore},
@@ -22,11 +23,12 @@ pub struct OAuth2ContextBuilder<S> {
     scopes: Vec<Scope>,
     auth_url: Option<String>,
     token_url: Option<String>,
+    http_client: Client,
 }
 
 impl<S> OAuth2ContextBuilder<S> {
     pub fn new(store: S) -> OAuth2ContextBuilder<S> {
-        // Make sure to use the / as path so all paths can see the cookie in dev mode.
+        // Make sure to use "/" as path so all paths can see the cookie in dev mode.
         let dev_cookie = Cookie::named(DEFAULT_COOKIE_NAME).path("/");
 
         let cookie = Cookie::named(DEFAULT_COOKIE_NAME)
@@ -46,6 +48,7 @@ impl<S> OAuth2ContextBuilder<S> {
             scopes: Vec::new(),
             auth_url: None,
             token_url: None,
+            http_client: default_reqwest_client(),
         }
     }
 
@@ -114,13 +117,13 @@ impl<S> OAuth2ContextBuilder<S> {
         self
     }
 
-    pub fn dev(mut self, dev: bool) -> Self {
-        self.session = self.session.enable_dev_cookie(dev);
+    pub fn use_dev_cookies(mut self, dev: bool) -> Self {
+        self.session = self.session.use_dev_cookie(dev);
         self
     }
 
-    pub fn prod(self, prod: bool) -> Self {
-        self.dev(!prod)
+    pub fn use_normal_cookies(self, prod: bool) -> Self {
+        self.use_dev_cookies(!prod)
     }
 
     pub fn store<S1>(self, store: S1) -> OAuth2ContextBuilder<S1> {
@@ -133,6 +136,7 @@ impl<S> OAuth2ContextBuilder<S> {
             scopes: self.scopes,
             auth_url: self.auth_url,
             token_url: self.token_url,
+            http_client: self.http_client,
         }
     }
 
@@ -143,17 +147,38 @@ impl<S> OAuth2ContextBuilder<S> {
         self.try_build(inner).unwrap()
     }
 
-    pub fn try_build<T>(self, inner: T) -> crate::Result<OAuth2Context<T, S>>
+    pub fn try_build<T>(self, inner: T) -> Result<OAuth2Context<T, S>, OAuth2BuilderError>
     where
         S: CookieStore<State = OAuthState>,
     {
-        let mut basic_client =
-            Client::new(ClientId::new(self.client_id.context("client id missing")?))
-                .set_redirect_uri(RedirectUrl::new(
-                    self.redirect_url.context("redirect url mmissing")?,
-                )?)
-                .set_auth_uri(AuthUrl::new(self.auth_url.context("auth uri missing")?)?)
-                .set_token_uri(TokenUrl::new(self.token_url.context("token uri missing")?)?);
+        let client_id = self
+            .client_id
+            .ok_or_else(|| OAuth2BuilderError::MissingClientId)
+            .map(ClientId::new)?;
+
+        let redirect_url = self
+            .redirect_url
+            .ok_or_else(|| OAuth2BuilderError::MissingRedirectId)?;
+
+        let redirect_url =
+            RedirectUrl::new(redirect_url).map_err(OAuth2BuilderError::InvalidRedirectUrl)?;
+
+        let auth_url = self
+            .auth_url
+            .ok_or_else(|| OAuth2BuilderError::MissingAuthUrl)?;
+
+        let auth_url = AuthUrl::new(auth_url).map_err(OAuth2BuilderError::InvalidAuthUrl)?;
+
+        let token_url = self
+            .token_url
+            .ok_or_else(|| OAuth2BuilderError::MissingTokenUrl)?;
+
+        let token_url = TokenUrl::new(token_url).map_err(OAuth2BuilderError::InvalidTokenUrl)?;
+
+        let mut basic_client = Client::new(client_id)
+            .set_redirect_uri(redirect_url)
+            .set_auth_uri(auth_url)
+            .set_token_uri(token_url);
 
         if let Some(client_secret) = self.client_secret {
             basic_client = basic_client.set_client_secret(ClientSecret::new(client_secret));
@@ -164,8 +189,19 @@ impl<S> OAuth2ContextBuilder<S> {
             inner,
             session: self.session.build(),
             login_path: self.login_path,
-            http_client: default_reqwest_client(),
+            http_client: self.http_client,
             scopes: self.scopes,
         })))
     }
+}
+
+#[derive(Debug)]
+pub enum OAuth2BuilderError {
+    MissingClientId,
+    MissingRedirectId,
+    MissingAuthUrl,
+    MissingTokenUrl,
+    InvalidRedirectUrl(url::ParseError),
+    InvalidAuthUrl(url::ParseError),
+    InvalidTokenUrl(url::ParseError),
 }
