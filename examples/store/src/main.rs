@@ -119,7 +119,7 @@ impl CookieStore for SqlxStore {
         VALUES ($1, $2, $3)
         ",
         )
-        .bind(session.user_id)
+        .bind(session.state.user_id)
         .bind(session.session_id.as_str())
         .bind(session.created_at as i64)
         .execute(&self.pool)

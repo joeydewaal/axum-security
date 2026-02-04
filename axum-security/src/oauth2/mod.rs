@@ -5,6 +5,7 @@ mod handler;
 mod inject;
 pub mod providers;
 
+pub use builder::OAuth2BuilderError;
 pub(crate) use callback::{callback, start_login};
 pub use context::OAuth2Context;
 pub use handler::{AfterLoginContext, OAuth2Handler, TokenResponse};

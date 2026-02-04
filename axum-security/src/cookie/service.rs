@@ -14,18 +14,6 @@ pub struct CookieService<STORE, SERV> {
     rest: SERV,
 }
 
-impl<T, SERV> Clone for CookieService<T, SERV>
-where
-    SERV: Clone,
-{
-    fn clone(&self) -> Self {
-        Self {
-            inner: self.inner.clone(),
-            rest: self.rest.clone(),
-        }
-    }
-}
-
 impl<STORE, SERV> Service<Request> for CookieService<STORE, SERV>
 where
     SERV: Service<Request, Error = Infallible> + Clone + Send + 'static,
@@ -70,6 +58,18 @@ where
         CookieService {
             inner: self.clone(),
             rest: inner,
+        }
+    }
+}
+
+impl<T, SERV> Clone for CookieService<T, SERV>
+where
+    SERV: Clone,
+{
+    fn clone(&self) -> Self {
+        Self {
+            inner: self.inner.clone(),
+            rest: self.rest.clone(),
         }
     }
 }

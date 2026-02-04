@@ -3,7 +3,6 @@ use std::borrow::Cow;
 use axum::response::IntoResponse;
 use cookie_monster::{CookieBuilder, CookieJar};
 
-#[non_exhaustive]
 pub struct TokenResponse {
     pub access_token: String,
     pub refresh_token: Option<String>,

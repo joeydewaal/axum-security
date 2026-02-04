@@ -1,9 +1,10 @@
-use std::{borrow::Cow, marker::PhantomData, sync::Arc};
+use std::{borrow::Cow, error::Error, fmt::Display, marker::PhantomData, sync::Arc};
 
 use axum::http::{HeaderMap, HeaderName, header::AUTHORIZATION};
 use jsonwebtoken::{DecodingKey, EncodingKey, Header, TokenData, Validation, decode, encode};
 use serde::{Serialize, de::DeserializeOwned};
 
+use super::JwtError;
 use crate::utils::get_env;
 
 static PREFIX_BEARER: &str = "Bearer ";
@@ -33,7 +34,7 @@ impl<T: Serialize> JwtContext<T> {
 }
 
 impl<T: DeserializeOwned> JwtContext<T> {
-    pub fn decode(&self, jwt: impl AsRef<[u8]>) -> jsonwebtoken::errors::Result<TokenData<T>> {
+    pub fn decode(&self, jwt: impl AsRef<[u8]>) -> Result<TokenData<T>, JwtError> {
         decode(jwt.as_ref(), &self.0.decoding_key, &self.0.validation)
     }
 
@@ -184,6 +185,17 @@ pub enum JwtBuilderError {
     EncodingKeyMissing,
     DecodingKeyMissing,
 }
+
+impl Display for JwtBuilderError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            JwtBuilderError::EncodingKeyMissing => f.write_str("Encoding key is missing"),
+            JwtBuilderError::DecodingKeyMissing => f.write_str("Decoding key is missing"),
+        }
+    }
+}
+
+impl Error for JwtBuilderError {}
 
 pub(crate) enum ExtractFrom {
     #[cfg(feature = "cookie")]

@@ -1,4 +1,4 @@
-use std::{borrow::Cow, sync::Arc};
+use std::{borrow::Cow, error::Error, fmt::Display, sync::Arc};
 
 use cookie_monster::{Cookie, CookieBuilder, SameSite};
 use oauth2::{
@@ -53,13 +53,13 @@ impl<S> OAuth2ContextBuilder<S> {
         }
     }
 
-    pub fn redirect_uri(mut self, url: impl Into<String>) -> Self {
+    pub fn redirect_url(mut self, url: impl Into<String>) -> Self {
         self.redirect_url = Some(url.into());
         self
     }
 
     pub fn redirect_uri_env(self, name: &str) -> Self {
-        self.redirect_uri(get_env(name))
+        self.redirect_url(get_env(name))
     }
 
     pub fn client_id(mut self, client_id: impl Into<String>) -> Self {
@@ -159,7 +159,7 @@ impl<S> OAuth2ContextBuilder<S> {
 
         let redirect_url = self
             .redirect_url
-            .ok_or_else(|| OAuth2BuilderError::MissingRedirectId)?;
+            .ok_or_else(|| OAuth2BuilderError::MissingRedirectUrl)?;
 
         let redirect_url =
             RedirectUrl::new(redirect_url).map_err(OAuth2BuilderError::InvalidRedirectUrl)?;
@@ -199,10 +199,163 @@ impl<S> OAuth2ContextBuilder<S> {
 #[derive(Debug)]
 pub enum OAuth2BuilderError {
     MissingClientId,
-    MissingRedirectId,
+    MissingRedirectUrl,
     MissingAuthUrl,
     MissingTokenUrl,
     InvalidRedirectUrl(url::ParseError),
     InvalidAuthUrl(url::ParseError),
     InvalidTokenUrl(url::ParseError),
+}
+
+impl Error for OAuth2BuilderError {}
+
+impl Display for OAuth2BuilderError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            OAuth2BuilderError::MissingClientId => f.write_str("client id is missing"),
+            OAuth2BuilderError::MissingRedirectUrl => f.write_str("redirect url is missing"),
+            OAuth2BuilderError::MissingAuthUrl => f.write_str("authorization url is missing"),
+            OAuth2BuilderError::MissingTokenUrl => f.write_str("token url is missing"),
+            OAuth2BuilderError::InvalidRedirectUrl(parse_error) => {
+                write!(f, "could not parse redirect url: {}", parse_error)
+            }
+            OAuth2BuilderError::InvalidAuthUrl(parse_error) => {
+                write!(f, "could not parse authorization url: {}", parse_error)
+            }
+            OAuth2BuilderError::InvalidTokenUrl(parse_error) => {
+                write!(f, "could not parse token url: {}", parse_error)
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod builder {
+    use axum::response::IntoResponse;
+
+    use crate::oauth2::{
+        AfterLoginContext, OAuth2BuilderError, OAuth2Context, OAuth2Handler, TokenResponse,
+        providers::github,
+    };
+
+    const CLIENT_ID: &str = "test_client_id";
+    const CLIENT_SECRET: &str = "test_client_secret";
+    const REDIRECT_URL: &str = "http://rust-lang.org/redirect";
+    const AUTH_URL: &str = github::AUTH_URL;
+    const TOKEN_URL: &str = github::TOKEN_URL;
+
+    struct TestHandler {}
+
+    impl OAuth2Handler for TestHandler {
+        async fn after_login(
+            &self,
+            _token_res: TokenResponse,
+            _context: &mut AfterLoginContext<'_>,
+        ) -> impl IntoResponse {
+            ()
+        }
+    }
+
+    #[test]
+    fn builder_errors() {
+        let res = OAuth2Context::builder()
+            .client_id(CLIENT_ID)
+            .client_secret(CLIENT_SECRET)
+            .auth_url(AUTH_URL)
+            .token_url(TOKEN_URL)
+            .redirect_url(REDIRECT_URL)
+            .try_build(TestHandler {});
+
+        assert!(res.is_ok());
+
+        let res = OAuth2Context::builder()
+            .client_id(CLIENT_ID)
+            .auth_url(AUTH_URL)
+            .token_url(TOKEN_URL)
+            .redirect_url(REDIRECT_URL)
+            .try_build(TestHandler {});
+
+        assert!(res.is_ok());
+    }
+
+    #[test]
+    fn client_id() {
+        let res = OAuth2Context::builder()
+            .client_secret(CLIENT_SECRET)
+            .auth_url(AUTH_URL)
+            .token_url(TOKEN_URL)
+            .redirect_url(REDIRECT_URL)
+            .try_build(TestHandler {});
+
+        assert!(matches!(res, Err(OAuth2BuilderError::MissingClientId)));
+    }
+
+    #[test]
+    fn auth_url() {
+        let res = OAuth2Context::builder()
+            .client_id(CLIENT_ID)
+            .client_secret(CLIENT_SECRET)
+            .token_url(TOKEN_URL)
+            .redirect_url(REDIRECT_URL)
+            .try_build(TestHandler {});
+
+        assert!(matches!(res, Err(OAuth2BuilderError::MissingAuthUrl)));
+
+        let res = OAuth2Context::builder()
+            .client_id(CLIENT_ID)
+            .client_secret(CLIENT_SECRET)
+            .auth_url("not an url")
+            .token_url(TOKEN_URL)
+            .redirect_url(REDIRECT_URL)
+            .try_build(TestHandler {});
+
+        assert!(matches!(res, Err(OAuth2BuilderError::InvalidAuthUrl(_))));
+    }
+
+    #[test]
+    fn token_url() {
+        let res = OAuth2Context::builder()
+            .client_id(CLIENT_ID)
+            .client_secret(CLIENT_SECRET)
+            .auth_url(AUTH_URL)
+            .redirect_url(REDIRECT_URL)
+            .try_build(TestHandler {});
+
+        assert!(matches!(res, Err(OAuth2BuilderError::MissingTokenUrl)));
+
+        let res = OAuth2Context::builder()
+            .client_id(CLIENT_ID)
+            .client_secret(CLIENT_SECRET)
+            .auth_url(AUTH_URL)
+            .token_url("not an url")
+            .redirect_url(REDIRECT_URL)
+            .try_build(TestHandler {});
+
+        assert!(matches!(res, Err(OAuth2BuilderError::InvalidTokenUrl(_))));
+    }
+
+    #[test]
+    fn redirect_url() {
+        let res = OAuth2Context::builder()
+            .client_id(CLIENT_ID)
+            .client_secret(CLIENT_SECRET)
+            .auth_url(AUTH_URL)
+            .token_url(TOKEN_URL)
+            .try_build(TestHandler {});
+
+        assert!(matches!(res, Err(OAuth2BuilderError::MissingRedirectUrl)));
+
+        let res = OAuth2Context::builder()
+            .client_id(CLIENT_ID)
+            .client_secret(CLIENT_SECRET)
+            .auth_url(AUTH_URL)
+            .token_url(TOKEN_URL)
+            .redirect_url("not an url")
+            .try_build(TestHandler {});
+
+        assert!(matches!(
+            res,
+            Err(OAuth2BuilderError::InvalidRedirectUrl(_))
+        ));
+    }
 }

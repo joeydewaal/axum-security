@@ -8,7 +8,6 @@ use axum::{
 use crate::cookie::SessionId;
 
 #[derive(Clone, Debug)]
-#[non_exhaustive]
 pub struct CookieSession<S> {
     pub session_id: SessionId,
     pub created_at: u64,

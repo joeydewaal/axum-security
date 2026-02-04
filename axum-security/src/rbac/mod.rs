@@ -70,7 +70,10 @@ where
 
     #[cfg(feature = "cookie")]
     if let Some(resource) = parts.extensions.remove::<CookieSession<R::Resource>>() {
-        let roles: Vec<R> = R::extract_roles(&resource).into_iter().copied().collect();
+        let roles: Vec<R> = R::extract_roles(&resource.state)
+            .into_iter()
+            .copied()
+            .collect();
         parts.extensions.insert(resource);
         return Some(roles);
     }

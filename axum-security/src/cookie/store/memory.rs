@@ -14,18 +14,18 @@ impl<S> Default for MemStore<S> {
     }
 }
 
-impl<S> Clone for MemStore<S> {
-    fn clone(&self) -> Self {
-        MemStore {
-            inner: self.inner.clone(),
-        }
-    }
-}
-
 impl<S> MemStore<S> {
     pub fn new() -> Self {
         Self {
             inner: RwLock::new(HashMap::new()).into(),
+        }
+    }
+}
+
+impl<S> Clone for MemStore<S> {
+    fn clone(&self) -> Self {
+        MemStore {
+            inner: self.inner.clone(),
         }
     }
 }
@@ -59,7 +59,7 @@ impl<S: Send + Sync + Clone + 'static> CookieStore for MemStore<S> {
 
     async fn remove_before(&self, deadline: u64) -> Result<(), Self::Error> {
         let mut lock = self.inner.write().await;
-        lock.retain(|_, v| v.created_at >= deadline);
+        lock.retain(|_, v| v.created_at > deadline);
         Ok(())
     }
 }

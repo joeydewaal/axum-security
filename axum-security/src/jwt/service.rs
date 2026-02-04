@@ -11,18 +11,6 @@ pub struct JwtService<T, SERV> {
     rest: SERV,
 }
 
-impl<T, SERV> Clone for JwtService<T, SERV>
-where
-    SERV: Clone,
-{
-    fn clone(&self) -> Self {
-        Self {
-            inner: self.inner.clone(),
-            rest: self.rest.clone(),
-        }
-    }
-}
-
 impl<T, SERV> Service<Request> for JwtService<T, SERV>
 where
     SERV: Service<Request>,
@@ -56,6 +44,18 @@ where
         JwtService {
             inner: self.clone(),
             rest: inner,
+        }
+    }
+}
+
+impl<T, SERV> Clone for JwtService<T, SERV>
+where
+    SERV: Clone,
+{
+    fn clone(&self) -> Self {
+        Self {
+            inner: self.inner.clone(),
+            rest: self.rest.clone(),
         }
     }
 }

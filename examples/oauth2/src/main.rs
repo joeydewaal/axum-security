@@ -103,7 +103,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .client_id_env("CLIENT_ID")
         .client_secret_env("CLIENT_SECRET")
         // Where the app is redirected to after login in.
-        .redirect_uri("http://localhost:3000/redirect")
+        .redirect_url("http://localhost:3000/redirect")
         // Where the user should go to to start the login flow.
         .login_path("/login")
         // e

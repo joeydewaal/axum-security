@@ -49,7 +49,7 @@ impl<T: OAuth2Handler, S: CookieStore<State = OAuthState>> OAuth2Context<T, S> {
         code: AuthorizationCode,
         state: CsrfToken,
     ) -> axum::response::Response {
-        let session = match self.0.session.remove_session(&jar).await {
+        let session = match self.0.session.remove_session_jar(&jar).await {
             Ok(Some(session)) => session,
             Ok(None) => return StatusCode::UNAUTHORIZED.into_response(),
             Err(_) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
@@ -118,12 +118,12 @@ impl<T: OAuth2Handler, S: CookieStore<State = OAuthState>> OAuth2Context<T, S> {
         let req = self.0.client.authorize_url(CsrfToken::new_random);
 
         // Create authorize url, with csrf token
-        let (url, csrf_token) = req
+        let (redirect_url, csrf_token) = req
             .add_scopes(self.0.scopes.clone())
             .set_pkce_challenge(pkce_challenge)
             .url();
 
-        // Store CSRF token on the server somewhere temp. (session)
+        // Store CSRF token on the server somewhere.
         let state = OAuthState {
             csrf_token,
             pkce_verifier,
@@ -136,7 +136,7 @@ impl<T: OAuth2Handler, S: CookieStore<State = OAuthState>> OAuth2Context<T, S> {
 
         // Send session cookie back
 
-        (cookie, Redirect::to(url.as_str())).into_response()
+        (cookie, Redirect::to(redirect_url.as_str())).into_response()
     }
 
     pub fn cookie(&self, name: impl Into<Cow<'static, str>>) -> CookieBuilder {

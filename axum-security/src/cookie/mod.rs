@@ -43,7 +43,7 @@ impl<S: CookieStore> CookieContext<S> {
         Ok(self.get_cookie(session_id))
     }
 
-    pub async fn remove_session(
+    pub async fn remove_session_jar(
         &self,
         jar: &CookieJar,
     ) -> Result<Option<CookieSession<<S as CookieStore>::State>>, S::Error> {
@@ -52,6 +52,21 @@ impl<S: CookieStore> CookieContext<S> {
         };
 
         self.0.store.remove_session(&session_id).await
+    }
+
+    pub async fn remove_session_cookie(
+        &self,
+        cookie: &Cookie,
+    ) -> Result<Option<CookieSession<<S as CookieStore>::State>>, S::Error> {
+        let session_id = SessionId::from_cookie(cookie);
+        self.remove_session(&session_id).await
+    }
+
+    pub async fn remove_session(
+        &self,
+        session_id: &SessionId,
+    ) -> Result<Option<CookieSession<<S as CookieStore>::State>>, S::Error> {
+        self.0.store.remove_session(session_id).await
     }
 
     pub fn build_cookie(&self, name: impl Into<Cow<'static, str>>) -> CookieBuilder {

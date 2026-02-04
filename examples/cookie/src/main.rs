@@ -51,8 +51,8 @@ async fn logout(
     jar: CookieJar,
     State(context): State<CookieContext<MemStore<User>>>,
 ) -> impl IntoResponse {
-    match context.remove_session(&jar).await.unwrap() {
-        Some(e) => format!("Removed: {}", e.username),
+    match context.remove_session_jar(&jar).await.unwrap() {
+        Some(e) => format!("Removed: {}", e.state.username),
         None => "No session found".to_string(),
     }
 }
