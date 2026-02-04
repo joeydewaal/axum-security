@@ -1,15 +1,15 @@
 mod builder;
-mod callback;
 mod context;
 mod handler;
 mod inject;
 pub mod providers;
+mod redirect;
 
 pub use builder::OAuth2BuilderError;
-pub(crate) use callback::{callback, start_login};
 pub use context::OAuth2Context;
 pub use handler::{AfterLoginContext, OAuth2Handler, TokenResponse};
 pub use inject::OAuth2Ext;
+pub(crate) use redirect::{on_redirect, start_login};
 
 use ::oauth2::{CsrfToken, PkceCodeVerifier};
 

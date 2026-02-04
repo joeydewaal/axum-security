@@ -8,18 +8,18 @@ use crate::{
     oauth2::{OAuth2Context, OAuth2Handler, OAuthState},
 };
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 pub struct OAuth2Params {
     code: AuthorizationCode,
     state: CsrfToken,
 }
 
-pub(crate) async fn callback<T: OAuth2Handler, S: CookieStore<State = OAuthState>>(
+pub(crate) async fn on_redirect<T: OAuth2Handler, S: CookieStore<State = OAuthState>>(
     Extension(context): Extension<OAuth2Context<T, S>>,
     Query(params): Query<OAuth2Params>,
     jar: CookieJar,
 ) -> impl IntoResponse {
-    context.callback(jar, params.code, params.state).await
+    context.on_redirect(jar, params.code, params.state).await
 }
 
 pub async fn start_login<T: OAuth2Handler, S: CookieStore<State = OAuthState>>(

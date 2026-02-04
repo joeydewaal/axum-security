@@ -88,7 +88,7 @@ async fn authorized(user: CookieSession<User>) -> Json<User> {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     let cookie_service = CookieContext::builder()
-        .cookie(|c| c.name("session"))
+        .cookie(|c| c.name("session1"))
         .store(MemStore::new())
         .build();
 

@@ -43,12 +43,13 @@ impl<T: OAuth2Handler, S: CookieStore<State = OAuthState>> OAuth2Context<T, S> {
         self.0.client.redirect_uri().unwrap().url().path()
     }
 
-    pub(crate) async fn callback(
+    pub(crate) async fn on_redirect(
         &self,
         jar: CookieJar,
         code: AuthorizationCode,
         state: CsrfToken,
     ) -> axum::response::Response {
+        tracing::debug!("handling redirect");
         let session = match self.0.session.remove_session_jar(&jar).await {
             Ok(Some(session)) => session,
             Ok(None) => return StatusCode::UNAUTHORIZED.into_response(),
@@ -63,11 +64,19 @@ impl<T: OAuth2Handler, S: CookieStore<State = OAuthState>> OAuth2Context<T, S> {
         // verify that csrf token is equal
         if csrf_token.secret() != state.secret() {
             // bad req
+            tracing::debug!("state does not match");
             return StatusCode::UNAUTHORIZED.into_response();
         }
 
         // exchange authorization code
-        let token_response = self.exchange_code(code, pkce_verifier).await.unwrap();
+        tracing::debug!("exchanging pkce code for an access token");
+        let token_response = match self.exchange_code(code, pkce_verifier).await {
+            Ok(res) => res,
+            Err(e) => {
+                tracing::debug!("failed to exchange code for access token: {e}");
+                return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+            }
+        };
         // tada, access token, maybe refresh token.
 
         // after login callback
@@ -76,6 +85,7 @@ impl<T: OAuth2Handler, S: CookieStore<State = OAuthState>> OAuth2Context<T, S> {
             cookie_opts: self.0.session.cookie_builder(),
         };
 
+        tracing::debug!("login flow done");
         let res = self
             .0
             .inner
@@ -114,6 +124,7 @@ impl<T: OAuth2Handler, S: CookieStore<State = OAuthState>> OAuth2Context<T, S> {
     }
 
     pub async fn start_challenge(&self) -> axum::response::Response {
+        tracing::debug!("Starting oauth2 login flow");
         let (pkce_challenge, pkce_verifier) = PkceCodeChallenge::new_random_sha256();
         let req = self.0.client.authorize_url(CsrfToken::new_random);
 

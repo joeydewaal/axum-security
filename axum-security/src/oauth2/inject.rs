@@ -2,7 +2,7 @@ use axum::{Extension, Router, routing::MethodRouter};
 
 use crate::{
     cookie::CookieStore,
-    oauth2::{OAuth2Context, OAuth2Handler, OAuthState, callback, start_login},
+    oauth2::{OAuth2Context, OAuth2Handler, OAuthState, on_redirect, start_login},
 };
 
 pub trait OAuth2Ext {
@@ -30,7 +30,7 @@ where
         }
 
         let route = MethodRouter::new()
-            .get(callback::<T, S>)
+            .get(on_redirect::<T, S>)
             .layer(Extension(context.clone()));
 
         self.route(context.callback_url(), route)

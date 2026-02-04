@@ -30,6 +30,8 @@ serde = { version = "1.0.228", features = ["derive"] }
 
 axum-security-macros = { path = "../axum-security-macros", optional = true }
 
+tracing = "0.1.44"
+
 [dev-dependencies]
 axum = { version = "0.8.8", features = ["macros", "tracing"] }
 tokio = { version = "1.0", features = ["full"] }
@@ -39,3 +41,7 @@ url = "2.5.8"
 serde_urlencoded = "0.7"
 tower = "0.5.3"
 tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
+wiremock = "0.6.5"
+reqwest = { version = "0.13.1", features = ["cookies"], default-features=false }
+sha2 = "0.10"
+base64 = "0.22"
