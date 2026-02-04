@@ -330,3 +330,61 @@ async fn login_path() -> Result<(), Box<dyn Error>> {
     assert_eq!(res.status(), StatusCode::CREATED);
     Ok(())
 }
+
+#[tokio::test]
+async fn invalid_state() -> Result<(), Box<dyn Error>> {
+    let _ = tracing_subscriber::fmt::try_init();
+
+    const REDIRECT_PATH: &str = "/redirect";
+    let (_, auth_url, token_url) = install_mock_pkce_server().await;
+
+    let http_client = Client::builder()
+        .redirect(Policy::none())
+        .cookie_store(true)
+        .build()?;
+
+    let socket = TcpListener::bind("127.0.0.1:0").await?;
+    let server_addr = socket.local_addr()?;
+    let redirect_url = format!("http://{server_addr}{REDIRECT_PATH}");
+
+    let oauth2_context = OAuth2Context::builder()
+        .client_id(CLIENT_ID)
+        .client_secret(CLIENT_SECRET)
+        .redirect_url(redirect_url)
+        .auth_url(auth_url)
+        .token_url(token_url)
+        .login_path(LOGIN_PATH)
+        .use_dev_cookies(true)
+        .build(TestHandler);
+
+    let router = Router::<()>::new().with_oauth2(oauth2_context);
+
+    tokio::spawn(async { axum::serve(socket, router).await });
+
+    // Start login flow.
+    let res = http_client
+        .get(format!("http://{server_addr}{LOGIN_PATH}"))
+        .send()
+        .await?;
+
+    // Login with the oauth server.
+    let redirect_url = res.headers()["location"].to_str()?;
+    let login_result = http_client.get(redirect_url).send().await?;
+
+    // Finish the flow on the server.
+    let redirect_url = login_result.headers()["location"].to_str()?;
+
+    // Puah another state param. (2 in total) this is one too many.
+    let mut url = Url::parse(&redirect_url)?;
+    url.query_pairs_mut().append_pair("state", "too-many-state");
+    let res = http_client.get(url.as_str()).send().await?;
+
+    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
+
+    let invalid_redirect_url = redirect_url.replace("state=", "state=bad-state");
+    let res = http_client.get(&invalid_redirect_url).send().await?;
+
+    assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+
+    Ok(())
+}
