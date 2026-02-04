@@ -135,7 +135,6 @@ impl<T: OAuth2Handler, S: CookieStore<State = OAuthState>> OAuth2Context<T, S> {
         };
 
         // Send session cookie back
-
         (cookie, Redirect::to(redirect_url.as_str())).into_response()
     }
 

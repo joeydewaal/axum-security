@@ -18,20 +18,20 @@ where
 {
     fn with_oauth2<T, S>(mut self, context: OAuth2Context<T, S>) -> Self
     where
-        S: CookieStore<State = OAuthState>,
         T: OAuth2Handler,
+        S: CookieStore<State = OAuthState>,
     {
         if let Some(start_challenge_path) = context.get_start_challenge_path() {
             let challenge_route = MethodRouter::new()
                 .get(start_login::<T, S>)
-                .layer(Extension(self.clone()));
+                .layer(Extension(context.clone()));
 
             self = self.route(start_challenge_path, challenge_route);
         }
 
         let route = MethodRouter::new()
             .get(callback::<T, S>)
-            .layer(Extension(self.clone()));
+            .layer(Extension(context.clone()));
 
         self.route(context.callback_url(), route)
     }
