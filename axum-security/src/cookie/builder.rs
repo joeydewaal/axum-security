@@ -99,7 +99,7 @@ impl<S> CookieSessionBuilder<S> {
             None
         };
 
-        let cookie_context = CookieContext(Arc::new(CookieContextInner {
+        CookieContext(Arc::new(CookieContextInner {
             store,
             cookie_opts: if self.dev {
                 self.dev_cookie
@@ -107,9 +107,13 @@ impl<S> CookieSessionBuilder<S> {
                 self.cookie
             },
             handle,
-        }));
+        }))
+    }
+}
 
-        cookie_context
+impl Default for CookieSessionBuilder<()> {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

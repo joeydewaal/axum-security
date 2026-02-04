@@ -31,3 +31,9 @@ impl From<String> for SessionId {
         Self(value.into_boxed_str())
     }
 }
+
+impl Default for SessionId {
+    fn default() -> Self {
+        Self::new()
+    }
+}

@@ -154,25 +154,21 @@ impl<S> OAuth2ContextBuilder<S> {
     {
         let client_id = self
             .client_id
-            .ok_or_else(|| OAuth2BuilderError::MissingClientId)
+            .ok_or(OAuth2BuilderError::MissingClientId)
             .map(ClientId::new)?;
 
         let redirect_url = self
             .redirect_url
-            .ok_or_else(|| OAuth2BuilderError::MissingRedirectUrl)?;
+            .ok_or(OAuth2BuilderError::MissingRedirectUrl)?;
 
         let redirect_url =
             RedirectUrl::new(redirect_url).map_err(OAuth2BuilderError::InvalidRedirectUrl)?;
 
-        let auth_url = self
-            .auth_url
-            .ok_or_else(|| OAuth2BuilderError::MissingAuthUrl)?;
+        let auth_url = self.auth_url.ok_or(OAuth2BuilderError::MissingAuthUrl)?;
 
         let auth_url = AuthUrl::new(auth_url).map_err(OAuth2BuilderError::InvalidAuthUrl)?;
 
-        let token_url = self
-            .token_url
-            .ok_or_else(|| OAuth2BuilderError::MissingTokenUrl)?;
+        let token_url = self.token_url.ok_or(OAuth2BuilderError::MissingTokenUrl)?;
 
         let token_url = TokenUrl::new(token_url).map_err(OAuth2BuilderError::InvalidTokenUrl)?;
 

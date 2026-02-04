@@ -159,11 +159,11 @@ impl JwtContextBuilder {
     pub fn try_build<T>(self) -> Result<JwtContext<T>, JwtBuilderError> {
         let encoding_key = self
             .encoding_key
-            .ok_or_else(|| JwtBuilderError::EncodingKeyMissing)?;
+            .ok_or(JwtBuilderError::EncodingKeyMissing)?;
 
         let decoding_key = self
             .decoding_key
-            .ok_or_else(|| JwtBuilderError::DecodingKeyMissing)?;
+            .ok_or(JwtBuilderError::DecodingKeyMissing)?;
 
         Ok(JwtContext(Arc::new(JwtContextInner {
             encoding_key,
