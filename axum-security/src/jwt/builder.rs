@@ -1,6 +1,11 @@
-use std::{borrow::Cow, error::Error, fmt::Display, marker::PhantomData, sync::Arc};
+use std::{
+    borrow::Cow, convert::Infallible, error::Error, fmt::Display, marker::PhantomData, sync::Arc,
+};
 
-use axum::http::{HeaderMap, HeaderName, header::AUTHORIZATION};
+use axum::{
+    extract::{FromRef, FromRequestParts},
+    http::{HeaderMap, HeaderName, header::AUTHORIZATION, request::Parts},
+};
 use jsonwebtoken::{DecodingKey, EncodingKey, Header, TokenData, Validation, decode, encode};
 use serde::{Serialize, de::DeserializeOwned};
 
@@ -71,6 +76,18 @@ fn jwt_from_header_value<'a>(header: &'a str, prefix: &str) -> Option<&'a str> {
     }
 
     Some(&header[prefix_len..])
+}
+
+impl<S, U> FromRequestParts<S> for JwtContext<U>
+where
+    JwtContext<U>: FromRef<S>,
+    S: Send + Sync,
+{
+    type Rejection = Infallible;
+
+    async fn from_request_parts(_parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
+        Ok(Self::from_ref(state))
+    }
 }
 
 pub struct JwtContextBuilder {

@@ -33,7 +33,7 @@ struct LoginAttempt {
 }
 
 async fn login(
-    State(session): State<JwtContext<AccessToken>>,
+    session: JwtContext<AccessToken>,
     Query(login): Query<LoginAttempt>,
 ) -> Result<String, StatusCode> {
     if login.username == "admin" && login.password == "admin" {

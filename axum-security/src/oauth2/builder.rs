@@ -144,7 +144,7 @@ impl<S> OAuth2ContextBuilder<S> {
         }
     }
 
-    pub fn build<T>(self, inner: T) -> OAuth2Context<S>
+    pub fn build<T>(self, inner: T) -> OAuth2Context
     where
         S: CookieStore<State = OAuthState>,
         T: OAuth2Handler,
@@ -152,7 +152,7 @@ impl<S> OAuth2ContextBuilder<S> {
         self.try_build(inner).unwrap()
     }
 
-    pub fn try_build<T>(self, inner: T) -> Result<OAuth2Context<S>, OAuth2BuilderError>
+    pub fn try_build<T>(self, inner: T) -> Result<OAuth2Context, OAuth2BuilderError>
     where
         S: CookieStore<State = OAuthState>,
         T: OAuth2Handler,

@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 use tokio::net::TcpListener;
 
 struct LoginHandler {
-    cookie_service: CookieContext<MemStore<User>>,
+    cookie_service: CookieContext<User>,
     http_client: Client,
 }
 
@@ -74,7 +74,7 @@ impl OAuth2Handler for LoginHandler {
             .expect("MemStore doesn't return an error");
 
         // Make sure to add the session cookie to the cookiejar.
-        context.cookies.add(session_cookie);
+        context.cookie_jar.add(session_cookie);
 
         // Redirect the user back to the app.
         Ok(Redirect::to("/"))
@@ -88,7 +88,7 @@ async fn authorized(user: CookieSession<User>) -> Json<User> {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     let cookie_service = CookieContext::builder()
-        .cookie(|c| c.name("session1"))
+        .cookie(|c| c.name("session"))
         .store(MemStore::new())
         .build();
 

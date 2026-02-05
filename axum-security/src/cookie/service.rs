@@ -7,20 +7,19 @@ use std::{
 use axum::{extract::Request, http::StatusCode, response::IntoResponse};
 use tower::{Layer, Service};
 
-use crate::cookie::{CookieContext, CookieStore};
+use crate::cookie::CookieContext;
 
-pub struct CookieService<STORE, SERV> {
-    inner: CookieContext<STORE>,
+pub struct CookieService<S, SERV> {
+    inner: CookieContext<S>,
     rest: SERV,
 }
 
-impl<STORE, SERV> Service<Request> for CookieService<STORE, SERV>
+impl<S, SERV> Service<Request> for CookieService<S, SERV>
 where
     SERV: Service<Request, Error = Infallible> + Clone + Send + 'static,
     <SERV as Service<Request>>::Response: IntoResponse,
     <SERV as Service<Request>>::Future: Send,
-    STORE: CookieStore,
-    STORE::State: Clone,
+    S: Clone + Send + Sync + 'static,
 {
     type Response = axum::response::Response;
 

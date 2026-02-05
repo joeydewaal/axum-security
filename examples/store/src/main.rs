@@ -1,12 +1,7 @@
 use std::error::Error;
 
 use axum::{
-    Json, Router,
-    extract::{Query, State},
-    http::StatusCode,
-    response::IntoResponse,
-    routing::get,
-    serve,
+    Json, Router, extract::Query, http::StatusCode, response::IntoResponse, routing::get, serve,
 };
 use axum_security::cookie::{CookieContext, CookieSession, CookieStore, SessionId};
 use serde::{Deserialize, Serialize};
@@ -31,7 +26,7 @@ struct LoginAttempt {
 }
 
 async fn login(
-    State(session): State<CookieContext<SqlxStore>>,
+    session: CookieContext<User>,
     Query(login): Query<LoginAttempt>,
 ) -> impl IntoResponse {
     if login.username == "admin" && login.password == "admin" {

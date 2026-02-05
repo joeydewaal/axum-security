@@ -2,7 +2,9 @@ use std::{sync::Arc, time::Duration};
 
 use cookie_monster::{Cookie, CookieBuilder, SameSite};
 
-use crate::cookie::{CookieContext, CookieContextInner, CookieStore, expiry::SessionExpiry};
+use crate::cookie::{
+    CookieContext, CookieContextInner, CookieStore, expiry::SessionExpiry, store::ErasedStore,
+};
 
 static DEFAULT_SESSION_COOKIE_NAME: &str = "session";
 static DEFAULT_DEV_SESSION_COOKIE_NAME: &str = "dev-session";
@@ -78,7 +80,7 @@ impl<S> CookieSessionBuilder<S> {
 }
 
 impl<S> CookieSessionBuilder<S> {
-    pub fn build<T>(self) -> CookieContext<S>
+    pub fn build<T>(self) -> CookieContext<T>
     where
         T: Send + Sync + 'static,
         S: CookieStore<State = T>,
@@ -88,7 +90,7 @@ impl<S> CookieSessionBuilder<S> {
             SessionExpiry::Duration(duration) => duration,
         });
 
-        let store = Arc::new(self.store);
+        let store = ErasedStore::new(self.store);
 
         let handle = if let Some(expiry) = session_expiry
             && store.spawn_maintenance_task()
@@ -119,8 +121,6 @@ impl Default for CookieSessionBuilder<()> {
 
 #[cfg(test)]
 mod cookie {
-    use std::error::Error;
-
     use cookie_monster::CookieJar;
 
     use crate::cookie::{CookieContext, MemStore};
@@ -131,7 +131,7 @@ mod cookie {
     }
 
     #[tokio::test]
-    async fn create() -> Result<(), Box<dyn Error>> {
+    async fn create() {
         let cookie_context = CookieContext::builder()
             .store(MemStore::new())
             .build::<User>();
@@ -139,20 +139,19 @@ mod cookie {
         let test_user = User { id: 1 };
         let test_user_id = test_user.id;
 
-        let cookie = cookie_context.create_session(test_user).await?;
+        let cookie = cookie_context.create_session(test_user).await.unwrap();
 
         let mut jar = CookieJar::new();
         jar.add(cookie);
 
-        let user = cookie_context.load_from_jar(&jar).await?;
+        let user = cookie_context.load_from_jar(&jar).await.unwrap();
 
         assert!(user.is_some());
         assert!(test_user_id == user.unwrap().state.id);
-        Ok(())
     }
 
     #[tokio::test]
-    async fn delete() -> Result<(), Box<dyn Error>> {
+    async fn delete() {
         let cookie_context = CookieContext::builder()
             .store(MemStore::new())
             .build::<User>();
@@ -160,25 +159,25 @@ mod cookie {
         let test_user = User { id: 1 };
         let test_user_id = test_user.id;
 
-        let cookie = cookie_context.create_session(test_user).await?;
+        let cookie = cookie_context.create_session(test_user).await.unwrap();
 
-        let user = cookie_context.remove_session_cookie(&cookie).await?;
+        let user = cookie_context.remove_session_cookie(&cookie).await.unwrap();
 
         assert!(user.is_some());
         assert!(test_user_id == user.unwrap().state.id);
 
-        let after = cookie_context.load_from_cookie(&cookie).await?;
+        let after = cookie_context.load_from_cookie(&cookie).await.unwrap();
         assert!(after.is_none());
-        Ok(())
     }
 
     #[tokio::test]
-    async fn defaults() -> Result<(), Box<dyn Error>> {
+    async fn defaults() {
         let cookie = CookieContext::builder()
             .store(MemStore::new())
             .build::<()>()
             .create_session(())
-            .await?;
+            .await
+            .unwrap();
 
         assert!(cookie.name() == "session");
 
@@ -187,7 +186,8 @@ mod cookie {
             .use_dev_cookie(true)
             .build::<()>()
             .create_session(())
-            .await?;
+            .await
+            .unwrap();
 
         assert!(cookie.name() == "dev-session");
 
@@ -197,7 +197,8 @@ mod cookie {
             .dev_cookie(|c| c.name("not-test"))
             .build::<()>()
             .create_session(())
-            .await?;
+            .await
+            .unwrap();
 
         assert!(cookie.name() == "test");
 
@@ -208,9 +209,9 @@ mod cookie {
             .use_dev_cookie(true)
             .build::<()>()
             .create_session(())
-            .await?;
+            .await
+            .unwrap();
 
         assert!(cookie.name() == "test");
-        Ok(())
     }
 }

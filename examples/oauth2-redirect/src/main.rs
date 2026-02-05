@@ -10,7 +10,7 @@ use axum::{
 use axum_security::{
     cookie::{CookieContext, CookieSession, MemStore},
     oauth2::{
-        AfterLoginContext, OAuth2Context, OAuth2Ext, OAuth2Handler, OAuthState, TokenResponse,
+        AfterLoginContext, OAuth2Context, OAuth2Ext, OAuth2Handler, TokenResponse,
         providers::github,
     },
 };
@@ -32,10 +32,7 @@ async fn authorized(user: CookieSession<User>) -> Json<User> {
     Json(user.state)
 }
 
-async fn login(
-    State(oauth): State<OAuth2Context<OAuth2Backend, MemStore<OAuthState>>>,
-    Query(query): Query<NextUrl>,
-) -> impl IntoResponse {
+async fn login(oauth: OAuth2Context, Query(query): Query<NextUrl>) -> impl IntoResponse {
     let cookie = query
         .after_login
         .map(|path| oauth.cookie("after-login-redirect").value(path).build());
@@ -46,11 +43,11 @@ async fn login(
 }
 
 struct OAuth2Backend {
-    session: CookieContext<MemStore<User>>,
+    session: CookieContext<User>,
 }
 
 impl OAuth2Backend {
-    pub fn new(session: CookieContext<MemStore<User>>) -> Self {
+    pub fn new(session: CookieContext<User>) -> Self {
         OAuth2Backend { session }
     }
 }
@@ -72,11 +69,11 @@ impl OAuth2Handler for OAuth2Backend {
 
         let cookie = self.session.create_session(user).await.unwrap();
 
-        context.cookies.add(cookie);
+        context.cookie_jar.add(cookie);
 
         let redirect_cookie = context.cookie("after-login-url");
 
-        if let Some(c) = context.cookies.remove(redirect_cookie) {
+        if let Some(c) = context.cookie_jar.remove(redirect_cookie) {
             Redirect::to(c.value())
         } else {
             Redirect::to("/")

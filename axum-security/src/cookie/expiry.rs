@@ -1,13 +1,13 @@
-use std::{sync::Arc, time::Duration};
+use std::time::Duration;
 
-use crate::{cookie::CookieStore, utils::utc_now_secs};
+use crate::{cookie::store::ErasedStore, utils::utc_now_secs};
 
 pub(crate) enum SessionExpiry {
     CookieMaxAge,
     Duration(Duration),
 }
 
-pub(crate) async fn maintenance_task<S: CookieStore>(this: Arc<S>, expires_after: Duration) {
+pub(crate) async fn maintenance_task<S: 'static>(this: ErasedStore<S>, expires_after: Duration) {
     let mut interval = tokio::time::interval(expires_after);
     loop {
         interval.tick().await;

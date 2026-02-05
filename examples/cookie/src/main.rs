@@ -1,11 +1,6 @@
 use std::{error::Error, time::Duration};
 
-use axum::{
-    Json, Router,
-    extract::{Query, State},
-    response::IntoResponse,
-    routing::get,
-};
+use axum::{Json, Router, extract::Query, response::IntoResponse, routing::get};
 use axum_security::cookie::{CookieContext, CookieJar, CookieSession, MemStore, SameSite};
 use jiff::Timestamp;
 use serde::{Deserialize, Serialize};
@@ -29,7 +24,7 @@ struct LoginAttempt {
 }
 
 async fn login(
-    State(session): State<CookieContext<MemStore<User>>>,
+    session: CookieContext<User>,
     Query(login): Query<LoginAttempt>,
 ) -> impl IntoResponse {
     if login.username == "admin" && login.password == "admin" {
@@ -47,10 +42,7 @@ async fn login(
     }
 }
 
-async fn logout(
-    jar: CookieJar,
-    State(context): State<CookieContext<MemStore<User>>>,
-) -> impl IntoResponse {
+async fn logout(jar: CookieJar, context: CookieContext<User>) -> impl IntoResponse {
     match context.remove_session_jar(&jar).await.unwrap() {
         Some(e) => format!("Removed: {}", e.state.username),
         None => "No session found".to_string(),

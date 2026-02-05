@@ -3,10 +3,7 @@ use cookie_monster::CookieJar;
 use oauth2::{AuthorizationCode, CsrfToken};
 use serde::Deserialize;
 
-use crate::{
-    cookie::CookieStore,
-    oauth2::{OAuth2Context, OAuthState},
-};
+use crate::oauth2::OAuth2Context;
 
 #[derive(Deserialize, Debug)]
 pub struct OAuth2Params {
@@ -14,19 +11,14 @@ pub struct OAuth2Params {
     state: CsrfToken,
 }
 
-pub(crate) async fn on_redirect<S>(
-    Extension(context): Extension<OAuth2Context<S>>,
+pub(crate) async fn on_redirect(
+    Extension(context): Extension<OAuth2Context>,
     Query(params): Query<OAuth2Params>,
     jar: CookieJar,
-) -> impl IntoResponse
-where
-    S: CookieStore<State = OAuthState>,
-{
+) -> impl IntoResponse {
     context.on_redirect(jar, params.code, params.state).await
 }
 
-pub async fn start_login<S: CookieStore<State = OAuthState>>(
-    Extension(context): Extension<OAuth2Context<S>>,
-) -> impl IntoResponse {
+pub async fn start_login(Extension(context): Extension<OAuth2Context>) -> impl IntoResponse {
     context.start_challenge().await
 }

@@ -1,11 +1,6 @@
 use std::error::Error;
 
-use axum::{
-    Router,
-    extract::{Path, State},
-    response::IntoResponse,
-    routing::get,
-};
+use axum::{Router, extract::Path, response::IntoResponse, routing::get};
 use axum_security::{
     cookie::{CookieContext, CookieSession, MemStore},
     rbac::RBAC,
@@ -35,10 +30,7 @@ enum Role {
     User,
 }
 
-async fn set_role(
-    State(cookie): State<CookieContext<MemStore<User>>>,
-    Path(role): Path<Role>,
-) -> impl IntoResponse {
+async fn set_role(cookie: CookieContext<User>, Path(role): Path<Role>) -> impl IntoResponse {
     let user = User {
         role,
         name: "user1".into(),

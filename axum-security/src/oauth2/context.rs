@@ -1,7 +1,8 @@
-use std::{borrow::Cow, sync::Arc};
+use std::{borrow::Cow, convert::Infallible, sync::Arc};
 
 use axum::{
-    http::StatusCode,
+    extract::{FromRef, FromRequestParts},
+    http::{StatusCode, request::Parts},
     response::{IntoResponse, Redirect},
 };
 
@@ -11,24 +12,25 @@ use oauth2::{
 };
 
 use crate::{
-    cookie::{CookieContext, CookieStore, MemStore},
+    cookie::{CookieContext, MemStore},
     oauth2::{
         AfterLoginContext, OAuth2ClientTyped, OAuthState, TokenResponse,
         builder::OAuth2ContextBuilder, handler::ErasedOAuth2Handler,
     },
 };
 
-pub struct OAuth2Context<S>(pub(super) Arc<OAuth2ContextInner<S>>);
+#[derive(Clone)]
+pub struct OAuth2Context(pub(super) Arc<OAuth2ContextInner>);
 
-pub(super) struct OAuth2ContextInner<S> {
+pub(super) struct OAuth2ContextInner {
     pub(super) inner: ErasedOAuth2Handler,
-    pub(super) session: CookieContext<S>,
+    pub(super) session: CookieContext<OAuthState>,
     pub(super) client: OAuth2ClientTyped,
     pub(super) login_path: Option<Cow<'static, str>>,
     pub(super) scopes: Vec<Scope>,
     pub(super) http_client: ::oauth2::reqwest::Client,
 }
-impl OAuth2Context<()> {
+impl OAuth2Context {
     pub fn builder() -> OAuth2ContextBuilder<MemStore<OAuthState>> {
         OAuth2ContextBuilder::new(MemStore::new())
     }
@@ -38,7 +40,7 @@ impl OAuth2Context<()> {
     }
 }
 
-impl<S: CookieStore<State = OAuthState>> OAuth2Context<S> {
+impl OAuth2Context {
     pub(crate) fn callback_url(&self) -> &str {
         self.0.client.redirect_uri().unwrap().url().path()
     }
@@ -149,8 +151,14 @@ impl<S: CookieStore<State = OAuthState>> OAuth2Context<S> {
     }
 }
 
-impl<S> Clone for OAuth2Context<S> {
-    fn clone(&self) -> Self {
-        OAuth2Context(self.0.clone())
+impl<S> FromRequestParts<S> for OAuth2Context
+where
+    OAuth2Context: FromRef<S>,
+    S: Send + Sync,
+{
+    type Rejection = Infallible;
+
+    async fn from_request_parts(_parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
+        Ok(Self::from_ref(state))
     }
 }
