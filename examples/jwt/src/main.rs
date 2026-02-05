@@ -1,29 +1,32 @@
 use std::error::Error;
 
-use axum::{
-    Json, Router,
-    extract::{Query, State},
-    http::StatusCode,
-    routing::get,
-};
+use axum::{Json, Router, extract::Query, http::StatusCode, routing::get};
 use axum_security::jwt::{Jwt, JwtContext};
-use jiff::{Timestamp, ToSpan, Zoned};
+use jiff::{Timestamp, ToSpan};
 use serde::{Deserialize, Serialize};
 use tokio::net::TcpListener;
 
-const JWT_SECRET: &str = "test-jwt-secret";
+static JWT_SECRET: &str = "test-jwt-secret";
 
 #[derive(Clone, Serialize, Deserialize)]
 struct AccessToken {
     username: String,
     emailadres: Option<String>,
-    created_at: Zoned,
+    created_at: Timestamp,
     #[serde(with = "jiff::fmt::serde::timestamp::second::required")]
     exp: Timestamp,
 }
 
 async fn authorized(Jwt(token): Jwt<AccessToken>) -> Json<AccessToken> {
     Json(token)
+}
+
+async fn maybe_authorized(token: Option<Jwt<AccessToken>>) -> String {
+    if let Some(Jwt(token)) = token {
+        format!("Hi, {}", token.username)
+    } else {
+        "You are not logged in.".to_string()
+    }
 }
 
 #[derive(Deserialize)]
@@ -33,23 +36,23 @@ struct LoginAttempt {
 }
 
 async fn login(
-    session: JwtContext<AccessToken>,
     Query(login): Query<LoginAttempt>,
+    context: JwtContext<AccessToken>,
 ) -> Result<String, StatusCode> {
     if login.username == "admin" && login.password == "admin" {
-        let now = Zoned::now();
+        let now = Timestamp::now();
 
         // This token is only valid for 1 day.
-        let expires = &now + 1.day();
+        let expires = now + 24.hours();
 
         let user = AccessToken {
             username: login.username,
             emailadres: None,
             created_at: now,
-            exp: expires.timestamp(),
+            exp: expires,
         };
 
-        session
+        context
             .encode_token(&user)
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
     } else {
@@ -70,6 +73,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let state = jwt_service.clone();
 
     let router = Router::new()
+        .route("/", get(maybe_authorized))
         .route("/me", get(authorized))
         .route("/login", get(login))
         .layer(jwt_service)

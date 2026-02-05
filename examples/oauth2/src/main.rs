@@ -17,18 +17,6 @@ use reqwest::{Client, StatusCode, header::USER_AGENT};
 use serde::{Deserialize, Serialize};
 use tokio::net::TcpListener;
 
-struct LoginHandler {
-    cookie_service: CookieContext<User>,
-    http_client: Client,
-}
-
-#[derive(Debug, Deserialize)]
-struct GithubUser {
-    id: u64,
-    login: String,
-    email: Option<String>,
-}
-
 #[derive(Clone, Serialize)]
 struct User {
     user_id: u64,
@@ -37,47 +25,71 @@ struct User {
     created_at: Timestamp,
 }
 
-impl OAuth2Handler for LoginHandler {
-    async fn after_login(
-        &self,
-        token_res: TokenResponse,
-        context: &mut AfterLoginContext<'_>,
-    ) -> impl IntoResponse {
-        // Retrieve the info of the user from the github api.
-        let Ok(resp) = self
+struct LoginHandler {
+    cookie_service: CookieContext<User>,
+    http_client: Client,
+}
+
+impl LoginHandler {
+    async fn fetch_gh_user(&self, access_token: &str) -> Result<User, StatusCode> {
+        #[derive(Debug, Deserialize)]
+        struct GithubUser {
+            id: u64,
+            login: String,
+            email: Option<String>,
+        }
+
+        let resp = self
             .http_client
             .get("https://api.github.com/user")
             .header(USER_AGENT, "axum-security") // required by the github api.
-            .bearer_auth(token_res.access_token)
+            .bearer_auth(access_token)
             .send()
             .await
-        else {
-            return Err(StatusCode::INTERNAL_SERVER_ERROR);
-        };
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-        let Ok(user_info) = resp.json::<GithubUser>().await else {
-            return Err(StatusCode::INTERNAL_SERVER_ERROR);
-        };
+        let user_info = resp
+            .json::<GithubUser>()
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-        let user = User {
+        Ok(User {
             user_id: user_info.id,
             username: user_info.login,
             email: user_info.email,
             created_at: Timestamp::now(),
-        };
+        })
+    }
+
+    async fn handle_login(
+        &self,
+        token_res: TokenResponse,
+        context: &mut AfterLoginContext<'_>,
+    ) -> Result<Redirect, StatusCode> {
+        let user = self.fetch_gh_user(&token_res.access_token).await?;
 
         // Create a new session for the user.
         let session_cookie = self
             .cookie_service
             .create_session(user)
             .await
-            .expect("MemStore doesn't return an error");
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
         // Make sure to add the session cookie to the cookiejar.
         context.cookie_jar.add(session_cookie);
 
         // Redirect the user back to the app.
         Ok(Redirect::to("/"))
+    }
+}
+
+impl OAuth2Handler for LoginHandler {
+    async fn after_login(
+        &self,
+        token_res: TokenResponse,
+        context: &mut AfterLoginContext<'_>,
+    ) -> impl IntoResponse {
+        self.handle_login(token_res, context).await
     }
 }
 

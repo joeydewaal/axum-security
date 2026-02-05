@@ -17,6 +17,14 @@ async fn authorized(user: CookieSession<User>) -> Json<User> {
     Json(user.state)
 }
 
+async fn maybe_authorized(user: Option<CookieSession<User>>) -> String {
+    if let Some(user) = user {
+        format!("Hi, {}", user.state.username)
+    } else {
+        "You are not logged in.".to_string()
+    }
+}
+
 #[derive(Deserialize)]
 struct LoginAttempt {
     username: String,
@@ -75,6 +83,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let state = cookie_service.clone();
 
     let router = Router::new()
+        .route("/", get(maybe_authorized))
         .route("/me", get(authorized))
         .route("/login", get(login))
         .route("/logout", get(logout))

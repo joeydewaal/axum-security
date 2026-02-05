@@ -2,7 +2,7 @@ use std::error::Error;
 
 use axum::{
     Json, Router,
-    extract::{Query, State},
+    extract::Query,
     response::{IntoResponse, Redirect},
     routing::get,
     serve,
@@ -19,27 +19,35 @@ use tokio::net::TcpListener;
 
 #[derive(Serialize, Clone)]
 struct User {
-    id: String,
+    id: i32,
     username: String,
-}
-
-#[derive(Deserialize)]
-struct NextUrl {
-    after_login: Option<String>,
 }
 
 async fn authorized(user: CookieSession<User>) -> Json<User> {
     Json(user.state)
 }
 
+static AFTER_LOGIN_COOKIE: &str = "after-login-path";
+
+#[derive(Deserialize)]
+struct NextUrl {
+    after_login: Option<String>,
+}
+
 async fn login(oauth: OAuth2Context, Query(query): Query<NextUrl>) -> impl IntoResponse {
-    let cookie = query
-        .after_login
-        .map(|path| oauth.cookie("after-login-redirect").value(path).build());
+    // The after_login query param is the path where the user should be redirected to after the
+    // login flow is done.
+    //
+    // To do so we store the path in a cookie and after the flow is done, check for the cookie and
+    // redirect.
+    let cookie = if let Some(path) = query.after_login {
+        // Creates a cookie with the same _settings_ as the oauth2 context.
+        Some(oauth.cookie(AFTER_LOGIN_COOKIE).value(path).build())
+    } else {
+        None
+    };
 
-    let res = oauth.start_challenge().await;
-
-    (cookie, res)
+    (cookie, oauth.start_challenge().await)
 }
 
 struct OAuth2Backend {
@@ -50,6 +58,13 @@ impl OAuth2Backend {
     pub fn new(session: CookieContext<User>) -> Self {
         OAuth2Backend { session }
     }
+
+    pub async fn fetch_user(&self, _token: &str) -> User {
+        User {
+            id: 1,
+            username: "user".into(),
+        }
+    }
 }
 
 impl OAuth2Handler for OAuth2Backend {
@@ -58,22 +73,15 @@ impl OAuth2Handler for OAuth2Backend {
         res: TokenResponse,
         context: &mut AfterLoginContext<'_>,
     ) -> impl IntoResponse {
-        println!("user logged in");
-        println!("at: {}", res.access_token);
-        println!("refresh token:: {:?}", res.refresh_token);
+        // Fetch the user based on the access token.
+        let user = self.fetch_user(&res.access_token).await;
 
-        let id = "".into();
-        let username = "user".into();
-
-        let user = User { id, username };
-
+        // Create a session for the user and store the session cookie.
         let cookie = self.session.create_session(user).await.unwrap();
-
         context.cookie_jar.add(cookie);
 
-        let redirect_cookie = context.cookie("after-login-url");
-
-        if let Some(c) = context.cookie_jar.remove(redirect_cookie) {
+        // See if we should redirect the user to a different path than "/".
+        if let Some(c) = context.remove(AFTER_LOGIN_COOKIE) {
             Redirect::to(c.value())
         } else {
             Redirect::to("/")
@@ -100,14 +108,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .build(OAuth2Backend::new(session.clone()));
 
     let router = Router::new()
-        .route("/", get(|_u: CookieSession<User>| async { "hello world" }))
+        .route("/", get(|_: CookieSession<User>| async { "hello world" }))
         .route("/authorized", get(authorized))
         .route("/login", get(login))
         .with_oauth2(context.clone())
         .layer(session)
         .with_state(context);
 
-    let listener = TcpListener::bind("0.0.0.0:8081").await?;
+    let listener = TcpListener::bind("0.0.0.0:3000").await?;
 
     serve(listener, router).await?;
     Ok(())

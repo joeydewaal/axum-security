@@ -33,7 +33,9 @@ pub struct OAuth2ContextBuilder<S> {
 impl<S> OAuth2ContextBuilder<S> {
     pub fn new(store: S) -> OAuth2ContextBuilder<S> {
         // Make sure to use "/" as path so all paths can see the cookie in dev mode.
-        let dev_cookie = Cookie::named(DEFAULT_COOKIE_NAME).path("/");
+        let dev_cookie = Cookie::named(DEFAULT_COOKIE_NAME)
+            .path("/")
+            .same_site(SameSite::Lax);
 
         let cookie = Cookie::named(DEFAULT_COOKIE_NAME)
             .http_only()

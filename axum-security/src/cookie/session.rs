@@ -1,7 +1,7 @@
-use std::hash::Hash;
+use std::{convert::Infallible, hash::Hash};
 
 use axum::{
-    extract::FromRequestParts,
+    extract::{FromRequestParts, OptionalFromRequestParts},
     http::{StatusCode, request::Parts},
 };
 
@@ -51,6 +51,21 @@ where
         } else {
             Err(StatusCode::UNAUTHORIZED)
         }
+    }
+}
+
+impl<S, T> OptionalFromRequestParts<S> for CookieSession<T>
+where
+    S: Send + Sync,
+    T: Send + Sync + 'static,
+{
+    type Rejection = Infallible;
+
+    async fn from_request_parts(
+        parts: &mut Parts,
+        _state: &S,
+    ) -> Result<Option<Self>, Self::Rejection> {
+        Ok(parts.extensions.remove::<CookieSession<T>>())
     }
 }
 

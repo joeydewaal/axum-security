@@ -1,7 +1,7 @@
 use std::{borrow::Cow, pin::Pin};
 
 use axum::response::{IntoResponse, Response};
-use cookie_monster::{CookieBuilder, CookieJar};
+use cookie_monster::{Cookie, CookieBuilder, CookieJar};
 
 pub struct TokenResponse {
     pub access_token: String,
@@ -24,6 +24,11 @@ pub struct AfterLoginContext<'a> {
 impl AfterLoginContext<'_> {
     pub fn cookie(&self, name: impl Into<Cow<'static, str>>) -> CookieBuilder {
         self.cookie_opts.clone().name(name)
+    }
+
+    pub fn remove(&mut self, name: impl Into<Cow<'static, str>>) -> Option<Cookie> {
+        let cookie = self.cookie(name);
+        self.cookie_jar.remove(cookie)
     }
 }
 
