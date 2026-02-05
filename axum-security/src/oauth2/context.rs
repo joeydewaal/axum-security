@@ -13,22 +13,22 @@ use oauth2::{
 use crate::{
     cookie::{CookieContext, CookieStore, MemStore},
     oauth2::{
-        AfterLoginContext, OAuth2ClientTyped, OAuth2Handler, OAuthState, TokenResponse,
-        builder::OAuth2ContextBuilder,
+        AfterLoginContext, OAuth2ClientTyped, OAuthState, TokenResponse,
+        builder::OAuth2ContextBuilder, handler::ErasedOAuth2Handler,
     },
 };
 
-pub struct OAuth2Context<T, S>(pub(super) Arc<OAuth2ContextInner<T, S>>);
+pub struct OAuth2Context<S>(pub(super) Arc<OAuth2ContextInner<S>>);
 
-pub(super) struct OAuth2ContextInner<T, S> {
-    pub(super) inner: T,
+pub(super) struct OAuth2ContextInner<S> {
+    pub(super) inner: ErasedOAuth2Handler,
     pub(super) session: CookieContext<S>,
     pub(super) client: OAuth2ClientTyped,
     pub(super) login_path: Option<Cow<'static, str>>,
     pub(super) scopes: Vec<Scope>,
     pub(super) http_client: ::oauth2::reqwest::Client,
 }
-impl OAuth2Context<(), ()> {
+impl OAuth2Context<()> {
     pub fn builder() -> OAuth2ContextBuilder<MemStore<OAuthState>> {
         OAuth2ContextBuilder::new(MemStore::new())
     }
@@ -38,14 +38,14 @@ impl OAuth2Context<(), ()> {
     }
 }
 
-impl<T: OAuth2Handler, S: CookieStore<State = OAuthState>> OAuth2Context<T, S> {
+impl<S: CookieStore<State = OAuthState>> OAuth2Context<S> {
     pub(crate) fn callback_url(&self) -> &str {
         self.0.client.redirect_uri().unwrap().url().path()
     }
 
     pub(crate) async fn on_redirect(
         &self,
-        jar: CookieJar,
+        mut jar: CookieJar,
         code: AuthorizationCode,
         state: CsrfToken,
     ) -> axum::response::Response {
@@ -80,20 +80,15 @@ impl<T: OAuth2Handler, S: CookieStore<State = OAuthState>> OAuth2Context<T, S> {
         // tada, access token, maybe refresh token.
 
         // after login callback
-        let mut context = AfterLoginContext {
-            cookies: jar,
+        let context = AfterLoginContext {
+            cookies: &mut jar,
             cookie_opts: self.0.session.cookie_builder(),
         };
 
         tracing::debug!("login flow done");
-        let res = self
-            .0
-            .inner
-            .after_login(token_response, &mut context)
-            .await
-            .into_response();
+        let res = self.0.inner.after_login(token_response, context).await;
 
-        (context.cookies, res).into_response()
+        (jar, res).into_response()
     }
 
     pub(crate) async fn exchange_code(
@@ -154,7 +149,7 @@ impl<T: OAuth2Handler, S: CookieStore<State = OAuthState>> OAuth2Context<T, S> {
     }
 }
 
-impl<T, S> Clone for OAuth2Context<T, S> {
+impl<S> Clone for OAuth2Context<S> {
     fn clone(&self) -> Self {
         OAuth2Context(self.0.clone())
     }

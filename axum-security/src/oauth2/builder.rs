@@ -9,7 +9,10 @@ use oauth2::{
 use crate::{
     cookie::{CookieContext, CookieSessionBuilder, CookieStore},
     http::default_reqwest_client,
-    oauth2::{OAuth2Context, OAuthState, context::OAuth2ContextInner},
+    oauth2::{
+        OAuth2Context, OAuth2Handler, OAuthState, context::OAuth2ContextInner,
+        handler::ErasedOAuth2Handler,
+    },
     utils::get_env,
 };
 
@@ -141,16 +144,18 @@ impl<S> OAuth2ContextBuilder<S> {
         }
     }
 
-    pub fn build<T>(self, inner: T) -> OAuth2Context<T, S>
+    pub fn build<T>(self, inner: T) -> OAuth2Context<S>
     where
         S: CookieStore<State = OAuthState>,
+        T: OAuth2Handler,
     {
         self.try_build(inner).unwrap()
     }
 
-    pub fn try_build<T>(self, inner: T) -> Result<OAuth2Context<T, S>, OAuth2BuilderError>
+    pub fn try_build<T>(self, inner: T) -> Result<OAuth2Context<S>, OAuth2BuilderError>
     where
         S: CookieStore<State = OAuthState>,
+        T: OAuth2Handler,
     {
         let client_id = self
             .client_id
@@ -183,7 +188,7 @@ impl<S> OAuth2ContextBuilder<S> {
 
         Ok(OAuth2Context(Arc::new(OAuth2ContextInner {
             client: basic_client,
-            inner,
+            inner: ErasedOAuth2Handler::new(inner),
             session: self.cookie_session.build(),
             login_path: self.login_path,
             http_client: self.http_client,
@@ -246,7 +251,7 @@ mod builder {
         async fn after_login(
             &self,
             _token_res: TokenResponse,
-            _context: &mut AfterLoginContext<'_>,
+            _context: AfterLoginContext<'_>,
         ) -> impl IntoResponse {
             ()
         }
