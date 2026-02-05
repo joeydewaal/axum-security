@@ -15,33 +15,17 @@ time = ["cookie-monster?/time"]
 
 
 [dependencies]
-axum = { version = "0.8", features = ["tokio"],  default-features = false }
-tokio = { version = "1.0", default-features = false }
-tower = "0.5"
+axum = { workspace = true, features = ["query"] }
+tokio.workspace = true
+tower.workspace = true
+tracing.workspace = true
 
-cookie-monster = { path = "../../cookie-monster", features = ["axum"], optional = true }
-jsonwebtoken = { version = "10.2.0", features = ["aws_lc_rs"], optional = true }
-
-uuid = { version = "1.18.1", features = ["v7"], optional = true }
-
-oauth2 = { version = "5.0.0", features = ["reqwest", "rustls-tls"], default-features = false, optional = true }
-
-serde = { version = "1.0.228", features = ["derive"] }
+cookie-monster = { workspace = true, optional = true }
+jsonwebtoken = { workspace = true, features = ["aws_lc_rs"], optional = true }
+oauth2 = { workspace = true, features = ["reqwest", "rustls-tls"], optional = true }
 
 axum-security-macros = { path = "../axum-security-macros", optional = true }
 
-tracing = "0.1.44"
+uuid = { workspace = true, features = ["v7"], optional = true }
+serde.workspace = true
 
-[dev-dependencies]
-axum = { version = "0.8.8", features = ["macros", "tracing"] }
-tokio = { version = "1.0", features = ["full"] }
-serde = { version = "1.0.228", features = ["derive"] }
-sqlx = { version = "0.9.0-alpha.1", features = ["sqlite"] }
-url = "2.5.8"
-serde_urlencoded = "0.7"
-tower = "0.5.3"
-tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
-wiremock = "0.6.5"
-reqwest = { version = "0.13.1", features = ["cookies"], default-features=false }
-sha2 = "0.10"
-base64 = "0.22"

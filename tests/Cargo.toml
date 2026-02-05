@@ -1,0 +1,26 @@
+[package]
+name = "tests"
+version = "0.1.0"
+edition = "2024"
+
+[features]
+jwt = ["axum-security/jwt"]
+cookie = ["axum-security/cookie"]
+oauth2 = ["axum-security/oauth2"]
+
+
+[dev-dependencies]
+axum-security = { path = "../axum-security" }
+axum = { workspace = true, features = ["query", "http1"] }
+tower.workspace = true
+serde.workspace = true
+tokio = { workspace = true, features = ["macros"] }
+tracing.workspace = true
+uuid.workspace = true
+url = "2.5.8"
+serde_urlencoded = "0.7"
+tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
+wiremock = "0.6.5"
+reqwest = { version = "0.13.1", features = ["cookies"], default-features=false }
+sha2 = "0.10"
+base64 = "0.22"

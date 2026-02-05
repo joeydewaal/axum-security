@@ -1,3 +1,18 @@
 [workspace]
 resolver = "3"
-members = ["axum-security", "axum-security-macros", "examples/cookie", "examples/jwt", "examples/oauth2", "examples/oauth2-redirect", "examples/rbac", "examples/store"]
+members = ["axum-security", "axum-security-macros", "tests"]
+
+[workspace.dependencies]
+axum = { version = "0.8", features = ["tokio"],  default-features = false }
+tokio = { version = "1.0", default-features = false }
+tower = "0.5"
+
+cookie-monster = { path = "../cookie-monster", features = ["axum"] }
+jsonwebtoken = { version = "10.2.0", default-features=false }
+uuid = { version = "1.20", features = ["std"], default-features = false }
+
+oauth2 = { version = "5.0.0", default-features = false }
+
+serde = { version = "1.0.228", features = ["derive"] }
+
+tracing = { version = "0.1.44" }
