@@ -45,7 +45,7 @@ impl<S: CookieStore<State = OAuthState>> OAuth2Context<S> {
 
     pub(crate) async fn on_redirect(
         &self,
-        mut jar: CookieJar,
+        jar: CookieJar,
         code: AuthorizationCode,
         state: CsrfToken,
     ) -> axum::response::Response {
@@ -80,15 +80,15 @@ impl<S: CookieStore<State = OAuthState>> OAuth2Context<S> {
         // tada, access token, maybe refresh token.
 
         // after login callback
-        let context = AfterLoginContext {
-            cookies: &mut jar,
+        let mut context = AfterLoginContext {
+            cookie_jar: jar,
             cookie_opts: self.0.session.cookie_builder(),
         };
 
         tracing::debug!("login flow done");
-        let res = self.0.inner.after_login(token_response, context).await;
+        let res = self.0.inner.after_login(token_response, &mut context).await;
 
-        (jar, res).into_response()
+        (context.cookie_jar, res).into_response()
     }
 
     pub(crate) async fn exchange_code(

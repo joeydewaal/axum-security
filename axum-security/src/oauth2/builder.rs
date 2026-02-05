@@ -251,7 +251,7 @@ mod builder {
         async fn after_login(
             &self,
             _token_res: TokenResponse,
-            _context: AfterLoginContext<'_>,
+            _context: &mut AfterLoginContext<'_>,
         ) -> impl IntoResponse {
             ()
         }

@@ -3,7 +3,7 @@ resolver = "3"
 members = ["axum-security", "axum-security-macros", "tests"]
 
 [workspace.dependencies]
-axum = { version = "0.8", features = ["tokio", "macros"],  default-features = false }
+axum = { version = "0.8", features = ["tokio"],  default-features = false }
 tokio = { version = "1.0", default-features = false }
 tower = "0.5"
 
