@@ -132,7 +132,7 @@ dependencies = [
 
 [[package]]
 name = "axum-security-macros"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "quote",
  "syn",
@@ -231,7 +231,9 @@ dependencies = [
 
 [[package]]
 name = "cookie-monster"
-version = "0.1.0"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3a76e6e81fcf71d6040669730f993e41bc1859b59135d30f43ab2b9c6e335fab"
 dependencies = [
  "axum-core",
  "chrono",

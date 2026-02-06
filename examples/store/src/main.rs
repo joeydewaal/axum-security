@@ -165,7 +165,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .layer(session.clone())
         .with_state(session);
 
-    let listener = TcpListener::bind("0.0.0.0:8081").await?;
+    let listener = TcpListener::bind("0.0.0.0:3000").await?;
 
     serve(listener, router).await?;
     Ok(())

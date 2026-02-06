@@ -7,7 +7,7 @@ axum = { version = "0.8", features = ["tokio"],  default-features = false }
 tokio = { version = "1.0", default-features = false }
 tower = "0.5"
 
-cookie-monster = { path = "../cookie-monster", features = ["axum"] }
+cookie-monster = { version = "0.2.0", features = ["axum"] }
 jsonwebtoken = { version = "10.2.0", default-features=false }
 uuid = { version = "1.20", features = ["std"], default-features = false }
 
