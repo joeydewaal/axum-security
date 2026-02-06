@@ -14,7 +14,7 @@ use oauth2::{
 use crate::{
     cookie::{CookieContext, MemStore},
     oauth2::{
-        AfterLoginContext, OAuth2ClientTyped, OAuthState, TokenResponse,
+        AfterLoginCookies, OAuth2ClientTyped, OAuthState, TokenResponse,
         builder::OAuth2ContextBuilder, handler::ErasedOAuth2Handler,
     },
 };
@@ -82,7 +82,7 @@ impl OAuth2Context {
         // tada, access token, maybe refresh token.
 
         // after login callback
-        let mut context = AfterLoginContext {
+        let mut context = AfterLoginCookies {
             cookie_jar: jar,
             cookie_opts: self.0.session.cookie_builder(),
         };

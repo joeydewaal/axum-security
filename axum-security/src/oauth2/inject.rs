@@ -6,12 +6,14 @@ pub trait OAuth2Ext {
     fn with_oauth2(self, context: OAuth2Context) -> Self;
 }
 
-impl<STATE> OAuth2Ext for Router<STATE>
+impl<S> OAuth2Ext for Router<S>
 where
-    STATE: Clone + Send + Sync + 'static,
+    S: Clone + Send + Sync + 'static,
 {
     fn with_oauth2(mut self, context: OAuth2Context) -> Self {
         if let Some(start_challenge_path) = context.get_start_challenge_path() {
+            // TODO: we could make this a service and user get_service instead of using an
+            // extension here.
             let challenge_route = MethodRouter::new()
                 .get(start_login)
                 .layer(Extension(context.clone()));

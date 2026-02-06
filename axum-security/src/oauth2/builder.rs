@@ -27,7 +27,7 @@ pub struct OAuth2ContextBuilder<S> {
     scopes: Vec<Scope>,
     auth_url: Option<String>,
     token_url: Option<String>,
-    http_client: HttpClient,
+    http_client: Option<HttpClient>,
 }
 
 impl<S> OAuth2ContextBuilder<S> {
@@ -54,7 +54,7 @@ impl<S> OAuth2ContextBuilder<S> {
             scopes: Vec::new(),
             auth_url: None,
             token_url: None,
-            http_client: default_reqwest_client(),
+            http_client: None,
         }
     }
 
@@ -132,6 +132,11 @@ impl<S> OAuth2ContextBuilder<S> {
         self.use_dev_cookies(!prod)
     }
 
+    pub fn http_client(mut self, http_client: HttpClient) -> Self {
+        self.http_client = Some(http_client);
+        self
+    }
+
     pub fn store<S1>(self, store: S1) -> OAuth2ContextBuilder<S1> {
         OAuth2ContextBuilder {
             cookie_session: self.cookie_session.store(store),
@@ -193,7 +198,7 @@ impl<S> OAuth2ContextBuilder<S> {
             inner: ErasedOAuth2Handler::new(inner),
             session: self.cookie_session.build(),
             login_path: self.login_path,
-            http_client: self.http_client,
+            http_client: self.http_client.unwrap_or_else(default_reqwest_client),
             scopes: self.scopes,
         })))
     }
@@ -237,7 +242,7 @@ mod builder {
     use axum::response::IntoResponse;
 
     use crate::oauth2::{
-        AfterLoginContext, OAuth2BuilderError, OAuth2Context, OAuth2Handler, TokenResponse,
+        AfterLoginCookies, OAuth2BuilderError, OAuth2Context, OAuth2Handler, TokenResponse,
         providers::github,
     };
 
@@ -253,7 +258,7 @@ mod builder {
         async fn after_login(
             &self,
             _token_res: TokenResponse,
-            _context: &mut AfterLoginContext<'_>,
+            _context: &mut AfterLoginCookies<'_>,
         ) -> impl IntoResponse {
             ()
         }

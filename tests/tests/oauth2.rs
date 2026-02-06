@@ -37,7 +37,7 @@ impl OAuth2Handler for TestHandler {
     async fn after_login(
         &self,
         _token_res: axum_security::oauth2::TokenResponse,
-        _context: &mut axum_security::oauth2::AfterLoginContext<'_>,
+        _context: &mut axum_security::oauth2::AfterLoginCookies<'_>,
     ) -> impl axum::response::IntoResponse {
         StatusCode::CREATED
     }

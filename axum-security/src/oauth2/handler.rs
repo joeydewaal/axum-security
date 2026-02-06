@@ -12,16 +12,16 @@ pub trait OAuth2Handler: Send + Sync + 'static {
     fn after_login(
         &self,
         token_res: TokenResponse,
-        _context: &mut AfterLoginContext<'_>,
+        _context: &mut AfterLoginCookies<'_>,
     ) -> impl Future<Output = impl IntoResponse> + Send;
 }
 
-pub struct AfterLoginContext<'a> {
-    pub cookie_jar: CookieJar,
+pub struct AfterLoginCookies<'a> {
+    pub(crate) cookie_jar: CookieJar,
     pub(crate) cookie_opts: &'a CookieBuilder,
 }
 
-impl AfterLoginContext<'_> {
+impl AfterLoginCookies<'_> {
     pub fn cookie(&self, name: impl Into<Cow<'static, str>>) -> CookieBuilder {
         self.cookie_opts.clone().name(name)
     }
@@ -30,13 +30,17 @@ impl AfterLoginContext<'_> {
         let cookie = self.cookie(name);
         self.cookie_jar.remove(cookie)
     }
+
+    pub fn add(&mut self, cookie: impl Into<Cookie>) {
+        self.cookie_jar.add(cookie.into());
+    }
 }
 
 trait DynOAuth2Handler: Send + Sync + 'static {
     fn after_login_boxed<'a, 'b>(
         &'a self,
         token_res: TokenResponse,
-        context: &'a mut AfterLoginContext<'b>,
+        context: &'a mut AfterLoginCookies<'b>,
     ) -> Pin<Box<dyn Future<Output = Response> + Send + 'a>>;
 }
 
@@ -47,7 +51,7 @@ where
     fn after_login_boxed<'a, 'b>(
         &'a self,
         token_res: TokenResponse,
-        context: &'a mut AfterLoginContext<'b>,
+        context: &'a mut AfterLoginCookies<'b>,
     ) -> Pin<Box<dyn Future<Output = Response> + Send + 'a>> {
         Box::pin(async move { self.after_login(token_res, context).await.into_response() })
     }
@@ -63,7 +67,7 @@ impl ErasedOAuth2Handler {
     pub async fn after_login<'a, 'b>(
         &'a self,
         res: TokenResponse,
-        context: &'a mut AfterLoginContext<'b>,
+        context: &'a mut AfterLoginCookies<'b>,
     ) -> Response {
         self.0.after_login_boxed(res, context).await
     }

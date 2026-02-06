@@ -34,6 +34,7 @@ pub trait CookieStore: Send + Sync + 'static {
 
 pub type BoxDynError = Box<dyn Error + Send + 'static>;
 
+#[allow(clippy::type_complexity)]
 trait DynStore<S>: Send + Sync + 'static {
     fn spawn_maintenance_task(&self) -> bool;
 
@@ -63,7 +64,7 @@ where
     T: CookieStore,
 {
     fn spawn_maintenance_task(&self) -> bool {
-        <T as CookieStore>::spawn_maintenance_task(&self)
+        <T as CookieStore>::spawn_maintenance_task(self)
     }
 
     fn store_session(
@@ -71,7 +72,7 @@ where
         session: CookieSession<T::State>,
     ) -> Pin<Box<dyn Future<Output = Result<(), BoxDynError>> + Send + '_>> {
         Box::pin(async move {
-            <T as CookieStore>::store_session(&self, session)
+            <T as CookieStore>::store_session(self, session)
                 .await
                 .map_err(|e| Box::new(e) as Box<dyn Error + Send>)
         })
@@ -84,7 +85,7 @@ where
         Box<dyn Future<Output = Result<Option<CookieSession<T::State>>, BoxDynError>> + Send + 'a>,
     > {
         Box::pin(async move {
-            <T as CookieStore>::remove_session(&self, id)
+            <T as CookieStore>::remove_session(self, id)
                 .await
                 .map_err(|e| Box::new(e) as Box<dyn Error + Send>)
         })
@@ -97,7 +98,7 @@ where
         Box<dyn Future<Output = Result<Option<CookieSession<T::State>>, BoxDynError>> + Send + 'a>,
     > {
         Box::pin(async move {
-            <T as CookieStore>::load_session(&self, id)
+            <T as CookieStore>::load_session(self, id)
                 .await
                 .map_err(|e| Box::new(e) as Box<dyn Error + Send>)
         })
@@ -108,7 +109,7 @@ where
         deadline: u64,
     ) -> Pin<Box<dyn Future<Output = Result<(), BoxDynError>> + Send + '_>> {
         Box::pin(async move {
-            <T as CookieStore>::remove_before(&self, deadline)
+            <T as CookieStore>::remove_before(self, deadline)
                 .await
                 .map_err(|e| Box::new(e) as Box<dyn Error + Send>)
         })

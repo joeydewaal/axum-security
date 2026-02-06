@@ -29,13 +29,10 @@ fn expand_inner<T: ToTokens>(attr: TokenStream, item: TokenStream, auth_func: T)
     let fn_asyncness = &fn_sig.asyncness;
     let fn_body = &input_fn.block;
 
-    // Extract original parameters (with patterns like Jwt(user))
     let orig_params = &fn_sig.inputs;
 
-    // Keep inner function with original patterns
     let inner_params = orig_params.clone();
 
-    // For outer function: extract types and create simple param names
     let outer_params_and_args: Vec<_> = orig_params
         .iter()
         .enumerate()
@@ -57,7 +54,6 @@ fn expand_inner<T: ToTokens>(attr: TokenStream, item: TokenStream, auth_func: T)
     let outer_params = outer_params_and_args.iter().map(|(param, _)| param);
     let arg_names = outer_params_and_args.iter().map(|(_, arg)| arg);
 
-    // Build the new function with Extension parameter prepended
     let expanded = quote! {
         #fn_vis #fn_asyncness fn #fn_name(
             roles: axum_security::rbac::RolesExtractor<#rbac>,

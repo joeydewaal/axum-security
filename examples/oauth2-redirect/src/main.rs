@@ -10,7 +10,7 @@ use axum::{
 use axum_security::{
     cookie::{CookieContext, CookieSession, MemStore},
     oauth2::{
-        AfterLoginContext, OAuth2Context, OAuth2Ext, OAuth2Handler, TokenResponse,
+        AfterLoginCookies, OAuth2Context, OAuth2Ext, OAuth2Handler, TokenResponse,
         providers::github,
     },
 };
@@ -71,17 +71,17 @@ impl OAuth2Handler for OAuth2Backend {
     async fn after_login(
         &self,
         res: TokenResponse,
-        context: &mut AfterLoginContext<'_>,
+        cookies: &mut AfterLoginCookies<'_>,
     ) -> impl IntoResponse {
         // Fetch the user based on the access token.
         let user = self.fetch_user(&res.access_token).await;
 
         // Create a session for the user and store the session cookie.
         let cookie = self.session.create_session(user).await.unwrap();
-        context.cookie_jar.add(cookie);
+        cookies.add(cookie);
 
         // See if we should redirect the user to a different path than "/".
-        if let Some(c) = context.remove(AFTER_LOGIN_COOKIE) {
+        if let Some(c) = cookies.remove(AFTER_LOGIN_COOKIE) {
             Redirect::to(c.value())
         } else {
             Redirect::to("/")

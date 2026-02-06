@@ -7,7 +7,7 @@ mod redirect;
 
 pub use builder::OAuth2BuilderError;
 pub use context::OAuth2Context;
-pub use handler::{AfterLoginContext, OAuth2Handler, TokenResponse};
+pub use handler::{AfterLoginCookies, OAuth2Handler, TokenResponse};
 pub use inject::OAuth2Ext;
 pub(crate) use redirect::{on_redirect, start_login};
 
