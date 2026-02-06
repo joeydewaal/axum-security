@@ -21,7 +21,7 @@ use serde::{Deserialize, Serialize};
 use url::Url;
 use wiremock::{
     Mock, MockServer, Request as WireRequest, ResponseTemplate,
-    matchers::{method, path, query_param},
+    matchers::{method, path},
 };
 
 const CLIENT_ID: &str = "test_client_id";
@@ -48,8 +48,8 @@ impl OAuth2Handler for TestHandler {
 struct PkceQueryParams {
     client_id: String,
     state: String,
-    code_challenge: String,
-    code_challenge_method: String,
+    code_challenge: Option<String>,
+    code_challenge_method: Option<String>,
     redirect_uri: String,
 }
 
@@ -103,18 +103,17 @@ async fn basic_login_path() -> Result<(), Box<dyn Error>> {
 #[allow(unused)]
 #[derive(Clone)]
 struct ChallengeData {
-    code_challenge: String,
+    code_challenge: Option<String>,
     client_id: String,
     redirect_uri: String,
 }
 
 type ChallengeStore = Arc<Mutex<HashMap<String, ChallengeData>>>;
 
-// Static global state
 static OAUTH_STATE: LazyLock<ChallengeStore> =
     LazyLock::new(|| Arc::new(Mutex::new(HashMap::new())));
 
-async fn install_mock_pkce_server() -> (MockServer, String, String) {
+async fn install_mock_oauth_server(pkce: bool) -> (MockServer, String, String) {
     const AUTH_URL_PATH: &str = "/oauth2/authorize";
     const TOKEN_URL_PATH: &str = "/oauth2/access_token";
 
@@ -123,13 +122,16 @@ async fn install_mock_pkce_server() -> (MockServer, String, String) {
     let auth_url = format!("http://{}{AUTH_URL_PATH}", mock_server.address());
     let token_url = format!("http://{}{TOKEN_URL_PATH}", mock_server.address());
 
-    // 1. Authorization endpoint - store code_challenge
     Mock::given(method("GET"))
         .and(path(AUTH_URL_PATH))
-        .and(query_param("response_type", "code"))
-        .and(query_param("code_challenge_method", "S256"))
-        .respond_with(|req: &WireRequest| {
+        .respond_with(move |req: &WireRequest| {
             tracing::debug!("oauth2: auth url");
+
+            if pkce {
+                let query = req.url.query().unwrap();
+                assert!(query.contains("response_type=code"));
+                assert!(query.contains("code_challenge_method=S256"));
+            }
 
             let Some(query) = req.url.query() else {
                 tracing::debug!("no query found in url");
@@ -137,6 +139,7 @@ async fn install_mock_pkce_server() -> (MockServer, String, String) {
             };
 
             let Ok(pkce_params) = serde_urlencoded::from_str::<PkceQueryParams>(query) else {
+                tracing::debug!("could not deseerialize query params");
                 return ResponseTemplate::new(400);
             };
 
@@ -145,10 +148,13 @@ async fn install_mock_pkce_server() -> (MockServer, String, String) {
                 return ResponseTemplate::new(400);
             }
 
-            // Generate authorization code
             let auth_code = format!("AUTH_CODE_{}", uuid::Uuid::now_v7());
 
-            // Store code_challenge in global state
+            if pkce {
+                assert!(pkce_params.code_challenge.is_some());
+                assert!(pkce_params.code_challenge_method.is_some());
+            }
+
             {
                 let mut challenges = OAUTH_STATE.lock().unwrap();
                 challenges.insert(
@@ -171,13 +177,11 @@ async fn install_mock_pkce_server() -> (MockServer, String, String) {
         .mount(&mock_server)
         .await;
 
-    // 2. Token endpoint - validate code_verifier
     Mock::given(method("POST"))
         .and(path(TOKEN_URL_PATH))
-        .respond_with(|req: &WireRequest| {
+        .respond_with(move |req: &WireRequest| {
             tracing::debug!("oauth2: token url");
 
-            // Validate Basic Auth
             let auth_header = req
                 .headers
                 .get("Authorization")
@@ -188,7 +192,6 @@ async fn install_mock_pkce_server() -> (MockServer, String, String) {
                     return ResponseTemplate::new(401).insert_header("WWW-Authenticate", "Basic");
                 }
 
-                // Decode Basic auth
                 let encoded = &header[6..];
                 let decoded = general_purpose::STANDARD
                     .decode(encoded)
@@ -203,7 +206,6 @@ async fn install_mock_pkce_server() -> (MockServer, String, String) {
                 return ResponseTemplate::new(401).insert_header("WWW-Authenticate", "Basic");
             }
 
-            // Parse request body
             let body = std::str::from_utf8(&req.body).unwrap();
 
             #[allow(unused)]
@@ -212,14 +214,13 @@ async fn install_mock_pkce_server() -> (MockServer, String, String) {
                 grant_type: String,
                 code: String,
                 redirect_uri: String,
-                code_verifier: String,
+                code_verifier: Option<String>,
             }
 
             let Ok(params) = serde_urlencoded::from_str::<TokenUrlParams>(body) else {
                 return ResponseTemplate::new(400);
             };
 
-            // Look up stored challenge from global state
             let challenge_data = {
                 let challenges = OAUTH_STATE.lock().unwrap();
                 challenges.get(&params.code).cloned()
@@ -229,26 +230,22 @@ async fn install_mock_pkce_server() -> (MockServer, String, String) {
                 return ResponseTemplate::new(400);
             };
 
-            // Validate redirect_uri matches
             if challenge_data.redirect_uri != params.redirect_uri {
                 return ResponseTemplate::new(400);
             }
 
-            // **VALIDATE CODE_VERIFIER**
-            let computed_challenge = generate_code_challenge(&params.code_verifier);
-
-            if computed_challenge != challenge_data.code_challenge {
-                tracing::error!(
-                    "PKCE validation failed: expected={}, computed={}",
-                    challenge_data.code_challenge,
-                    computed_challenge
-                );
-                return ResponseTemplate::new(400);
+            if let Some(code_challenge) = challenge_data.code_challenge && let Some(verifier) = &params.code_verifier
+                && pkce
+            {
+            let computed_challenge = generate_code_challenge(verifier);
+                if computed_challenge != code_challenge {
+                    tracing::error!("PKCE validation failed: expected={code_challenge}, computed={computed_challenge}");
+                    return ResponseTemplate::new(400);
+                }
             }
 
             tracing::debug!("PKCE validation passed!");
 
-            // Clean up used auth code (one-time use)
             {
                 let mut challenges = OAUTH_STATE.lock().unwrap();
                 challenges.remove(&params.code);
@@ -273,13 +270,11 @@ async fn install_mock_pkce_server() -> (MockServer, String, String) {
     (mock_server, auth_url, token_url)
 }
 
-// Helper function to generate code_challenge from code_verifier
 fn generate_code_challenge(verifier: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(verifier.as_bytes());
     let result = hasher.finalize();
 
-    // Base64 URL encode without padding (S256 method)
     general_purpose::URL_SAFE_NO_PAD.encode(result)
 }
 
@@ -288,7 +283,7 @@ async fn login_path() -> Result<(), Box<dyn Error>> {
     let _ = tracing_subscriber::fmt::try_init();
 
     const REDIRECT_PATH: &str = "/redirect";
-    let (_, auth_url, token_url) = install_mock_pkce_server().await;
+    let (_, auth_url, token_url) = install_mock_oauth_server(true).await;
 
     let http_client = Client::builder()
         .redirect(Policy::none())
@@ -336,7 +331,7 @@ async fn invalid_state() -> Result<(), Box<dyn Error>> {
     let _ = tracing_subscriber::fmt::try_init();
 
     const REDIRECT_PATH: &str = "/redirect";
-    let (_, auth_url, token_url) = install_mock_pkce_server().await;
+    let (_, auth_url, token_url) = install_mock_oauth_server(true).await;
 
     let http_client = Client::builder()
         .redirect(Policy::none())
@@ -386,5 +381,55 @@ async fn invalid_state() -> Result<(), Box<dyn Error>> {
 
     assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
 
+    Ok(())
+}
+
+#[tokio::test]
+async fn auth_flow() -> Result<(), Box<dyn Error>> {
+    let _ = tracing_subscriber::fmt::try_init();
+
+    const REDIRECT_PATH: &str = "/redirect";
+    let (_, auth_url, token_url) = install_mock_oauth_server(false).await;
+
+    let http_client = Client::builder()
+        .redirect(Policy::none())
+        .cookie_store(true)
+        .build()?;
+
+    let socket = TcpListener::bind("127.0.0.1:0").await?;
+    let server_addr = socket.local_addr()?;
+    let redirect_url = format!("http://{server_addr}{REDIRECT_PATH}");
+
+    let oauth2_context = OAuth2Context::builder()
+        .client_id(CLIENT_ID)
+        .client_secret(CLIENT_SECRET)
+        .redirect_url(redirect_url)
+        .auth_url(auth_url)
+        .token_url(token_url)
+        .login_path(LOGIN_PATH)
+        .use_dev_cookies(true)
+        .authorization_code_flow()
+        .build(TestHandler);
+
+    let router = Router::<()>::new().with_oauth2(oauth2_context);
+
+    tokio::spawn(async { axum::serve(socket, router).await });
+
+    // Start login flow.
+    let res = http_client
+        .get(format!("http://{server_addr}{LOGIN_PATH}"))
+        .send()
+        .await?;
+
+    // Login with the oauth server.
+    let redirect_url = res.headers()["location"].to_str()?;
+    let login_result = http_client.get(redirect_url).send().await?;
+
+    // Finish the flow on the server.
+    dbg!(&login_result);
+    let redirect_url = login_result.headers()["location"].to_str()?;
+    let res = http_client.get(redirect_url).send().await?;
+
+    assert_eq!(res.status(), StatusCode::CREATED);
     Ok(())
 }

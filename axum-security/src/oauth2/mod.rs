@@ -19,14 +19,17 @@ pub(crate) type OAuth2ClientTyped =
 
 pub struct OAuthState {
     csrf_token: CsrfToken,
-    pkce_verifier: PkceCodeVerifier,
+    pkce_verifier: Option<PkceCodeVerifier>,
 }
 
 impl Clone for OAuthState {
     fn clone(&self) -> Self {
         Self {
             csrf_token: self.csrf_token.clone(),
-            pkce_verifier: PkceCodeVerifier::new(self.pkce_verifier.secret().clone()),
+            pkce_verifier: self
+                .pkce_verifier
+                .as_ref()
+                .map(|verifier| PkceCodeVerifier::new(verifier.secret().clone())),
         }
     }
 }

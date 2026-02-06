@@ -28,6 +28,7 @@ pub struct OAuth2ContextBuilder<S> {
     auth_url: Option<String>,
     token_url: Option<String>,
     http_client: Option<HttpClient>,
+    flow_type: FlowType,
 }
 
 impl<S> OAuth2ContextBuilder<S> {
@@ -55,6 +56,7 @@ impl<S> OAuth2ContextBuilder<S> {
             auth_url: None,
             token_url: None,
             http_client: None,
+            flow_type: FlowType::AuthorizationCodeFlowPkce,
         }
     }
 
@@ -137,6 +139,16 @@ impl<S> OAuth2ContextBuilder<S> {
         self
     }
 
+    pub fn authorization_code_flow(mut self) -> Self {
+        self.flow_type = FlowType::AuthorizationCodeFlow;
+        self
+    }
+
+    pub fn authorization_code_flow_with_pkce(mut self) -> Self {
+        self.flow_type = FlowType::AuthorizationCodeFlowPkce;
+        self
+    }
+
     pub fn store<S1>(self, store: S1) -> OAuth2ContextBuilder<S1> {
         OAuth2ContextBuilder {
             cookie_session: self.cookie_session.store(store),
@@ -148,6 +160,7 @@ impl<S> OAuth2ContextBuilder<S> {
             auth_url: self.auth_url,
             token_url: self.token_url,
             http_client: self.http_client,
+            flow_type: self.flow_type,
         }
     }
 
@@ -200,8 +213,14 @@ impl<S> OAuth2ContextBuilder<S> {
             login_path: self.login_path,
             http_client: self.http_client.unwrap_or_else(default_reqwest_client),
             scopes: self.scopes,
+            flow_type: self.flow_type,
         })))
     }
+}
+
+pub(crate) enum FlowType {
+    AuthorizationCodeFlow,
+    AuthorizationCodeFlowPkce,
 }
 
 #[derive(Debug)]

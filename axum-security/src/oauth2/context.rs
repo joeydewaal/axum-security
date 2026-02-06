@@ -15,7 +15,8 @@ use crate::{
     cookie::{CookieContext, MemStore},
     oauth2::{
         AfterLoginCookies, OAuth2ClientTyped, OAuthState, TokenResponse,
-        builder::OAuth2ContextBuilder, handler::ErasedOAuth2Handler,
+        builder::{FlowType, OAuth2ContextBuilder},
+        handler::ErasedOAuth2Handler,
     },
 };
 
@@ -29,6 +30,7 @@ pub(super) struct OAuth2ContextInner {
     pub(super) login_path: Option<Cow<'static, str>>,
     pub(super) scopes: Vec<Scope>,
     pub(super) http_client: ::oauth2::reqwest::Client,
+    pub(super) flow_type: FlowType,
 }
 impl OAuth2Context {
     pub fn builder() -> OAuth2ContextBuilder<MemStore<OAuthState>> {
@@ -96,16 +98,30 @@ impl OAuth2Context {
     pub(crate) async fn exchange_code(
         &self,
         code: AuthorizationCode,
-        pkce_verifier: PkceCodeVerifier,
+        pkce_verifier: Option<PkceCodeVerifier>,
     ) -> Result<TokenResponse, String> {
-        let response = self
-            .0
-            .client
-            .exchange_code(code)
-            .set_pkce_verifier(pkce_verifier)
-            .request_async(&self.0.http_client)
-            .await
-            .map_err(|e| e.to_string())?;
+        let response = match self.0.flow_type {
+            FlowType::AuthorizationCodeFlow => self
+                .0
+                .client
+                .exchange_code(code)
+                .request_async(&self.0.http_client)
+                .await
+                .map_err(|e| e.to_string())?,
+            FlowType::AuthorizationCodeFlowPkce => {
+                let Some(pkce_verifier) = pkce_verifier else {
+                    return Err("PKCE code verifier missing from request".into());
+                };
+
+                self.0
+                    .client
+                    .exchange_code(code)
+                    .set_pkce_verifier(pkce_verifier)
+                    .request_async(&self.0.http_client)
+                    .await
+                    .map_err(|e| e.to_string())?
+            }
+        };
 
         let access_token = response.access_token().secret().clone();
         let refresh_token = response.refresh_token().map(|t| t.secret().clone());
@@ -122,14 +138,24 @@ impl OAuth2Context {
 
     pub async fn start_challenge(&self) -> axum::response::Response {
         tracing::debug!("Starting oauth2 login flow");
-        let (pkce_challenge, pkce_verifier) = PkceCodeChallenge::new_random_sha256();
-        let req = self.0.client.authorize_url(CsrfToken::new_random);
+
+        let mut req = self.0.client.authorize_url(CsrfToken::new_random);
 
         // Create authorize url, with csrf token
-        let (redirect_url, csrf_token) = req
-            .add_scopes(self.0.scopes.clone())
-            .set_pkce_challenge(pkce_challenge)
-            .url();
+        req = req.add_scopes(self.0.scopes.clone());
+        // let (redirect_url, csrf_token) = req.add_scopes(self.0.scopes.clone());
+        // .set_pkce_challenge(pkce_challenge)
+        // .url();
+
+        let pkce_verifier = if matches!(self.0.flow_type, FlowType::AuthorizationCodeFlowPkce) {
+            let (pkce_challenge, pkce_verifier) = PkceCodeChallenge::new_random_sha256();
+            req = req.set_pkce_challenge(pkce_challenge);
+            Some(pkce_verifier)
+        } else {
+            None
+        };
+
+        let (redirect_url, csrf_token) = req.url();
 
         // Store CSRF token on the server somewhere.
         let state = OAuthState {
