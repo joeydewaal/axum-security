@@ -2,7 +2,7 @@ use std::{convert::Infallible, hash::Hash};
 
 use axum::{
     extract::{FromRequestParts, OptionalFromRequestParts},
-    http::{StatusCode, request::Parts},
+    http::{Extensions, StatusCode, request::Parts},
 };
 
 use crate::cookie::SessionId;
@@ -21,6 +21,13 @@ impl<S> CookieSession<S> {
             created_at,
             state: value,
         }
+    }
+
+    pub fn from_extensions(extensions: &mut Extensions) -> Option<Self>
+    where
+        S: Send + Sync + 'static,
+    {
+        extensions.remove()
     }
 }
 
@@ -46,7 +53,7 @@ where
     type Rejection = StatusCode;
 
     async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, StatusCode> {
-        if let Some(session) = parts.extensions.remove::<CookieSession<T>>() {
+        if let Some(session) = parts.extensions.remove() {
             Ok(session)
         } else {
             Err(StatusCode::UNAUTHORIZED)
@@ -65,7 +72,7 @@ where
         parts: &mut Parts,
         _state: &S,
     ) -> Result<Option<Self>, Self::Rejection> {
-        Ok(parts.extensions.remove::<CookieSession<T>>())
+        Ok(parts.extensions.remove())
     }
 }
 

@@ -2,11 +2,17 @@ use std::convert::Infallible;
 
 use axum::{
     extract::{FromRequestParts, OptionalFromRequestParts},
-    http::{StatusCode, request::Parts},
+    http::{Extensions, StatusCode, request::Parts},
 };
 
 #[derive(Clone, Debug)]
 pub struct Jwt<T>(pub T);
+
+impl<T: Send + Sync + 'static> Jwt<T> {
+    pub fn from_extensions(extensions: &mut Extensions) -> Option<Self> {
+        extensions.remove()
+    }
+}
 
 impl<S, T> FromRequestParts<S> for Jwt<T>
 where
@@ -16,7 +22,7 @@ where
     type Rejection = StatusCode;
 
     async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
-        if let Some(session) = parts.extensions.remove::<Jwt<T>>() {
+        if let Some(session) = <Jwt<T>>::from_extensions(&mut parts.extensions) {
             Ok(session)
         } else {
             Err(StatusCode::UNAUTHORIZED)
@@ -35,7 +41,7 @@ where
         parts: &mut Parts,
         _state: &S,
     ) -> Result<Option<Self>, Self::Rejection> {
-        Ok(parts.extensions.remove::<Jwt<T>>())
+        Ok(<Jwt<T>>::from_extensions(&mut parts.extensions))
     }
 }
 
