@@ -8,7 +8,7 @@ use axum::{
 use axum_security::{
     cookie::{CookieContext, CookieSession, MemStore},
     oauth2::{
-        AfterLoginContext, OAuth2Context, OAuth2Ext, OAuth2Handler, TokenResponse,
+        AfterLoginCookies, OAuth2Context, OAuth2Ext, OAuth2Handler, TokenResponse,
         providers::github,
     },
 };
@@ -64,7 +64,7 @@ impl LoginHandler {
     async fn handle_login(
         &self,
         token_res: TokenResponse,
-        context: &mut AfterLoginContext<'_>,
+        cookies: &mut AfterLoginCookies<'_>,
     ) -> Result<Redirect, StatusCode> {
         let user = self.fetch_gh_user(&token_res.access_token).await?;
 
@@ -76,7 +76,7 @@ impl LoginHandler {
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
         // Make sure to add the session cookie to the cookiejar.
-        context.cookie_jar.add(session_cookie);
+        cookies.add(session_cookie);
 
         // Redirect the user back to the app.
         Ok(Redirect::to("/"))
@@ -87,7 +87,7 @@ impl OAuth2Handler for LoginHandler {
     async fn after_login(
         &self,
         token_res: TokenResponse,
-        context: &mut AfterLoginContext<'_>,
+        context: &mut AfterLoginCookies<'_>,
     ) -> impl IntoResponse {
         self.handle_login(token_res, context).await
     }
