@@ -120,6 +120,7 @@ dependencies = [
  "axum",
  "axum-security-macros",
  "cookie-monster",
+ "http",
  "jsonwebtoken",
  "oauth2 5.0.0",
  "serde",

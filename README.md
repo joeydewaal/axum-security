@@ -11,34 +11,171 @@ A security toolbox for the Axum library.
 
 
 ## Cookie sessions
-
+### Config
 ```rust
-use axum::response::IntoResponse;
-use cookie_monster::{Cookie, CookieJar, SameSite};
+let cookie_service = CookieContext::builder()
+    .cookie(|c| {
+        c.name("session")
+            .max_age(Duration::from_hours(24))
+            .secure()
+            .http_only()
+            .same_site(SameSite::Strict)
+    })
+    .dev_cookie(|c| c.name("dev-session"))
+    .use_dev_cookie(cfg!(debug_assertions)) // use dev cookies in debug mode
+    .store(MemStore::new())
+    .expires_max_age()
+    .build::<User>();
 
-static COOKIE_NAME: &str = "session";
+let router = Router::new()
+    .route("/", get(maybe_authorized))
+    .route("/login", get(login))
+    .layer(cookie_service.clone()) // Inject the cookie service into this router.
+    .with_state(cookie_service);
+```
 
-async fn handler(mut jar: CookieJar) -> impl IntoResponse {
-    if let Some(cookie) = jar.get(COOKIE_NAME) {
-        // Remove cookie
-        println!("Removing cookie {cookie:?}");
-        jar.remove(Cookie::named(COOKIE_NAME));
+### Managing sessions
+```rust
+async fn login(
+    session: CookieContext<User>,
+    Query(login): Query<LoginAttempt>,
+) -> impl IntoResponse {
+    if login.username == "admin" && login.password == "admin" {
+        let user = User {
+            username: login.username,
+            email: None,
+            created_at: Timestamp::now(),
+        };
+
+        let cookie = session.create_session(user).await.unwrap();
+
+        (Some(cookie), "Logged in")
     } else {
-        // Set cookie.
-        let cookie = Cookie::build(COOKIE_NAME, "hello, world")
-        .http_only()
-        .same_site(SameSite::Strict);
-
-        println!("Setting cookie {cookie:?}");
-        jar.add(cookie);
+        (None, "failed to log in")
     }
-    // Return the jar so the cookies are updated
-   jar
+}
+
+async fn logout(jar: CookieJar, context: CookieContext<User>) -> impl IntoResponse {
+    match context.remove_session_jar(&jar).await.unwrap() {
+        Some(e) => format!("Removed: {}", e.state.username),
+        None => "No session found".to_string(),
+    }
 }
 ```
 
-### Honorable mention
-This crate takes a lot of inspiration from the [cookie](https://crates.io/crates/cookie) crate.
+### Extractors
+```rust
+async fn authorized(user: CookieSession<User>) -> Json<User> {
+    Json(user.state)
+}
+
+async fn maybe_authorized(user: Option<CookieSession<User>>) -> String {
+    if let Some(user) = user {
+        format!("Hi, {}", user.state.username)
+    } else {
+        "You are not logged in.".to_string()
+    }
+}
+```
+
+## Jwt sessions
+### Config
+```rust
+static JWT_SECRET: &str = "my-secure-jwt-secret";
+
+let jwt_service = JwtContext::builder()
+    .jwt_secret(JWT_SECRET)
+    .build::<AccessToken>();
+
+// The jwt service is also used as state to create jwt's.
+let state = jwt_service.clone();
+
+let router = Router::new()
+    .route("/", get(maybe_authorized))
+    .route("/me", get(authorized))
+    .route("/login", get(login))
+    .layer(jwt_service)
+    .with_state(state);
+```
+
+### Managing jwt's
+```rust
+async fn login(
+    Query(login): Query<LoginAttempt>,
+    context: JwtContext<AccessToken>,
+) -> Result<String, StatusCode> {
+    if login.username == "admin" && login.password == "admin" {
+        let now = Timestamp::now();
+
+        // This token is only valid for 1 day.
+        let expires = now + 24.hours();
+
+        let user = AccessToken {
+            username: login.username,
+            emailadres: None,
+            created_at: now,
+            exp: expires,
+        };
+
+        context
+            .encode_token(&user)
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+    } else {
+        Err(StatusCode::UNAUTHORIZED)
+    }
+}
+```
+
+### Extractors
+```rust
+async fn authorized(Jwt(token): Jwt<AccessToken>) -> Json<AccessToken> {
+    Json(token)
+}
+
+async fn maybe_authorized(token: Option<Jwt<AccessToken>>) -> String {
+    if let Some(Jwt(token)) = token {
+        format!("Hi, {}", token.username)
+    } else {
+        "You are not logged in.".to_string()
+    }
+}
+```
+
+## OAuth2 support
+### Config
+```rust
+struct LoginHandler;
+
+impl OAuth2Handler for LoginHandler {
+    async fn after_login(
+        &self,
+        token_res: TokenResponse,
+        context: &mut AfterLoginCookies<'_>,
+    ) -> impl IntoResponse {
+        self.handle_login(token_res, context).await
+    }
+}
+
+let oauth2_service = OAuth2Context::builder()
+    .auth_url(github::AUTH_URL)
+    .token_url(github::TOKEN_URL)
+    .client_id_env("CLIENT_ID")
+    .client_secret_env("CLIENT_SECRET")
+    .redirect_url("http://localhost:3000/redirect")
+    .login_path("/login")
+    .cookie(|c| c.path("/login"))
+    .store(MemStore::new())
+    .build(LoginHandler);
+
+let router = Router::new()
+    .route("/me", get(authorized))
+    .layer(cookie_service)
+    .with_oauth2(oauth2_service);
+```
+
+## Role-base access control
+
+## Security headers
 
 
 ### License
