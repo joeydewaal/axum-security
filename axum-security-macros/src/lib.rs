@@ -47,7 +47,7 @@ fn expand_inner<T: ToTokens>(attr: TokenStream, item: TokenStream, auth_func: T)
         .collect();
 
     let rbac = match &role_exprs.first().unwrap() {
-        Expr::Path(ExprPath { path, .. }) => path.segments.iter().rev().nth(1).cloned().unwrap(),
+        Expr::Path(ExprPath { path, .. }) => path.segments.iter().rev().nth(1).unwrap(),
         _ => todo!(),
     };
 
