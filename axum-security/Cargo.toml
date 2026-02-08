@@ -2,6 +2,18 @@
 name = "axum-security"
 version = "0.0.1"
 edition = "2024"
+authors = ["Joey de Waal <dewaaljoey@gmail.com>"]
+license = "MIT"
+readme = "../README.md"
+description = "A security toolbox for the Axum library"
+repository = "https://github.com/joeydewaal/axum-security/"
+documentation = "https://docs.rs/axum-security"
+keywords = ["security", "axum", "http", "cookie", "jwt"]
+categories = ["web-programming", "security", "asynchronous"]
+
+
+[package.metadata.docs.rs]
+features = ["cookie", "jwt", "oauth2", "rbac", "headers", "jiff", "chrono", "time"]
 
 [features]
 cookie = ["dep:cookie-monster", "dep:uuid"]
