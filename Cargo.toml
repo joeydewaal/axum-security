@@ -4,8 +4,10 @@ members = ["axum-security", "axum-security-macros", "tests"]
 
 [workspace.dependencies]
 axum = { version = "0.8", features = ["tokio"],  default-features = false }
+http = "1.4"
 tokio = { version = "1.0", default-features = false }
 tower = "0.5"
+pin-project-lite = "0.2.16"
 
 cookie-monster = { version = "0.2.0", features = ["axum"] }
 jsonwebtoken = { version = "10.2.0", default-features=false }

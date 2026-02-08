@@ -16,3 +16,6 @@ pub mod jwt;
 pub mod rbac;
 
 pub(crate) mod utils;
+
+#[cfg(feature = "headers")]
+pub mod headers;

@@ -8,6 +8,7 @@ cookie = ["dep:cookie-monster", "dep:uuid"]
 jwt = ["dep:jsonwebtoken"]
 oauth2 = ["dep:oauth2", "cookie"]
 rbac = ["dep:axum-security-macros"]
+headers = ["dep:pin-project-lite"]
 
 jiff = ["cookie-monster?/jiff"]
 chrono = ["cookie-monster?/chrono"]
@@ -16,9 +17,12 @@ time = ["cookie-monster?/time"]
 
 [dependencies]
 axum = { workspace = true, features = ["query"] }
+http.workspace = true
 tokio.workspace = true
 tower.workspace = true
+
 tracing.workspace = true
+pin-project-lite = { workspace = true, optional = true }
 
 cookie-monster = { workspace = true, optional = true }
 jsonwebtoken = { workspace = true, features = ["aws_lc_rs"], optional = true }

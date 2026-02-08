@@ -3,6 +3,9 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
+#[cfg(feature = "headers")]
+pub mod headers;
+
 #[allow(unused)]
 pub(crate) fn get_env(name: &str) -> String {
     env::var(name)
