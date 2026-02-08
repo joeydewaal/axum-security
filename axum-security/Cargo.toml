@@ -28,7 +28,7 @@ cookie-monster = { workspace = true, optional = true }
 jsonwebtoken = { workspace = true, features = ["aws_lc_rs"], optional = true }
 oauth2 = { workspace = true, features = ["reqwest", "rustls-tls"], optional = true }
 
-axum-security-macros = { path = "../axum-security-macros", optional = true }
+axum-security-macros = { path = "../axum-security-macros", version = "0.0.1", optional = true }
 
 uuid = { workspace = true, features = ["v7"], optional = true }
 serde.workspace = true
