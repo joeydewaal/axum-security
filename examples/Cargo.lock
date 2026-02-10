@@ -672,6 +672,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "headers"
+version = "0.1.0"
+
+[[package]]
 name = "heck"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1078,6 +1082,17 @@ dependencies = [
 
 [[package]]
 name = "jwt"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "axum-security",
+ "jiff",
+ "serde",
+ "tokio",
+]
+
+[[package]]
+name = "jwt-cookie"
 version = "0.1.0"
 dependencies = [
  "axum",

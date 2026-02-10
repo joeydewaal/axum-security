@@ -6,10 +6,14 @@ use axum::{
     extract::{FromRef, FromRequestParts},
     http::{HeaderMap, HeaderName, header::AUTHORIZATION, request::Parts},
 };
+#[cfg(feature = "cookie")]
+use cookie_monster::{Cookie, CookieBuilder};
 use jsonwebtoken::{DecodingKey, EncodingKey, Header, TokenData, Validation, decode, encode};
 use serde::{Serialize, de::DeserializeOwned};
 
 use super::JwtError;
+#[cfg(feature = "cookie")]
+use crate::cookie::CookieSessionBuilder;
 use crate::utils::get_env;
 
 static PREFIX_BEARER: &str = "Bearer ";
@@ -26,6 +30,14 @@ struct JwtContextInner<T> {
     extract: ExtractFrom,
 }
 
+pub(crate) enum ExtractFrom {
+    #[cfg(feature = "cookie")]
+    Cookie(Box<CookieBuilder>),
+    Header {
+        header: HeaderName,
+        prefix: Cow<'static, str>,
+    },
+}
 impl JwtContext<()> {
     pub fn builder() -> JwtContextBuilder {
         JwtContextBuilder::new()
@@ -35,6 +47,15 @@ impl JwtContext<()> {
 impl<T: Serialize> JwtContext<T> {
     pub fn encode_token(&self, data: &T) -> jsonwebtoken::errors::Result<String> {
         encode(&self.0.jwt_header, data, &self.0.encoding_key)
+    }
+
+    #[cfg(feature = "cookie")]
+    pub fn encode_token_to_cookie(&self, data: &T) -> jsonwebtoken::errors::Result<Cookie> {
+        let token = encode(&self.0.jwt_header, data, &self.0.encoding_key)?;
+        match &self.0.extract {
+            ExtractFrom::Cookie(cookie_builder) => Ok(cookie_builder.clone().value(token).build()),
+            ExtractFrom::Header { .. } => panic!("no cookie config set"),
+        }
     }
 }
 
@@ -46,9 +67,9 @@ impl<T: DeserializeOwned> JwtContext<T> {
     pub(crate) fn decode_from_headers(&self, headers: &HeaderMap) -> Option<T> {
         let result = match &self.0.extract {
             #[cfg(feature = "cookie")]
-            ExtractFrom::Cookie(cookie_name) => {
+            ExtractFrom::Cookie(cookie) => {
                 let jar = cookie_monster::CookieJar::from_headers(headers);
-                let cookie = jar.get(cookie_name)?;
+                let cookie = jar.get(cookie.get_name())?;
 
                 self.decode(cookie.value())
             }
@@ -95,7 +116,7 @@ pub struct JwtContextBuilder {
     decoding_key: Option<DecodingKey>,
     jwt_header: Header,
     validation: Validation,
-    extract: ExtractFrom,
+    extract: ExtractFromBuilder,
 }
 
 impl Default for JwtContextBuilder {
@@ -111,7 +132,7 @@ impl JwtContextBuilder {
             decoding_key: None,
             jwt_header: Header::default(),
             validation: Validation::default(),
-            extract: ExtractFrom::header_with_prefix(AUTHORIZATION, PREFIX_BEARER),
+            extract: ExtractFromBuilder::header_with_prefix(AUTHORIZATION, PREFIX_BEARER),
         }
     }
 
@@ -150,7 +171,7 @@ impl JwtContextBuilder {
         header: impl AsRef<[u8]>,
         prefix: impl Into<Cow<'static, str>>,
     ) -> Self {
-        self.extract = ExtractFrom::header_with_prefix(
+        self.extract = ExtractFromBuilder::header_with_prefix(
             HeaderName::from_bytes(header.as_ref())
                 .expect("header value contains invalid characters"),
             prefix.into(),
@@ -159,7 +180,7 @@ impl JwtContextBuilder {
     }
 
     pub fn extract_header(mut self, header: impl AsRef<str>) -> Self {
-        self.extract = ExtractFrom::header_with_prefix(
+        self.extract = ExtractFromBuilder::header_with_prefix(
             HeaderName::from_bytes(header.as_ref().as_bytes())
                 .expect("header value contains invalid characters"),
             PREFIX_NONE,
@@ -169,7 +190,28 @@ impl JwtContextBuilder {
 
     #[cfg(feature = "cookie")]
     pub fn extract_cookie(mut self, cookie_name: impl Into<Cow<'static, str>>) -> Self {
-        self.extract = ExtractFrom::cookie(cookie_name.into());
+        self.extract = ExtractFromBuilder::cookie(cookie_name.into());
+        self
+    }
+
+    #[cfg(feature = "cookie")]
+    pub fn use_dev_cookie(mut self, dev_mode: bool) -> Self {
+        self.extract = self.extract.with_cookie(|mut c| {
+            c.dev = dev_mode;
+            c
+        });
+        self
+    }
+
+    #[cfg(feature = "cookie")]
+    pub fn cookie(mut self, f: impl FnOnce(CookieBuilder) -> CookieBuilder) -> Self {
+        self.extract = self.extract.with_cookie(|c| c.cookie(f));
+        self
+    }
+
+    #[cfg(feature = "cookie")]
+    pub fn dev_cookie(mut self, f: impl FnOnce(CookieBuilder) -> CookieBuilder) -> Self {
+        self.extract = self.extract.with_cookie(|c| c.dev_cookie(f));
         self
     }
 
@@ -182,12 +224,14 @@ impl JwtContextBuilder {
             .decoding_key
             .ok_or(JwtBuilderError::DecodingKeyMissing)?;
 
+        let extract = self.extract.into_extract();
+
         Ok(JwtContext(Arc::new(JwtContextInner {
             encoding_key,
             decoding_key,
             jwt_header: self.jwt_header,
             validation: self.validation,
-            extract: self.extract,
+            extract,
             data: PhantomData,
         })))
     }
@@ -214,23 +258,51 @@ impl Display for JwtBuilderError {
 
 impl Error for JwtBuilderError {}
 
-pub(crate) enum ExtractFrom {
+pub(crate) enum ExtractFromBuilder {
     #[cfg(feature = "cookie")]
-    Cookie(Cow<'static, str>),
+    Cookie(Box<CookieSessionBuilder<()>>),
     Header {
         header: HeaderName,
         prefix: Cow<'static, str>,
     },
 }
 
-impl ExtractFrom {
+impl ExtractFromBuilder {
     #[cfg(feature = "cookie")]
     fn cookie(name: Cow<'static, str>) -> Self {
-        ExtractFrom::Cookie(name)
+        let mut builder = CookieSessionBuilder::new();
+        builder.cookie = builder.cookie.name(name.clone());
+        builder.dev_cookie = builder.dev_cookie.name(name.clone());
+        ExtractFromBuilder::Cookie(builder.into())
+    }
+
+    fn into_extract(self) -> ExtractFrom {
+        match self {
+            #[cfg(feature = "cookie")]
+            ExtractFromBuilder::Cookie(cookie_session_builder) => {
+                if cookie_session_builder.dev {
+                    ExtractFrom::Cookie(cookie_session_builder.dev_cookie.into())
+                } else {
+                    ExtractFrom::Cookie(cookie_session_builder.cookie.into())
+                }
+            }
+            ExtractFromBuilder::Header { header, prefix } => ExtractFrom::Header { header, prefix },
+        }
+    }
+
+    #[cfg(feature = "cookie")]
+    fn with_cookie(
+        self,
+        f: impl FnOnce(CookieSessionBuilder<()>) -> CookieSessionBuilder<()>,
+    ) -> Self {
+        match self {
+            ExtractFromBuilder::Cookie(cookie) => ExtractFromBuilder::Cookie(f(*cookie).into()),
+            this => this,
+        }
     }
 
     fn header_with_prefix(header: HeaderName, prefix: impl Into<Cow<'static, str>>) -> Self {
-        ExtractFrom::Header {
+        ExtractFromBuilder::Header {
             header,
             prefix: prefix.into(),
         }

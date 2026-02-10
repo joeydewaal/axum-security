@@ -26,10 +26,10 @@ macro_rules! define_header {
         }
 
         impl<S> tower::Layer<S> for $struct_name {
-            type Service = crate::utils::headers::InsertHeadersService<S>;
+            type Service = $crate::utils::headers::InsertHeadersService<S>;
 
             fn layer(&self, inner: S) -> Self::Service {
-                crate::utils::headers::InsertHeadersService {
+                $crate::utils::headers::InsertHeadersService {
                     header_name: $header_name,
                     header_value: self.header_value.clone(),
                     inner,
