@@ -13,7 +13,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     // Multiple headers
     let security_layer = SecurityHeaders::recommended()
         .use_dev_headers(cfg!(debug_assertions))
-        .add_header(XssProtection::ZERO);
+        .add(XssProtection::ZERO);
 
     // Use an individual header.
     let coop_layer = CrossOriginOpenerPolicy::SAME_ORIGIN;

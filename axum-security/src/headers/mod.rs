@@ -192,6 +192,7 @@ impl SecurityHeaders {
     }
 
     /// Also overrides
+    #[allow(clippy::should_implement_trait)]
     pub fn add(mut self, header: impl IntoSecurityHeader) -> Self {
         if !self.dev {
             Arc::get_mut(&mut self.headers)
