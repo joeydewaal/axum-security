@@ -123,6 +123,7 @@ dependencies = [
  "http",
  "jsonwebtoken",
  "oauth2 5.0.0",
+ "pin-project-lite",
  "serde",
  "tokio",
  "tower",
@@ -674,6 +675,11 @@ dependencies = [
 [[package]]
 name = "headers"
 version = "0.1.0"
+dependencies = [
+ "axum",
+ "axum-security",
+ "tokio",
+]
 
 [[package]]
 name = "heck"

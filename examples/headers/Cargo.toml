@@ -4,3 +4,6 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+axum-security = { path = "../../axum-security", features = ["jiff", "headers"] }
+tokio = { version = "1.49", features = ["full"] }
+axum = { version = "0.8.8" }

@@ -9,14 +9,14 @@ use pin_project_lite::pin_project;
 use tower::Service;
 
 pin_project! {
-    pub struct InsertHeaders<F> {
+    pub struct InsertHeader<F> {
         #[pin]
         future: F,
         header: Option<(HeaderName, HeaderValue)>
     }
 }
 
-impl<F> InsertHeaders<F> {
+impl<F> InsertHeader<F> {
     pub fn new(future: F, header_name: HeaderName, header_value: HeaderValue) -> Self {
         Self {
             future,
@@ -25,7 +25,7 @@ impl<F> InsertHeaders<F> {
     }
 }
 
-impl<F, B, E> Future for InsertHeaders<F>
+impl<F, B, E> Future for InsertHeader<F>
 where
     F: Future<Output = Result<Response<B>, E>>,
 {
@@ -58,14 +58,14 @@ where
 
     type Error = S::Error;
 
-    type Future = InsertHeaders<S::Future>;
+    type Future = InsertHeader<S::Future>;
 
     fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         self.inner.poll_ready(cx)
     }
 
     fn call(&mut self, req: Request<IB>) -> Self::Future {
-        InsertHeaders::new(
+        InsertHeader::new(
             self.inner.call(req),
             self.header_name.clone(),
             self.header_value.clone(),

@@ -1,9 +1,10 @@
 use std::time::Duration;
 
 use axum::http::{HeaderValue, header::STRICT_TRANSPORT_SECURITY};
+use http::HeaderName;
 use tower::Layer;
 
-use crate::utils::headers::InsertHeadersService;
+use crate::{headers::IntoSecurityHeader, utils::headers::InsertHeadersService};
 
 const PRELOAD_MIN_MAX_AGE: u64 = 365 * 24 * 60 * 60;
 
@@ -107,6 +108,18 @@ impl<S> Layer<S> for StrictTransportSecurity {
             header_name: STRICT_TRANSPORT_SECURITY,
             header_value: self.header_value.clone(),
         }
+    }
+}
+
+impl IntoSecurityHeader for StrictTransportSecurity {
+    fn into_header(self) -> (HeaderName, HeaderValue) {
+        (STRICT_TRANSPORT_SECURITY, self.header_value)
+    }
+}
+
+impl IntoSecurityHeader for HstsBuilder {
+    fn into_header(self) -> (HeaderName, HeaderValue) {
+        self.build().into_header()
     }
 }
 
