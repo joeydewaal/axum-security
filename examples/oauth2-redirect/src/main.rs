@@ -17,37 +17,12 @@ use axum_security::{
 use serde::{Deserialize, Serialize};
 use tokio::net::TcpListener;
 
+static AFTER_LOGIN_COOKIE: &str = "after-login-path";
+
 #[derive(Serialize, Clone)]
 struct User {
     id: i32,
     username: String,
-}
-
-async fn authorized(user: CookieSession<User>) -> Json<User> {
-    Json(user.state)
-}
-
-static AFTER_LOGIN_COOKIE: &str = "after-login-path";
-
-#[derive(Deserialize)]
-struct NextUrl {
-    after_login: Option<String>,
-}
-
-async fn login(oauth: OAuth2Context, Query(query): Query<NextUrl>) -> impl IntoResponse {
-    // The after_login query param is the path where the user should be redirected to after the
-    // login flow is done.
-    //
-    // To do so we store the path in a cookie and after the flow is done, check for the cookie and
-    // redirect.
-    let cookie = if let Some(path) = query.after_login {
-        // Creates a cookie with the same _settings_ as the oauth2 context.
-        Some(oauth.cookie(AFTER_LOGIN_COOKIE).value(path).build())
-    } else {
-        None
-    };
-
-    (cookie, oauth.start_challenge().await)
 }
 
 struct OAuth2Backend {
@@ -87,6 +62,34 @@ impl OAuth2Handler for OAuth2Backend {
             Redirect::to("/")
         }
     }
+}
+
+#[derive(Deserialize)]
+struct NextUrl {
+    after_login: Option<String>,
+}
+
+async fn login(
+    oauth: OAuth2Context<OAuth2Backend>,
+    Query(query): Query<NextUrl>,
+) -> impl IntoResponse {
+    // The after_login query param is the path where the user should be redirected to after the
+    // login flow is done.
+    //
+    // To do so we store the path in a cookie and after the flow is done, check for the cookie and
+    // redirect.
+    let cookie = if let Some(path) = query.after_login {
+        // Creates a cookie with the same _settings_ as the oauth2 context.
+        Some(oauth.cookie(AFTER_LOGIN_COOKIE).value(path).build())
+    } else {
+        None
+    };
+
+    (cookie, oauth.start_challenge().await)
+}
+
+async fn authorized(user: CookieSession<User>) -> Json<User> {
+    Json(user.state)
 }
 
 #[tokio::main]

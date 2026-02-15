@@ -9,10 +9,7 @@ use oauth2::{
 use crate::{
     cookie::{CookieContext, CookieSessionBuilder, CookieStore},
     http::default_reqwest_client,
-    oauth2::{
-        OAuth2Context, OAuth2Handler, OAuthState, context::OAuth2ContextInner,
-        handler::ErasedOAuth2Handler,
-    },
+    oauth2::{OAuth2Context, OAuth2Handler, OAuthState, context::OAuth2ContextInner},
     utils::get_env,
 };
 
@@ -144,6 +141,7 @@ impl<S> OAuth2ContextBuilder<S> {
         self
     }
 
+    /// The default
     pub fn authorization_code_flow_with_pkce(mut self) -> Self {
         self.flow_type = FlowType::AuthorizationCodeFlowPkce;
         self
@@ -164,7 +162,7 @@ impl<S> OAuth2ContextBuilder<S> {
         }
     }
 
-    pub fn build<T>(self, inner: T) -> OAuth2Context
+    pub fn build<T>(self, inner: T) -> OAuth2Context<T>
     where
         S: CookieStore<State = OAuthState>,
         T: OAuth2Handler,
@@ -172,7 +170,7 @@ impl<S> OAuth2ContextBuilder<S> {
         self.try_build(inner).unwrap()
     }
 
-    pub fn try_build<T>(self, inner: T) -> Result<OAuth2Context, OAuth2BuilderError>
+    pub fn try_build<T>(self, inner: T) -> Result<OAuth2Context<T>, OAuth2BuilderError>
     where
         S: CookieStore<State = OAuthState>,
         T: OAuth2Handler,
@@ -208,7 +206,7 @@ impl<S> OAuth2ContextBuilder<S> {
 
         Ok(OAuth2Context(Arc::new(OAuth2ContextInner {
             client: basic_client,
-            inner: ErasedOAuth2Handler::new(inner),
+            inner,
             session: self.cookie_session.build(),
             login_path: self.login_path,
             http_client: self.http_client.unwrap_or_else(default_reqwest_client),

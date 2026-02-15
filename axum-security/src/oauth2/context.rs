@@ -14,17 +14,15 @@ use oauth2::{
 use crate::{
     cookie::{CookieContext, MemStore},
     oauth2::{
-        AfterLoginCookies, OAuth2ClientTyped, OAuthState, TokenResponse,
+        AfterLoginCookies, OAuth2ClientTyped, OAuth2Handler, OAuthState, TokenResponse,
         builder::{FlowType, OAuth2ContextBuilder},
-        handler::ErasedOAuth2Handler,
     },
 };
 
-#[derive(Clone)]
-pub struct OAuth2Context(pub(super) Arc<OAuth2ContextInner>);
+pub struct OAuth2Context<H>(pub(super) Arc<OAuth2ContextInner<H>>);
 
-pub(super) struct OAuth2ContextInner {
-    pub(super) inner: ErasedOAuth2Handler,
+pub(super) struct OAuth2ContextInner<H> {
+    pub(super) inner: H,
     pub(super) session: CookieContext<OAuthState>,
     pub(super) client: OAuth2ClientTyped,
     pub(super) login_path: Option<Cow<'static, str>>,
@@ -32,7 +30,7 @@ pub(super) struct OAuth2ContextInner {
     pub(super) http_client: ::oauth2::reqwest::Client,
     pub(super) flow_type: FlowType,
 }
-impl OAuth2Context {
+impl OAuth2Context<()> {
     pub fn builder() -> OAuth2ContextBuilder<MemStore<OAuthState>> {
         OAuth2ContextBuilder::new(MemStore::new())
     }
@@ -42,7 +40,7 @@ impl OAuth2Context {
     }
 }
 
-impl OAuth2Context {
+impl<H: OAuth2Handler> OAuth2Context<H> {
     pub(crate) fn callback_url(&self) -> &str {
         self.0.client.redirect_uri().unwrap().url().path()
     }
@@ -90,7 +88,12 @@ impl OAuth2Context {
         };
 
         tracing::debug!("login flow done");
-        let res = self.0.inner.after_login(token_response, &mut context).await;
+        let res = self
+            .0
+            .inner
+            .after_login(token_response, &mut context)
+            .await
+            .into_response();
 
         (context.cookie_jar, res).into_response()
     }
@@ -177,14 +180,20 @@ impl OAuth2Context {
     }
 }
 
-impl<S> FromRequestParts<S> for OAuth2Context
+impl<S, H> FromRequestParts<S> for OAuth2Context<H>
 where
-    OAuth2Context: FromRef<S>,
+    Self: FromRef<S>,
     S: Send + Sync,
 {
     type Rejection = Infallible;
 
     async fn from_request_parts(_parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
         Ok(Self::from_ref(state))
+    }
+}
+
+impl<H> Clone for OAuth2Context<H> {
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
     }
 }

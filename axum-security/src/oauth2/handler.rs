@@ -1,6 +1,6 @@
-use std::{borrow::Cow, pin::Pin};
+use std::borrow::Cow;
 
-use axum::response::{IntoResponse, Response};
+use axum::response::IntoResponse;
 use cookie_monster::{Cookie, CookieBuilder, CookieJar};
 
 pub struct TokenResponse {
@@ -33,42 +33,5 @@ impl AfterLoginCookies<'_> {
 
     pub fn add(&mut self, cookie: impl Into<Cookie>) {
         self.cookie_jar.add(cookie.into());
-    }
-}
-
-trait DynOAuth2Handler: Send + Sync + 'static {
-    fn after_login_boxed<'a, 'b>(
-        &'a self,
-        token_res: TokenResponse,
-        context: &'a mut AfterLoginCookies<'b>,
-    ) -> Pin<Box<dyn Future<Output = Response> + Send + 'a>>;
-}
-
-impl<T> DynOAuth2Handler for T
-where
-    T: OAuth2Handler,
-{
-    fn after_login_boxed<'a, 'b>(
-        &'a self,
-        token_res: TokenResponse,
-        context: &'a mut AfterLoginCookies<'b>,
-    ) -> Pin<Box<dyn Future<Output = Response> + Send + 'a>> {
-        Box::pin(async move { self.after_login(token_res, context).await.into_response() })
-    }
-}
-
-pub(crate) struct ErasedOAuth2Handler(Box<dyn DynOAuth2Handler>);
-
-impl ErasedOAuth2Handler {
-    pub fn new<T: OAuth2Handler>(handler: T) -> Self {
-        Self(Box::new(handler))
-    }
-
-    pub async fn after_login<'a, 'b>(
-        &'a self,
-        res: TokenResponse,
-        context: &'a mut AfterLoginCookies<'b>,
-    ) -> Response {
-        self.0.after_login_boxed(res, context).await
     }
 }
