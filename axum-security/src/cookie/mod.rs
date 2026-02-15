@@ -11,6 +11,7 @@ use axum::{
     extract::{FromRef, FromRequestParts},
     http::{HeaderMap, request::Parts},
 };
+pub(crate) use builder::CookieOptionsBuilder;
 pub use builder::CookieSessionBuilder;
 pub use id::SessionId;
 pub use session::CookieSession;

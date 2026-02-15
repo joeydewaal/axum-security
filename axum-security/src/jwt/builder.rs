@@ -6,7 +6,7 @@ use cookie_monster::CookieBuilder;
 use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation};
 
 #[cfg(feature = "cookie")]
-use crate::cookie::CookieSessionBuilder;
+use crate::cookie::CookieOptionsBuilder;
 use crate::{
     jwt::{ExtractFrom, JwtContext, JwtContextInner},
     utils::get_env,
@@ -109,13 +109,19 @@ impl JwtContextBuilder {
 
     #[cfg(feature = "cookie")]
     pub fn cookie(mut self, f: impl FnOnce(CookieBuilder) -> CookieBuilder) -> Self {
-        self.extract = self.extract.with_cookie(|c| c.cookie(f));
+        self.extract = self.extract.with_cookie(|mut c| {
+            c.cookie = (f)(c.cookie);
+            c
+        });
         self
     }
 
     #[cfg(feature = "cookie")]
     pub fn dev_cookie(mut self, f: impl FnOnce(CookieBuilder) -> CookieBuilder) -> Self {
-        self.extract = self.extract.with_cookie(|c| c.dev_cookie(f));
+        self.extract = self.extract.with_cookie(|mut c| {
+            c.dev_cookie = (f)(c.dev_cookie);
+            c
+        });
         self
     }
 
@@ -164,7 +170,7 @@ impl Error for JwtBuilderError {}
 
 pub(crate) enum ExtractFromBuilder {
     #[cfg(feature = "cookie")]
-    Cookie(Box<CookieSessionBuilder<()>>),
+    Cookie(Box<CookieOptionsBuilder>),
     Header {
         header: HeaderName,
         prefix: Cow<'static, str>,
@@ -174,31 +180,21 @@ pub(crate) enum ExtractFromBuilder {
 impl ExtractFromBuilder {
     #[cfg(feature = "cookie")]
     fn cookie(name: Cow<'static, str>) -> Self {
-        let mut builder = CookieSessionBuilder::new();
-        builder.cookie = builder.cookie.name(name.clone());
-        builder.dev_cookie = builder.dev_cookie.name(name.clone());
+        let mut builder = CookieOptionsBuilder::new();
+        builder.set_name(name);
         ExtractFromBuilder::Cookie(builder.into())
     }
 
     fn into_extract(self) -> ExtractFrom {
         match self {
             #[cfg(feature = "cookie")]
-            ExtractFromBuilder::Cookie(cookie_session_builder) => {
-                if cookie_session_builder.dev {
-                    ExtractFrom::Cookie(cookie_session_builder.dev_cookie.into())
-                } else {
-                    ExtractFrom::Cookie(cookie_session_builder.cookie.into())
-                }
-            }
+            ExtractFromBuilder::Cookie(builder) => ExtractFrom::Cookie(builder.build().into()),
             ExtractFromBuilder::Header { header, prefix } => ExtractFrom::Header { header, prefix },
         }
     }
 
     #[cfg(feature = "cookie")]
-    fn with_cookie(
-        self,
-        f: impl FnOnce(CookieSessionBuilder<()>) -> CookieSessionBuilder<()>,
-    ) -> Self {
+    fn with_cookie(self, f: impl FnOnce(CookieOptionsBuilder) -> CookieOptionsBuilder) -> Self {
         match self {
             ExtractFromBuilder::Cookie(cookie) => ExtractFromBuilder::Cookie(f(*cookie).into()),
             this => this,

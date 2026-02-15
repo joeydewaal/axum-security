@@ -1,4 +1,4 @@
-use std::{sync::Arc, time::Duration};
+use std::{borrow::Cow, sync::Arc, time::Duration};
 
 use cookie_monster::{Cookie, CookieBuilder, SameSite};
 
@@ -11,18 +11,20 @@ static DEFAULT_DEV_SESSION_COOKIE_NAME: &str = "dev-session";
 
 pub struct CookieSessionBuilder<S> {
     store: S,
-    pub(crate) dev: bool,
-    pub(crate) dev_cookie: CookieBuilder,
-    pub(crate) cookie: CookieBuilder,
+    pub(crate) cookie_opts: CookieOptionsBuilder,
     pub(crate) expiry: Option<SessionExpiry>,
 }
 
-impl CookieSessionBuilder<()> {
-    pub fn new() -> CookieSessionBuilder<()> {
+pub(crate) struct CookieOptionsBuilder {
+    pub(crate) dev: bool,
+    pub(crate) dev_cookie: CookieBuilder,
+    pub(crate) cookie: CookieBuilder,
+}
+
+impl CookieOptionsBuilder {
+    pub fn new() -> Self {
         Self {
-            store: (),
             dev: false,
-            expiry: None,
             // Make sure to use "/" as path so all paths can see the cookie in dev mode.
             dev_cookie: Cookie::named(DEFAULT_DEV_SESSION_COOKIE_NAME)
                 .path("/")
@@ -33,21 +35,44 @@ impl CookieSessionBuilder<()> {
                 .secure(),
         }
     }
+
+    pub fn set_name(&mut self, name: Cow<'static, str>) {
+        self.dev_cookie = self.dev_cookie.clone().name(name.clone());
+        self.cookie = self.cookie.clone().name(name);
+    }
+
+    pub fn build(self) -> CookieBuilder {
+        if self.dev {
+            self.dev_cookie
+        } else {
+            self.cookie
+        }
+    }
+}
+
+impl CookieSessionBuilder<()> {
+    pub fn new() -> CookieSessionBuilder<()> {
+        Self {
+            store: (),
+            cookie_opts: CookieOptionsBuilder::new(),
+            expiry: None,
+        }
+    }
 }
 
 impl<S> CookieSessionBuilder<S> {
     pub fn cookie(mut self, f: impl FnOnce(CookieBuilder) -> CookieBuilder) -> Self {
-        self.cookie = f(Cookie::named(DEFAULT_SESSION_COOKIE_NAME));
+        self.cookie_opts.cookie = f(Cookie::named(DEFAULT_SESSION_COOKIE_NAME));
         self
     }
 
     pub fn dev_cookie(mut self, f: impl FnOnce(CookieBuilder) -> CookieBuilder) -> Self {
-        self.dev_cookie = f(Cookie::named(DEFAULT_DEV_SESSION_COOKIE_NAME));
+        self.cookie_opts.dev_cookie = f(Cookie::named(DEFAULT_DEV_SESSION_COOKIE_NAME));
         self
     }
 
     pub fn use_dev_cookie(mut self, dev: bool) -> Self {
-        self.dev = dev;
+        self.cookie_opts.dev = dev;
         self
     }
 
@@ -73,9 +98,7 @@ impl<S> CookieSessionBuilder<S> {
     pub fn store<S1>(self, store: S1) -> CookieSessionBuilder<S1> {
         CookieSessionBuilder {
             store,
-            dev: self.dev,
-            dev_cookie: self.dev_cookie,
-            cookie: self.cookie,
+            cookie_opts: self.cookie_opts,
             expiry: self.expiry,
         }
     }
@@ -87,8 +110,10 @@ impl<S> CookieSessionBuilder<S> {
         T: Send + Sync + 'static,
         S: CookieStore<State = T>,
     {
+        let cookie_opts = self.cookie_opts.build();
+
         let session_expiry = self.expiry.map(|e| match e {
-            SessionExpiry::CookieMaxAge => self.cookie.get_max_age().expect("No max-age set"),
+            SessionExpiry::CookieMaxAge => cookie_opts.get_max_age().expect("No max-age set"),
             SessionExpiry::Duration(duration) => duration,
         });
 
@@ -105,11 +130,7 @@ impl<S> CookieSessionBuilder<S> {
 
         CookieContext(Arc::new(CookieContextInner {
             store,
-            cookie_opts: if self.dev {
-                self.dev_cookie
-            } else {
-                self.cookie
-            },
+            cookie_opts,
             handle,
         }))
     }

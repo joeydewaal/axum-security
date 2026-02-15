@@ -426,7 +426,6 @@ async fn auth_flow() -> Result<(), Box<dyn Error>> {
     let login_result = http_client.get(redirect_url).send().await?;
 
     // Finish the flow on the server.
-    dbg!(&login_result);
     let redirect_url = login_result.headers()["location"].to_str()?;
     let res = http_client.get(redirect_url).send().await?;
 

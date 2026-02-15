@@ -64,6 +64,10 @@ async fn login(
     }
 }
 
+async fn logout(context: JwtContext<AccessToken>) -> Cookie {
+    context.logout_cookie()
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     // By default the `JwtContext` looks for a bearer token in the `AUTHORIZATION` header.
@@ -83,6 +87,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .route("/", get(maybe_authorized))
         .route("/me", get(authorized))
         .route("/login", get(login))
+        .route("/logout", get(logout))
         .layer(jwt_service)
         .with_state(state);
 

@@ -57,6 +57,23 @@ impl<T: Serialize> JwtContext<T> {
             ExtractFrom::Header { .. } => panic!("no cookie config set"),
         }
     }
+
+    #[cfg(feature = "cookie")]
+    pub fn logout_cookie(&self) -> Cookie {
+        match &self.0.extract {
+            ExtractFrom::Cookie(cookie_builder) => {
+                use cookie_monster::Expires;
+
+                cookie_builder
+                    .clone()
+                    .expires(Expires::remove())
+                    .max_age_secs(0)
+                    .value("")
+                    .build()
+            }
+            ExtractFrom::Header { .. } => panic!("no cookie config set"),
+        }
+    }
 }
 
 impl<T: DeserializeOwned> JwtContext<T> {
@@ -114,5 +131,74 @@ where
 impl<T> Clone for JwtContext<T> {
     fn clone(&self) -> Self {
         JwtContext(self.0.clone())
+    }
+}
+
+#[cfg(test)]
+mod jwt_test {
+    #[cfg(feature = "cookie")]
+    use std::error::Error;
+
+    use http::StatusCode;
+    use serde::Deserialize;
+
+    #[cfg(feature = "cookie")]
+    #[tokio::test]
+    async fn test_cookie() -> Result<(), Box<dyn Error>> {
+        use axum::{Router, body::Body, routing::get};
+        use http::Request;
+        use serde::Serialize;
+        use tower::ServiceExt;
+
+        use crate::{
+            jwt::{Jwt, JwtContext},
+            utils::utc_now_secs,
+        };
+
+        #[derive(Serialize, Deserialize, Clone)]
+        struct AT {
+            exp: u64,
+        }
+
+        let jwt_context = JwtContext::builder()
+            .extract_cookie("session")
+            .jwt_secret("test-secret")
+            .build::<AT>();
+
+        let valid_access_token = AT {
+            exp: utc_now_secs() + 10000,
+        };
+
+        let invalid_access_token = AT {
+            exp: utc_now_secs() - 10000,
+        };
+
+        let valid_cookie = jwt_context.encode_token_to_cookie(&valid_access_token)?;
+        let invalid_cookie = jwt_context.encode_token_to_cookie(&invalid_access_token)?;
+
+        let router = Router::<()>::new()
+            .route("/", get(move |_: Jwt<AT>| async { StatusCode::CREATED }))
+            .layer(jwt_context);
+
+        let mut header = format!("{}=", valid_cookie.name());
+        header.push_str(valid_cookie.value());
+
+        let request = Request::get("/")
+            .header("cookie", header)
+            .body(Body::empty())?;
+
+        let resp = router.clone().oneshot(request).await.unwrap();
+        assert!(resp.status() == StatusCode::CREATED);
+
+        let mut header = format!("{}=", invalid_cookie.name());
+        header.push_str(invalid_cookie.value());
+
+        let request = Request::get("/")
+            .header("cookie", header)
+            .body(Body::empty())?;
+
+        let resp = router.clone().oneshot(request).await.unwrap();
+        assert!(resp.status() == StatusCode::UNAUTHORIZED);
+        Ok(())
     }
 }
