@@ -1,6 +1,16 @@
 # axum-security
 A security toolbox for the Axum library.
 
+todo:
+* OpenIDConnect
+* Bearer Auth
+
+* Docs
+* Auth2 use cookies, cleanup pkce support
+
+* Role based auth
+* Policy Based auth
+
 ### Features
 * `cookie`, adds support for cookie sessions.
 * `jwt`, adds support for jwt sessions.
@@ -55,7 +65,7 @@ async fn login(
     }
 }
 
-async fn logout(jar: CookieJar, context: CookieContext<User>) -> impl IntoResponse {
+async fn logout(context: CookieContext<User>, jar: CookieJar) -> impl IntoResponse {
     match context.remove_session_jar(&jar).await.unwrap() {
         Some(e) => format!("Removed: {}", e.state.username),
         None => "No session found".to_string(),
@@ -101,8 +111,8 @@ let router = Router::new()
 ### Managing jwt's
 ```rust
 async fn login(
-    Query(login): Query<LoginAttempt>,
     context: JwtContext<AccessToken>,
+    Query(login): Query<LoginAttempt>,
 ) -> Result<String, StatusCode> {
     if login.username == "admin" && login.password == "admin" {
         let now = Timestamp::now();
