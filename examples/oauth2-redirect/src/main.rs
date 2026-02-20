@@ -99,7 +99,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .store(MemStore::new())
         .build();
 
-    let context = OAuth2Context::builder()
+    let context = OAuth2Context::builder("github")
         .client_id_env("CLIENT_ID")
         .client_secret_env("CLIENT_SECRET")
         .redirect_uri_env("REDIRECT_URL")
@@ -107,7 +107,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .auth_url(github::AUTH_URL)
         .cookie(|c| c.path("/login"))
         .use_dev_cookies(true)
-        .store(MemStore::new())
         .build(OAuth2Backend::new(session.clone()));
 
     let router = Router::new()

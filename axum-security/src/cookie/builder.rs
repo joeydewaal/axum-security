@@ -27,8 +27,9 @@ impl CookieOptionsBuilder {
             dev: false,
             // Make sure to use "/" as path so all paths can see the cookie in dev mode.
             dev_cookie: Cookie::named(DEFAULT_DEV_SESSION_COOKIE_NAME)
-                .path("/")
-                .same_site(SameSite::Lax),
+                .same_site(SameSite::Lax)
+                .max_age(Duration::from_hours(24)),
+            // .same_site(SameSite::Lax),
             cookie: Cookie::named(DEFAULT_SESSION_COOKIE_NAME)
                 .same_site(SameSite::Strict)
                 .http_only()
@@ -36,9 +37,15 @@ impl CookieOptionsBuilder {
         }
     }
 
+    #[allow(unused)]
     pub fn set_name(&mut self, name: Cow<'static, str>) {
-        self.dev_cookie = self.dev_cookie.clone().name(name.clone());
-        self.cookie = self.cookie.clone().name(name);
+        self.dev_cookie.set_name(name.clone());
+        self.cookie.set_name(name);
+    }
+
+    pub fn set_max_age_secs(&mut self, duration: u64) {
+        self.cookie.set_max_age_secs(duration);
+        self.dev_cookie.set_max_age_secs(duration);
     }
 
     pub fn build(self) -> CookieBuilder {
@@ -47,6 +54,16 @@ impl CookieOptionsBuilder {
         } else {
             self.cookie
         }
+    }
+
+    pub fn cookie(mut self, f: impl FnOnce(CookieBuilder) -> CookieBuilder) -> Self {
+        self.cookie = f(self.cookie);
+        self
+    }
+
+    pub fn dev_cookie(mut self, f: impl FnOnce(CookieBuilder) -> CookieBuilder) -> Self {
+        self.dev_cookie = f(self.dev_cookie);
+        self
     }
 }
 
@@ -62,12 +79,12 @@ impl CookieSessionBuilder<()> {
 
 impl<S> CookieSessionBuilder<S> {
     pub fn cookie(mut self, f: impl FnOnce(CookieBuilder) -> CookieBuilder) -> Self {
-        self.cookie_opts.cookie = f(Cookie::named(DEFAULT_SESSION_COOKIE_NAME));
+        self.cookie_opts.cookie = f(self.cookie_opts.cookie);
         self
     }
 
     pub fn dev_cookie(mut self, f: impl FnOnce(CookieBuilder) -> CookieBuilder) -> Self {
-        self.cookie_opts.dev_cookie = f(Cookie::named(DEFAULT_DEV_SESSION_COOKIE_NAME));
+        self.cookie_opts.dev_cookie = f(self.cookie_opts.dev_cookie);
         self
     }
 

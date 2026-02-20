@@ -1,22 +1,21 @@
-use std::{borrow::Cow, error::Error, fmt::Display, sync::Arc};
+use std::{borrow::Cow, error::Error, fmt::Display, sync::Arc, time::Duration};
 
-use cookie_monster::{Cookie, CookieBuilder, SameSite};
+use cookie_monster::CookieBuilder;
 use oauth2::{
     AuthUrl, Client, ClientId, ClientSecret, RedirectUrl, Scope, TokenUrl,
     reqwest::Client as HttpClient, url,
 };
 
 use crate::{
-    cookie::{CookieContext, CookieSessionBuilder, CookieStore},
     http::default_reqwest_client,
-    oauth2::{OAuth2Context, OAuth2Handler, OAuthState, context::OAuth2ContextInner},
+    oauth2::{
+        OAuth2Context, OAuth2Handler, context::OAuth2ContextInner, cookie::OAuthCookieBuilder,
+    },
     utils::get_env,
 };
 
-static DEFAULT_COOKIE_NAME: &str = "oauth2-session";
-
-pub struct OAuth2ContextBuilder<S> {
-    cookie_session: CookieSessionBuilder<S>,
+pub struct OAuth2ContextBuilder {
+    cookie_builder: OAuthCookieBuilder,
     login_path: Option<Cow<'static, str>>,
     redirect_url: Option<String>,
     client_id: Option<String>,
@@ -28,23 +27,10 @@ pub struct OAuth2ContextBuilder<S> {
     flow_type: FlowType,
 }
 
-impl<S> OAuth2ContextBuilder<S> {
-    pub fn new(store: S) -> OAuth2ContextBuilder<S> {
-        // Make sure to use "/" as path so all paths can see the cookie in dev mode.
-        let dev_cookie = Cookie::named(DEFAULT_COOKIE_NAME)
-            .path("/")
-            .same_site(SameSite::Lax);
-
-        let cookie = Cookie::named(DEFAULT_COOKIE_NAME)
-            .http_only()
-            .same_site(SameSite::Strict)
-            .secure();
-
+impl OAuth2ContextBuilder {
+    pub fn new(oauth2_provider_name: impl Into<Cow<'static, str>>) -> OAuth2ContextBuilder {
         Self {
-            cookie_session: CookieContext::<()>::builder()
-                .store(store)
-                .cookie(|_| cookie)
-                .dev_cookie(|_| dev_cookie),
+            cookie_builder: OAuthCookieBuilder::new(oauth2_provider_name.into()),
             login_path: None,
             redirect_url: None,
             client_id: None,
@@ -108,12 +94,12 @@ impl<S> OAuth2ContextBuilder<S> {
     }
 
     pub fn cookie(mut self, f: impl FnOnce(CookieBuilder) -> CookieBuilder) -> Self {
-        self.cookie_session = self.cookie_session.cookie(f);
+        self.cookie_builder.cookie_builder = self.cookie_builder.cookie_builder.cookie(f);
         self
     }
 
     pub fn dev_cookie(mut self, f: impl FnOnce(CookieBuilder) -> CookieBuilder) -> Self {
-        self.cookie_session = self.cookie_session.dev_cookie(f);
+        self.cookie_builder.cookie_builder = self.cookie_builder.cookie_builder.dev_cookie(f);
         self
     }
 
@@ -123,7 +109,7 @@ impl<S> OAuth2ContextBuilder<S> {
     }
 
     pub fn use_dev_cookies(mut self, dev: bool) -> Self {
-        self.cookie_session = self.cookie_session.use_dev_cookie(dev);
+        self.cookie_builder.cookie_builder.dev = dev;
         self
     }
 
@@ -134,6 +120,23 @@ impl<S> OAuth2ContextBuilder<S> {
     pub fn http_client(mut self, http_client: HttpClient) -> Self {
         self.http_client = Some(http_client);
         self
+    }
+
+    pub fn cookie_secret(mut self, secret: impl AsRef<[u8]>) -> Self {
+        self.cookie_builder.secret = Some(secret.as_ref().to_vec());
+        self
+    }
+
+    /// max length of the entire login flow.
+    pub fn max_login_duration(mut self, duration: Duration) -> Self {
+        self.cookie_builder
+            .set_max_login_duration_secs(duration.as_secs());
+        self
+    }
+
+    /// max length of the entire login flow.
+    pub fn max_login_duration_minutes(self, minutes: u64) -> Self {
+        self.max_login_duration(Duration::from_mins(minutes))
     }
 
     pub fn authorization_code_flow(mut self) -> Self {
@@ -147,24 +150,8 @@ impl<S> OAuth2ContextBuilder<S> {
         self
     }
 
-    pub fn store<S1>(self, store: S1) -> OAuth2ContextBuilder<S1> {
-        OAuth2ContextBuilder {
-            cookie_session: self.cookie_session.store(store),
-            login_path: self.login_path,
-            redirect_url: self.redirect_url,
-            client_id: self.client_id,
-            client_secret: self.client_secret,
-            scopes: self.scopes,
-            auth_url: self.auth_url,
-            token_url: self.token_url,
-            http_client: self.http_client,
-            flow_type: self.flow_type,
-        }
-    }
-
     pub fn build<T>(self, inner: T) -> OAuth2Context<T>
     where
-        S: CookieStore<State = OAuthState>,
         T: OAuth2Handler,
     {
         self.try_build(inner).unwrap()
@@ -172,7 +159,6 @@ impl<S> OAuth2ContextBuilder<S> {
 
     pub fn try_build<T>(self, inner: T) -> Result<OAuth2Context<T>, OAuth2BuilderError>
     where
-        S: CookieStore<State = OAuthState>,
         T: OAuth2Handler,
     {
         let client_id = self
@@ -207,7 +193,7 @@ impl<S> OAuth2ContextBuilder<S> {
         Ok(OAuth2Context(Arc::new(OAuth2ContextInner {
             client: basic_client,
             inner,
-            session: self.cookie_session.build(),
+            session: self.cookie_builder.try_build()?,
             login_path: self.login_path,
             http_client: self.http_client.unwrap_or_else(default_reqwest_client),
             scopes: self.scopes,
@@ -230,6 +216,7 @@ pub enum OAuth2BuilderError {
     InvalidRedirectUrl(url::ParseError),
     InvalidAuthUrl(url::ParseError),
     InvalidTokenUrl(url::ParseError),
+    WhitespaceInProviderName,
 }
 
 impl Error for OAuth2BuilderError {}
@@ -249,6 +236,9 @@ impl Display for OAuth2BuilderError {
             }
             OAuth2BuilderError::InvalidTokenUrl(parse_error) => {
                 write!(f, "could not parse token url: {}", parse_error)
+            }
+            OAuth2BuilderError::WhitespaceInProviderName => {
+                f.write_str("provider name can't contain whitespaces")
             }
         }
     }
@@ -283,7 +273,7 @@ mod builder {
 
     #[test]
     fn builder_errors() {
-        let res = OAuth2Context::builder()
+        let res = OAuth2Context::builder("github")
             .client_id(CLIENT_ID)
             .client_secret(CLIENT_SECRET)
             .auth_url(AUTH_URL)
@@ -293,7 +283,7 @@ mod builder {
 
         assert!(res.is_ok());
 
-        let res = OAuth2Context::builder()
+        let res = OAuth2Context::builder("github")
             .client_id(CLIENT_ID)
             .auth_url(AUTH_URL)
             .token_url(TOKEN_URL)
@@ -305,7 +295,7 @@ mod builder {
 
     #[test]
     fn client_id() {
-        let res = OAuth2Context::builder()
+        let res = OAuth2Context::builder("github")
             .client_secret(CLIENT_SECRET)
             .auth_url(AUTH_URL)
             .token_url(TOKEN_URL)
@@ -317,7 +307,7 @@ mod builder {
 
     #[test]
     fn auth_url() {
-        let res = OAuth2Context::builder()
+        let res = OAuth2Context::builder("github")
             .client_id(CLIENT_ID)
             .client_secret(CLIENT_SECRET)
             .token_url(TOKEN_URL)
@@ -326,7 +316,7 @@ mod builder {
 
         assert!(matches!(res, Err(OAuth2BuilderError::MissingAuthUrl)));
 
-        let res = OAuth2Context::builder()
+        let res = OAuth2Context::builder("github")
             .client_id(CLIENT_ID)
             .client_secret(CLIENT_SECRET)
             .auth_url("not an url")
@@ -339,7 +329,7 @@ mod builder {
 
     #[test]
     fn token_url() {
-        let res = OAuth2Context::builder()
+        let res = OAuth2Context::builder("github")
             .client_id(CLIENT_ID)
             .client_secret(CLIENT_SECRET)
             .auth_url(AUTH_URL)
@@ -348,7 +338,7 @@ mod builder {
 
         assert!(matches!(res, Err(OAuth2BuilderError::MissingTokenUrl)));
 
-        let res = OAuth2Context::builder()
+        let res = OAuth2Context::builder("github")
             .client_id(CLIENT_ID)
             .client_secret(CLIENT_SECRET)
             .auth_url(AUTH_URL)
@@ -361,7 +351,7 @@ mod builder {
 
     #[test]
     fn redirect_url() {
-        let res = OAuth2Context::builder()
+        let res = OAuth2Context::builder("github")
             .client_id(CLIENT_ID)
             .client_secret(CLIENT_SECRET)
             .auth_url(AUTH_URL)
@@ -370,7 +360,7 @@ mod builder {
 
         assert!(matches!(res, Err(OAuth2BuilderError::MissingRedirectUrl)));
 
-        let res = OAuth2Context::builder()
+        let res = OAuth2Context::builder("github")
             .client_id(CLIENT_ID)
             .client_secret(CLIENT_SECRET)
             .auth_url(AUTH_URL)
@@ -381,6 +371,21 @@ mod builder {
         assert!(matches!(
             res,
             Err(OAuth2BuilderError::InvalidRedirectUrl(_))
+        ));
+    }
+
+    #[test]
+    fn provider_name() {
+        let res = OAuth2Context::builder("github ")
+            .client_id(CLIENT_ID)
+            .auth_url(AUTH_URL)
+            .token_url(TOKEN_URL)
+            .redirect_url(REDIRECT_URL)
+            .try_build(TestHandler {});
+
+        assert!(matches!(
+            res,
+            Err(OAuth2BuilderError::WhitespaceInProviderName)
         ));
     }
 }

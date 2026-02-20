@@ -68,7 +68,7 @@ async fn is_pkce_start(res: Response<Body>) -> Result<(), Box<dyn Error>> {
 
 #[tokio::test]
 async fn basic() -> Result<(), Box<dyn Error>> {
-    let oauth2_context = OAuth2Context::builder()
+    let oauth2_context = OAuth2Context::builder("test")
         .client_id(CLIENT_ID)
         .client_secret(CLIENT_SECRET)
         .redirect_url(REDIRECT_URL)
@@ -83,7 +83,7 @@ async fn basic() -> Result<(), Box<dyn Error>> {
 }
 #[tokio::test]
 async fn basic_login_path() -> Result<(), Box<dyn Error>> {
-    let oauth2_context = OAuth2Context::builder()
+    let oauth2_context = OAuth2Context::builder("test")
         .client_id(CLIENT_ID)
         .client_secret(CLIENT_SECRET)
         .redirect_url(REDIRECT_URL)
@@ -294,7 +294,7 @@ async fn login_path() -> Result<(), Box<dyn Error>> {
     let server_addr = socket.local_addr()?;
     let redirect_url = format!("http://{server_addr}{REDIRECT_PATH}");
 
-    let oauth2_context = OAuth2Context::builder()
+    let oauth2_context = OAuth2Context::builder("test")
         .client_id(CLIENT_ID)
         .client_secret(CLIENT_SECRET)
         .redirect_url(redirect_url)
@@ -342,7 +342,7 @@ async fn invalid_state() -> Result<(), Box<dyn Error>> {
     let server_addr = socket.local_addr()?;
     let redirect_url = format!("http://{server_addr}{REDIRECT_PATH}");
 
-    let oauth2_context = OAuth2Context::builder()
+    let oauth2_context = OAuth2Context::builder("test")
         .client_id(CLIENT_ID)
         .client_secret(CLIENT_SECRET)
         .redirect_url(redirect_url)
@@ -400,7 +400,7 @@ async fn auth_flow() -> Result<(), Box<dyn Error>> {
     let server_addr = socket.local_addr()?;
     let redirect_url = format!("http://{server_addr}{REDIRECT_PATH}");
 
-    let oauth2_context = OAuth2Context::builder()
+    let oauth2_context = OAuth2Context::builder("test")
         .client_id(CLIENT_ID)
         .client_secret(CLIENT_SECRET)
         .redirect_url(redirect_url)

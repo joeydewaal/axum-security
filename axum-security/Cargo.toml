@@ -18,7 +18,7 @@ features = ["cookie", "jwt", "oauth2", "rbac", "headers", "jiff", "chrono", "tim
 [features]
 cookie = ["dep:cookie-monster", "dep:uuid"]
 jwt = ["dep:jsonwebtoken"]
-oauth2 = ["dep:oauth2", "cookie"]
+oauth2 = ["dep:oauth2", "dep:wincode", "dep:base64", "dep:hmac", "dep:sha2", "dep:rand", "dep:subtle", "cookie"]
 rbac = ["dep:axum-security-macros"]
 headers = ["dep:pin-project-lite"]
 
@@ -44,4 +44,9 @@ axum-security-macros = { path = "../axum-security-macros", version = "0.0.1", op
 
 uuid = { workspace = true, features = ["v7"], optional = true }
 serde.workspace = true
-
+wincode = { workspace = true, optional = true }
+base64 = { workspace = true, optional = true }
+hmac = { workspace = true, optional = true }
+sha2 = { workspace = true, optional = true }
+rand = { workspace = true, optional = true }
+subtle = { workspace = true, optional = true }

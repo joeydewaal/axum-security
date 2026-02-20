@@ -9,12 +9,18 @@ tokio = { version = "1.0", default-features = false }
 tower = "0.5"
 pin-project-lite = "0.2.16"
 
-cookie-monster = { version = "0.2.0", features = ["axum"] }
-jsonwebtoken = { version = "10.2.0", default-features=false }
+cookie-monster = { version = "0.2.0", path = "../cookie-monster", features = ["axum"] }
+jsonwebtoken = { version = "10.2.0", default-features = false }
 uuid = { version = "1.20", features = ["std"], default-features = false }
 
 oauth2 = { version = "5.0.0", default-features = false }
 
 serde = { version = "1.0.228", features = ["derive"] }
+wincode = { version = "0.4.4", features = ["derive"] }
 
 tracing = { version = "0.1.44" }
+base64 = "0.22.1"
+hmac = { version = "0.12.1", features = [] }
+sha2 = "0.10.9"
+rand = "0.10.0"
+subtle = "2.6.1"

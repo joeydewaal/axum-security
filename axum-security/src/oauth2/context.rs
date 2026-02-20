@@ -11,19 +11,17 @@ use oauth2::{
     AuthorizationCode, CsrfToken, PkceCodeChallenge, PkceCodeVerifier, Scope, TokenResponse as _,
 };
 
-use crate::{
-    cookie::{CookieContext, MemStore},
-    oauth2::{
-        AfterLoginCookies, OAuth2ClientTyped, OAuth2Handler, OAuthState, TokenResponse,
-        builder::{FlowType, OAuth2ContextBuilder},
-    },
+use crate::oauth2::{
+    AfterLoginCookies, OAuth2ClientTyped, OAuth2Handler, TokenResponse,
+    builder::{FlowType, OAuth2ContextBuilder},
+    cookie::OAuth2Cookie,
 };
 
 pub struct OAuth2Context<H>(pub(super) Arc<OAuth2ContextInner<H>>);
 
 pub(super) struct OAuth2ContextInner<H> {
     pub(super) inner: H,
-    pub(super) session: CookieContext<OAuthState>,
+    pub(super) session: OAuth2Cookie,
     pub(super) client: OAuth2ClientTyped,
     pub(super) login_path: Option<Cow<'static, str>>,
     pub(super) scopes: Vec<Scope>,
@@ -31,12 +29,8 @@ pub(super) struct OAuth2ContextInner<H> {
     pub(super) flow_type: FlowType,
 }
 impl OAuth2Context<()> {
-    pub fn builder() -> OAuth2ContextBuilder<MemStore<OAuthState>> {
-        OAuth2ContextBuilder::new(MemStore::new())
-    }
-
-    pub fn builder_with_store<S>(store: S) -> OAuth2ContextBuilder<S> {
-        OAuth2ContextBuilder::new(store)
+    pub fn builder(oauth2_provider_name: impl Into<Cow<'static, str>>) -> OAuth2ContextBuilder {
+        OAuth2ContextBuilder::new(oauth2_provider_name.into())
     }
 }
 
@@ -47,21 +41,17 @@ impl<H: OAuth2Handler> OAuth2Context<H> {
 
     pub(crate) async fn on_redirect(
         &self,
-        jar: CookieJar,
+        mut jar: CookieJar,
         code: AuthorizationCode,
         state: CsrfToken,
     ) -> axum::response::Response {
         tracing::debug!("handling redirect");
-        let session = match self.0.session.remove_session_jar(&jar).await {
+
+        let (csrf_token, pkce_verifier) = match self.0.session.verify_cookies(&mut jar) {
             Ok(Some(session)) => session,
             Ok(None) => return StatusCode::UNAUTHORIZED.into_response(),
             Err(_) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
         };
-
-        let OAuthState {
-            csrf_token,
-            pkce_verifier,
-        } = session.state;
 
         // verify that csrf token is equal
         if csrf_token.secret() != state.secret() {
@@ -84,7 +74,7 @@ impl<H: OAuth2Handler> OAuth2Context<H> {
         // after login callback
         let mut context = AfterLoginCookies {
             cookie_jar: jar,
-            cookie_opts: self.0.session.cookie_builder(),
+            cookie_opts: &self.0.session.cookie_builder,
         };
 
         tracing::debug!("login flow done");
@@ -160,23 +150,17 @@ impl<H: OAuth2Handler> OAuth2Context<H> {
 
         let (redirect_url, csrf_token) = req.url();
 
-        // Store CSRF token on the server somewhere.
-        let state = OAuthState {
-            csrf_token,
-            pkce_verifier,
-        };
-
-        let cookie = match self.0.session.create_session(state).await {
-            Ok(c) => c,
-            Err(_) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
-        };
+        let cookie = self.0.session.generate_cookie(
+            csrf_token.secret(),
+            pkce_verifier.as_ref().map(|s| s.secret().as_ref()),
+        );
 
         // Send session cookie back
         (cookie, Redirect::to(redirect_url.as_str())).into_response()
     }
 
     pub fn cookie(&self, name: impl Into<Cow<'static, str>>) -> CookieBuilder {
-        self.0.session.build_cookie(name)
+        self.0.session.cookie_builder.clone().name(name.into())
     }
 }
 

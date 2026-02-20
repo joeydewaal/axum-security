@@ -1,4 +1,4 @@
-use std::error::Error;
+use std::{error::Error, time::Duration};
 
 use axum::{
     Json, Router,
@@ -6,18 +6,18 @@ use axum::{
     routing::get,
 };
 use axum_security::{
-    cookie::{CookieContext, CookieSession, MemStore},
+    cookie::{CookieContext, CookieSession, Expires, MemStore},
     oauth2::{
         AfterLoginCookies, OAuth2Context, OAuth2Ext, OAuth2Handler, TokenResponse,
         providers::github,
     },
 };
-use jiff::Timestamp;
+use jiff::{Timestamp, ToSpan, Zoned};
 use reqwest::{Client, StatusCode, header::USER_AGENT};
 use serde::{Deserialize, Serialize};
 use tokio::net::TcpListener;
 
-#[derive(Clone, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 struct User {
     user_id: u64,
     username: String,
@@ -67,6 +67,7 @@ impl LoginHandler {
         cookies: &mut AfterLoginCookies<'_>,
     ) -> Result<Redirect, StatusCode> {
         let user = self.fetch_gh_user(&token_res.access_token).await?;
+        println!("Hi, {user:?}");
 
         // Create a new session for the user.
         let session_cookie = self
@@ -97,10 +98,19 @@ async fn authorized(user: CookieSession<User>) -> Json<User> {
     Json(user.state)
 }
 
+async fn index(user: Option<CookieSession<User>>) -> Result<Json<User>, &'static str> {
+    if let Some(user) = user {
+        Ok(Json(user.state))
+    } else {
+        Err("You are not logged in, go to http://localhost:3000/login")
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     let cookie_service = CookieContext::builder()
-        .cookie(|c| c.name("session"))
+        .dev_cookie(|c| c.name("dev-session").max_age(Duration::from_mins(30)))
+        .use_dev_cookie(true)
         .store(MemStore::new())
         .build();
 
@@ -109,7 +119,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         http_client: Client::new(),
     };
 
-    let oauth2_service = OAuth2Context::builder()
+    let oauth2_service = OAuth2Context::builder("test")
         .auth_url(github::AUTH_URL)
         .token_url(github::TOKEN_URL)
         .client_id_env("CLIENT_ID")
@@ -121,10 +131,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
         // e
         .cookie(|c| c.path("/login"))
         .use_dev_cookies(true)
-        .store(MemStore::new())
         .build(handler);
 
     let router = Router::new()
+        .route("/", get(index))
         .route("/me", get(authorized))
         .layer(cookie_service)
         .with_oauth2(oauth2_service);
