@@ -45,7 +45,7 @@ impl<H: OAuth2Handler> OAuth2Context<H> {
         code: AuthorizationCode,
         state: CsrfToken,
     ) -> axum::response::Response {
-        tracing::debug!("handling redirect");
+        crate::debug!("handling redirect");
 
         let Some((csrf_token, pkce_verifier)) = self.0.session.verify_cookies(&mut jar) else {
             return StatusCode::UNAUTHORIZED.into_response();
@@ -54,16 +54,16 @@ impl<H: OAuth2Handler> OAuth2Context<H> {
         // verify that csrf token is equal
         if csrf_token.secret() != state.secret() {
             // bad req
-            tracing::debug!("state does not match");
+            crate::debug!("state does not match");
             return StatusCode::UNAUTHORIZED.into_response();
         }
 
         // exchange authorization code
-        tracing::debug!("exchanging pkce code for an access token");
+        crate::debug!("exchanging pkce code for an access token");
         let token_response = match self.exchange_code(code, pkce_verifier).await {
             Ok(res) => res,
-            Err(e) => {
-                tracing::debug!("failed to exchange code for access token: {e}");
+            Err(_e) => {
+                crate::debug!("failed to exchange code for access token: {_e}");
                 return StatusCode::INTERNAL_SERVER_ERROR.into_response();
             }
         };
@@ -75,7 +75,7 @@ impl<H: OAuth2Handler> OAuth2Context<H> {
             cookie_opts: &self.0.session.cookie_builder,
         };
 
-        tracing::debug!("login flow done");
+        crate::debug!("login flow done");
         let res = self
             .0
             .inner
@@ -128,7 +128,7 @@ impl<H: OAuth2Handler> OAuth2Context<H> {
     }
 
     pub async fn start_challenge(&self) -> axum::response::Response {
-        tracing::debug!("Starting oauth2 login flow");
+        crate::debug!("Starting oauth2 login flow");
 
         let mut req = self.0.client.authorize_url(CsrfToken::new_random);
 

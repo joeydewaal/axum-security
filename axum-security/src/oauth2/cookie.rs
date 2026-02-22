@@ -43,8 +43,7 @@ impl OAuth2Cookie {
             expires,
         };
 
-        let mut data = wincode::serialize(&state)
-            .expect("OAuthState serialization cannot fail");
+        let mut data = wincode::serialize(&state).expect("OAuthState serialization cannot fail");
 
         // get the signature
         let mut hmac = self.secret.clone();

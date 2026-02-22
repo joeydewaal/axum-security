@@ -16,6 +16,7 @@ categories = ["web-programming", "security", "asynchronous"]
 features = ["cookie", "jwt", "oauth2", "rbac", "headers", "jiff", "chrono", "time"]
 
 [features]
+tracing = ["dep:tracing"]
 cookie = ["dep:cookie-monster", "dep:uuid"]
 jwt = ["dep:jsonwebtoken"]
 oauth2 = ["dep:oauth2", "dep:wincode", "dep:base64", "dep:hmac", "dep:sha2", "dep:rand", "dep:subtle", "cookie"]
@@ -34,7 +35,7 @@ http.workspace = true
 tokio.workspace = true
 tower.workspace = true
 
-tracing.workspace = true
+tracing = { workspace = true, optional = true }
 pin-project-lite = { workspace = true, optional = true }
 
 cookie-monster = { workspace = true, optional = true }

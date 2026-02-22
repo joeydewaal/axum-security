@@ -49,7 +49,7 @@ impl<S: 'static> CookieContext<S> {
         state: S,
     ) -> Result<Cookie, Box<dyn Error + Send + 'static>> {
         let session_id = SessionId::new();
-        tracing::debug!("Storing {session_id:?} in cookie store");
+        crate::debug!("Storing {session_id:?} in cookie store");
         let now = utc_now().as_secs();
         let session = CookieSession::new(session_id.clone(), now, state);
         self.0.store.store_session(session).await?;

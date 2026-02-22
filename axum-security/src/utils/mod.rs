@@ -3,6 +3,22 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
+macro_rules! debug {
+    ($($arg:tt)*) => {{
+        #[cfg(feature = "tracing")]
+        tracing::debug!($($arg)*);
+    }};
+}
+pub(crate) use debug;
+
+macro_rules! error {
+    ($($arg:tt)*) => {{
+        #[cfg(feature = "tracing")]
+        tracing::error!($($arg)*);
+    }};
+}
+pub(crate) use error;
+
 #[cfg(feature = "headers")]
 pub mod headers;
 

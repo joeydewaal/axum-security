@@ -11,8 +11,8 @@ pub(crate) async fn maintenance_task<S: 'static>(this: ErasedStore<S>, expires_a
     let mut interval = tokio::time::interval(expires_after);
     loop {
         interval.tick().await;
-        if let Err(e) = this.remove_before(utc_now_secs()).await {
-            tracing::error!("session maintenance task failed to remove expired sessions: {e}");
+        if let Err(_e) = this.remove_before(utc_now_secs()).await {
+            crate::error!("session maintenance task failed to remove expired sessions: {_e}");
         }
     }
 }

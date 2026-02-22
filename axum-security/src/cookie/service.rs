@@ -36,9 +36,12 @@ where
         Box::pin(async move {
             match this.inner.load_from_headers(req.headers()).await {
                 Ok(Some(session)) => {
+                    crate::debug!("cookie: session loaded");
                     req.extensions_mut().insert(session);
                 }
-                Ok(None) => {}
+                Ok(None) => {
+                    crate::debug!("cookie: no session in request");
+                }
                 Err(_) => return Ok(StatusCode::INTERNAL_SERVER_ERROR.into_response()),
             }
 

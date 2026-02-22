@@ -28,7 +28,10 @@ where
 
     fn call(&mut self, mut req: Request) -> Self::Future {
         if let Some(user) = self.inner.decode_from_headers(req.headers()) {
+            crate::debug!("jwt: token extracted");
             req.extensions_mut().insert(Jwt(user));
+        } else {
+            crate::debug!("jwt: no token in request");
         }
         self.rest.call(req)
     }

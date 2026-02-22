@@ -82,13 +82,22 @@ where
         let mut inner = self.inner.clone();
         Box::pin(async move {
             if let Some((username, password)) = parse_basic_auth_header(req.headers()) {
+                crate::debug!("basic_auth: verifying credentials for user {username}");
                 match auth.authenticate(&username, &password).await {
                     Ok(Some(user)) => {
+                        crate::debug!("basic_auth: authenticated");
                         req.extensions_mut().insert(BasicAuth(user));
                     }
-                    Ok(None) => {}
-                    Err(_) => return Ok(StatusCode::INTERNAL_SERVER_ERROR.into_response()),
+                    Ok(None) => {
+                        crate::debug!("basic_auth: invalid credentials");
+                    }
+                    Err(_) => {
+                        crate::error!("basic_auth: authenticator returned an error");
+                        return Ok(StatusCode::INTERNAL_SERVER_ERROR.into_response());
+                    }
                 }
+            } else {
+                crate::debug!("basic_auth: no Authorization header");
             }
             inner.call(req).await
         })
