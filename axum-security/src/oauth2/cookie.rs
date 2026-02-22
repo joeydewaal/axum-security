@@ -43,7 +43,8 @@ impl OAuth2Cookie {
             expires,
         };
 
-        let mut data = wincode::serialize(&state).unwrap();
+        let mut data = wincode::serialize(&state)
+            .expect("OAuthState serialization cannot fail");
 
         // get the signature
         let mut hmac = self.secret.clone();
@@ -339,7 +340,7 @@ impl OAuthCookieBuilder {
         let cookie_name = format!("oauth2.session.{provider_name}");
 
         // 30 minutes
-        let max_login_duration_seconds = 30 * 60 * 60;
+        let max_login_duration_seconds = 30 * 60;
 
         // Make sure to use "/" as path so all paths can see the cookie in dev mode.
         let dev_cookie = Cookie::named(cookie_name.clone())
