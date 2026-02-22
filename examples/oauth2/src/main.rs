@@ -6,13 +6,13 @@ use axum::{
     routing::get,
 };
 use axum_security::{
-    cookie::{CookieContext, CookieSession, Expires, MemStore},
+    cookie::{CookieContext, CookieSession, MemStore},
     oauth2::{
         AfterLoginCookies, OAuth2Context, OAuth2Ext, OAuth2Handler, TokenResponse,
         providers::github,
     },
 };
-use jiff::{Timestamp, ToSpan, Zoned};
+use jiff::Timestamp;
 use reqwest::{Client, StatusCode, header::USER_AGENT};
 use serde::{Deserialize, Serialize};
 use tokio::net::TcpListener;

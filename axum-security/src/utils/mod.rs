@@ -3,6 +3,7 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
+#[allow(unused)]
 macro_rules! debug {
     ($($arg:tt)*) => {{
         #[cfg(feature = "tracing")]
@@ -11,6 +12,7 @@ macro_rules! debug {
 }
 pub(crate) use debug;
 
+#[allow(unused)]
 macro_rules! error {
     ($($arg:tt)*) => {{
         #[cfg(feature = "tracing")]

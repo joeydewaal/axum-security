@@ -1,0 +1,5 @@
+error: expected a role variant expression like `Role::Admin`
+ --> ui/rbac/requires_non_path.rs:3:12
+  |
+3 | #[requires("admin")]
+  |            ^^^^^^^

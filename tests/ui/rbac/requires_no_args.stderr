@@ -1,0 +1,5 @@
+error: requires at least one role argument, e.g. #[requires(Role::Admin)]
+ --> ui/rbac/requires_no_args.rs:4:10
+  |
+4 | async fn handler() -> axum::http::StatusCode {
+  |          ^^^^^^^

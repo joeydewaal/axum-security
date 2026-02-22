@@ -1,0 +1,5 @@
+error: expected a qualified path like `Role::Variant` — write `MyRole::Admin`, not just `Admin`
+ --> ui/rbac/requires_single_segment.rs:3:12
+  |
+3 | #[requires(Admin)]
+  |            ^^^^^

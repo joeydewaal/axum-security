@@ -1,19 +1,238 @@
-use std::{convert::Infallible, fmt::Debug, marker::PhantomData};
+use std::{convert::Infallible, fmt::Debug, future::Future, marker::PhantomData, pin::Pin};
 
 use axum::{
-    extract::{FromRequestParts, Request, State},
-    http::{StatusCode, request::Parts},
-    middleware::Next,
+    extract::{FromRequestParts, Request},
+    http::{Extensions, StatusCode, request::Parts},
     response::{IntoResponse, Response},
     routing::MethodRouter,
 };
-pub use axum_security_macros::{requires, requires_any};
+use tower::{Layer, Service};
 
 #[cfg(feature = "cookie")]
 use crate::cookie::CookieSession;
 
+/// Unified session produced by [`RbacLayer`] and available to handlers via
+/// extraction.
+#[derive(Clone)]
+pub enum Session<U> {
+    Jwt(U),
+    Cookie(U),
+    Basic(U),
+}
+
+impl<U> std::ops::Deref for Session<U> {
+    type Target = U;
+    fn deref(&self) -> &U {
+        match self {
+            Self::Jwt(u) | Self::Cookie(u) | Self::Basic(u) => u,
+        }
+    }
+}
+
+impl<S: Sync, U: Clone + Send + Sync + 'static> FromRequestParts<S> for Session<U> {
+    type Rejection = StatusCode;
+
+    async fn from_request_parts(parts: &mut Parts, _: &S) -> Result<Self, StatusCode> {
+        parts
+            .extensions
+            .remove::<Session<U>>()
+            .ok_or(StatusCode::UNAUTHORIZED)
+    }
+}
+
+fn extract_as_session<R: RBAC>(ext: &mut Extensions) -> Option<Session<R::Resource>> {
+    #[cfg(feature = "jwt")]
+    if let Some(jwt) = ext.remove::<crate::jwt::Jwt<R::Resource>>() {
+        return Some(Session::Jwt(jwt.0));
+    }
+
+    #[cfg(feature = "cookie")]
+    if let Some(c) = ext.remove::<CookieSession<R::Resource>>() {
+        return Some(Session::Cookie(c.state));
+    }
+
+    #[cfg(feature = "basic-auth")]
+    if let Some(b) = ext.remove::<crate::basic_auth::BasicAuth<R::Resource>>() {
+        return Some(Session::Basic(b.0));
+    }
+
+    None
+}
+
+pub struct RbacLayer<R: RBAC> {
+    required: AuthType<R>,
+}
+
+impl<R: RBAC> Clone for RbacLayer<R> {
+    fn clone(&self) -> Self {
+        RbacLayer {
+            required: self.required.clone(),
+        }
+    }
+}
+
+impl<R: RBAC, S> Layer<S> for RbacLayer<R> {
+    type Service = RbacService<R, S>;
+
+    fn layer(&self, inner: S) -> RbacService<R, S> {
+        RbacService {
+            required: self.required.clone(),
+            inner,
+        }
+    }
+}
+
+pub struct RbacService<R: RBAC, S> {
+    required: AuthType<R>,
+    inner: S,
+}
+
+impl<R: RBAC, S: Clone> Clone for RbacService<R, S> {
+    fn clone(&self) -> Self {
+        RbacService {
+            required: self.required.clone(),
+            inner: self.inner.clone(),
+        }
+    }
+}
+
+type BoxFuture<T> = Pin<Box<dyn Future<Output = T> + Send>>;
+
+impl<R, S> Service<Request> for RbacService<R, S>
+where
+    R: RBAC + 'static,
+    S: Service<Request, Response = Response> + Clone + Send + 'static,
+    S::Error: Send,
+    S::Future: Send,
+{
+    type Response = Response;
+    type Error = S::Error;
+    type Future = BoxFuture<Result<Response, S::Error>>;
+
+    fn poll_ready(
+        &mut self,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Result<(), Self::Error>> {
+        self.inner.poll_ready(cx)
+    }
+
+    fn call(&mut self, mut req: Request) -> Self::Future {
+        let required = self.required.clone();
+        let mut inner = self.inner.clone();
+        Box::pin(async move {
+            let Some(session) = extract_as_session::<R>(req.extensions_mut()) else {
+                return Ok(StatusCode::UNAUTHORIZED.into_response());
+            };
+
+            let user_roles: Vec<R> = R::extract_roles(&session).into_iter().copied().collect();
+
+            let ok = match &required {
+                AuthType::RequiresAll(roles) => roles.iter().all(|r| user_roles.contains(r)),
+                AuthType::RequiresAny(roles) => user_roles.iter().any(|r| roles.contains(r)),
+            };
+
+            if !ok {
+                return Ok(StatusCode::UNAUTHORIZED.into_response());
+            }
+
+            req.extensions_mut().insert(session);
+            inner.call(req).await
+        })
+    }
+}
+
+pub trait RBAC: Send + Sync + 'static + Clone + Eq + Copy + Debug {
+    type Resource: Clone + Send + Sync + 'static;
+
+    fn extract_roles(resource: &Self::Resource) -> impl IntoIterator<Item = &Self>;
+}
+
+#[derive(Clone)]
+enum AuthType<T: RBAC> {
+    RequiresAll(Vec<T>),
+    RequiresAny(Vec<T>),
+}
+
+pub trait RBACExt {
+    fn requires<T: RBAC>(self, role: T) -> Self;
+    fn requires_all<T: RBAC>(self, roles: impl Into<Vec<T>>) -> Self;
+    fn requires_any<T: RBAC>(self, roles: impl Into<Vec<T>>) -> Self;
+}
+
+impl<S: Clone + 'static> RBACExt for MethodRouter<S, Infallible> {
+    fn requires<T: RBAC>(self, role: T) -> Self {
+        self.layer(RbacLayer {
+            required: AuthType::RequiresAll(vec![role]),
+        })
+    }
+
+    fn requires_all<T: RBAC>(self, roles: impl Into<Vec<T>>) -> Self {
+        self.layer(RbacLayer {
+            required: AuthType::RequiresAll(roles.into()),
+        })
+    }
+
+    fn requires_any<T: RBAC>(self, roles: impl Into<Vec<T>>) -> Self {
+        self.layer(RbacLayer {
+            required: AuthType::RequiresAny(roles.into()),
+        })
+    }
+}
+
+pub struct RolesExtractor<T: RBAC> {
+    pub roles: Vec<T>,
+    _p: PhantomData<T>,
+}
+
+fn extract_roles<R: RBAC + Copy>(parts: &mut Parts) -> Option<Vec<R>> {
+    if let Some(session) = parts.extensions.get::<Session<R::Resource>>() {
+        return Some(R::extract_roles(&session).into_iter().copied().collect());
+    }
+
+    #[cfg(feature = "jwt")]
+    if let Some(jwt) = parts.extensions.remove::<crate::jwt::Jwt<R::Resource>>() {
+        let roles = R::extract_roles(&jwt.0).into_iter().copied().collect();
+        parts.extensions.insert(jwt);
+        return Some(roles);
+    }
+
+    #[cfg(feature = "cookie")]
+    if let Some(c) = parts.extensions.remove::<CookieSession<R::Resource>>() {
+        let roles = R::extract_roles(&c.state).into_iter().copied().collect();
+        parts.extensions.insert(c);
+        return Some(roles);
+    }
+
+    #[cfg(feature = "basic-auth")]
+    if let Some(b) = parts
+        .extensions
+        .remove::<crate::basic_auth::BasicAuth<R::Resource>>()
+    {
+        let roles = R::extract_roles(&b.0).into_iter().copied().collect();
+        parts.extensions.insert(b);
+        return Some(roles);
+    }
+
+    None
+}
+
+impl<S: Send + Sync, R: RBAC + Copy> FromRequestParts<S> for RolesExtractor<R> {
+    type Rejection = StatusCode;
+
+    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
+        let Some(roles) = extract_roles(parts) else {
+            return Err(StatusCode::UNAUTHORIZED);
+        };
+
+        Ok(RolesExtractor {
+            roles,
+            _p: PhantomData,
+        })
+    }
+}
+
 pub fn __requires<T: RBAC>(resource: RolesExtractor<T>, roles: &[T]) -> Option<Response> {
-    if resource.roles.iter().all(|r| roles.contains(r)) {
+    if roles.iter().all(|r| resource.roles.contains(r)) {
         None
     } else {
         Some(StatusCode::UNAUTHORIZED.into_response())
@@ -28,148 +247,89 @@ pub fn __requires_any<T: RBAC>(resource: RolesExtractor<T>, roles: &[T]) -> Opti
     }
 }
 
-pub struct RolesExtractor<T: RBAC> {
-    roles: Vec<T>,
-    _p: PhantomData<T>,
+#[cfg(feature = "rbac-macros")]
+pub use axum_security_macros::{requires, requires_any};
+
+#[doc(hidden)]
+pub mod __private {
+    pub use super::__requires;
+    pub use super::__requires_any;
+    pub use super::RolesExtractor;
 }
 
-impl<S: Send + Sync, R: RBAC> FromRequestParts<S> for RolesExtractor<R>
-where
-    R::Resource: Clone + Send + Sync + 'static,
-    R: Copy,
-{
-    type Rejection = StatusCode;
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-    async fn from_request_parts(
-        parts: &mut axum::http::request::Parts,
-        _state: &S,
-    ) -> Result<Self, Self::Rejection> {
-        let Some(roles) = extract_roles(parts) else {
-            return Err(StatusCode::UNAUTHORIZED);
-        };
+    #[derive(Clone, Copy, Eq, PartialEq, Debug)]
+    enum Role {
+        Admin,
+        Mod,
+        #[allow(dead_code)]
+        User,
+    }
 
-        Ok(RolesExtractor {
+    #[derive(Clone)]
+    struct FakeUser {
+        roles: Vec<Role>,
+    }
+
+    impl RBAC for Role {
+        type Resource = FakeUser;
+        fn extract_roles(r: &FakeUser) -> impl IntoIterator<Item = &Role> {
+            &r.roles
+        }
+    }
+
+    fn make_extractor(roles: Vec<Role>) -> RolesExtractor<Role> {
+        RolesExtractor {
             roles,
             _p: PhantomData,
-        })
-    }
-}
-
-fn extract_roles<R>(parts: &mut Parts) -> Option<Vec<R>>
-where
-    R: RBAC,
-    R::Resource: Clone,
-    R: Copy,
-{
-    #[cfg(feature = "jwt")]
-    if let Some(resource) = parts.extensions.remove::<crate::jwt::Jwt<R::Resource>>() {
-        let roles: Vec<R> = R::extract_roles(&resource.0).into_iter().copied().collect();
-        parts.extensions.insert(resource);
-        return Some(roles);
-    }
-
-    #[cfg(feature = "cookie")]
-    if let Some(resource) = parts.extensions.remove::<CookieSession<R::Resource>>() {
-        let roles: Vec<R> = R::extract_roles(&resource.state)
-            .into_iter()
-            .copied()
-            .collect();
-        parts.extensions.insert(resource);
-        return Some(roles);
-    }
-
-    None
-}
-
-pub trait RBAC: Send + Sync + 'static + Clone + Eq + Copy + Debug {
-    type Resource: Send + Sync + 'static;
-
-    fn extract_roles(resource: &Self::Resource) -> impl IntoIterator<Item = &Self>;
-}
-
-pub trait RBACExt {
-    fn requires<T: RBAC>(self, rol: T) -> Self;
-
-    fn requires_all<T: RBAC>(self, rol: impl Into<Vec<T>>) -> Self;
-
-    fn requires_any<T: RBAC>(self, rol: impl Into<Vec<T>>) -> Self;
-}
-
-#[derive(Clone)]
-enum AuthType<T: RBAC> {
-    RequiresAll(Vec<T>),
-    RequiresAny(Vec<T>),
-}
-
-impl<S: Clone + 'static> RBACExt for MethodRouter<S, Infallible> {
-    fn requires<T: RBAC>(self, rol: T) -> Self {
-        let auth_type = AuthType::RequiresAll(vec![rol]);
-        let middleware = axum::middleware::from_fn_with_state(auth_type, rbac_layer::<T>);
-
-        self.layer::<_, Infallible>(middleware)
-    }
-
-    fn requires_all<T: RBAC>(self, rol: impl Into<Vec<T>>) -> Self {
-        let auth_type = AuthType::RequiresAll(rol.into());
-        let middleware = axum::middleware::from_fn_with_state(auth_type, rbac_layer::<T>);
-
-        self.layer::<_, Infallible>(middleware)
-    }
-
-    fn requires_any<T: RBAC>(self, rol: impl Into<Vec<T>>) -> Self {
-        let auth_type = AuthType::RequiresAny(rol.into());
-        let middleware = axum::middleware::from_fn_with_state(auth_type, rbac_layer::<T>);
-
-        self.layer::<_, Infallible>(middleware)
-    }
-}
-
-fn extract_resource<R: RBAC>(req: &mut Request) -> Result<R::Resource, Response> {
-    #[cfg(feature = "jwt")]
-    if let Some(user) = req
-        .extensions_mut()
-        .remove::<crate::jwt::Jwt<R::Resource>>()
-    {
-        return Ok(user.0);
-    }
-
-    #[cfg(feature = "cookie")]
-    if let Some(user) = req
-        .extensions_mut()
-        .remove::<crate::cookie::CookieSession<R::Resource>>()
-    {
-        return Ok(user.state);
-    }
-
-    Err(StatusCode::UNAUTHORIZED.into_response())
-}
-
-async fn rbac_layer<R: RBAC>(
-    State(auth_type): State<AuthType<R>>,
-    mut req: Request,
-    next: Next,
-) -> Response {
-    let resource = match extract_resource::<R>(&mut req) {
-        Ok(r) => r,
-        Err(e) => return e,
-    };
-
-    match auth_type {
-        AuthType::RequiresAll(roles) => {
-            let mut extracted_roles = R::extract_roles(&resource).into_iter();
-
-            if extracted_roles.any(|r| !roles.contains(r)) {
-                return StatusCode::UNAUTHORIZED.into_response();
-            }
-        }
-        AuthType::RequiresAny(roles) => {
-            let mut extracted_roles = R::extract_roles(&resource).into_iter();
-
-            if extracted_roles.all(|r| !roles.contains(r)) {
-                return StatusCode::UNAUTHORIZED.into_response();
-            }
         }
     }
 
-    next.run(req).await
+    #[test]
+    fn requires_exact_match() {
+        let ext = make_extractor(vec![Role::Admin]);
+        assert!(
+            __requires(ext, &[Role::Admin]).is_none(),
+            "Admin with required=[Admin] should pass"
+        );
+    }
+
+    #[test]
+    fn requires_missing_role() {
+        let ext = make_extractor(vec![Role::Admin]);
+        assert!(
+            __requires(ext, &[Role::Admin, Role::Mod]).is_some(),
+            "Admin with required=[Admin, Mod] should fail"
+        );
+    }
+
+    #[test]
+    fn requires_superset_passes() {
+        let ext = make_extractor(vec![Role::Admin, Role::Mod]);
+        assert!(
+            __requires(ext, &[Role::Admin]).is_none(),
+            "[Admin, Mod] with required=[Admin] should pass"
+        );
+    }
+
+    #[test]
+    fn requires_any_match() {
+        let ext = make_extractor(vec![Role::Mod]);
+        assert!(
+            __requires_any(ext, &[Role::Admin, Role::Mod]).is_none(),
+            "Mod with any=[Admin, Mod] should pass"
+        );
+    }
+
+    #[test]
+    fn requires_any_no_match() {
+        let ext = make_extractor(vec![Role::User]);
+        assert!(
+            __requires_any(ext, &[Role::Admin, Role::Mod]).is_some(),
+            "User with any=[Admin, Mod] should fail"
+        );
+    }
 }

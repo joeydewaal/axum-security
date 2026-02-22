@@ -19,6 +19,7 @@ pub mod basic_auth;
 pub mod rbac;
 
 pub(crate) mod utils;
+#[allow(unused)]
 pub(crate) use utils::{debug, error};
 
 #[cfg(feature = "headers")]
