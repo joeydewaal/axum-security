@@ -8,6 +8,7 @@ publish = false
 jwt = ["axum-security/jwt"]
 cookie = ["axum-security/cookie"]
 oauth2 = ["axum-security/oauth2"]
+basic-auth = ["axum-security/basic-auth"]
 
 
 [dev-dependencies]

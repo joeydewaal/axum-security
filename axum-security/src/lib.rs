@@ -12,6 +12,9 @@ pub mod http;
 #[cfg(feature = "jwt")]
 pub mod jwt;
 
+#[cfg(feature = "basic-auth")]
+pub mod basic_auth;
+
 #[cfg(feature = "rbac")]
 pub mod rbac;
 
