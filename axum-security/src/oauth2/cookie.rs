@@ -106,19 +106,236 @@ impl OAuth2Cookie {
             return None;
         }
 
-        let data = &data[..(data.len() - HMAC_HASH_LEN)];
-        let received_signature = &data[(data.len() - HMAC_HASH_LEN)..];
+        let (payload, received_signature) = data.split_at(data.len() - HMAC_HASH_LEN);
 
         let mut hmac = self.secret.clone();
-
-        hmac.update(&data);
+        hmac.update(payload);
         let signature = hmac.finalize().into_bytes();
 
         if received_signature.ct_ne(&signature[..]).into() {
-            Some(data)
-        } else {
             None
+        } else {
+            Some(payload)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use cookie_monster::CookieJar;
+
+    use crate::utils::utc_now_secs;
+
+    fn make_handler(secret: Option<Vec<u8>>) -> OAuth2Cookie {
+        let mut builder = OAuthCookieBuilder::new("test".into());
+        builder.cookie_builder.dev = true;
+        if let Some(s) = secret {
+            builder.secret = Some(s);
+        }
+        builder.try_build().unwrap()
+    }
+
+    fn make_jar(cookie: cookie_monster::Cookie) -> CookieJar {
+        let mut jar = CookieJar::new();
+        jar.add(cookie);
+        jar
+    }
+
+    fn build_cookie_value(handler: &OAuth2Cookie, state: &OAuthState<'_>) -> String {
+        let mut data = wincode::serialize(state).unwrap();
+        let mut hmac = handler.secret.clone();
+        hmac.update(&data);
+        let signature = hmac.finalize().into_bytes();
+        data.extend_from_slice(&signature);
+        BASE64_STANDARD.encode(data)
+    }
+
+    #[test]
+    fn round_trip_with_pkce() {
+        let handler = make_handler(None);
+        let cookie = handler.generate_cookie("csrf_token", Some("pkce_verifier"));
+        let mut jar = make_jar(cookie);
+
+        let (csrf, pkce) = handler.verify_cookies(&mut jar).unwrap().unwrap();
+        assert_eq!(csrf.secret(), "csrf_token");
+        assert_eq!(pkce.unwrap().secret(), "pkce_verifier");
+    }
+
+    #[test]
+    fn round_trip_without_pkce() {
+        let handler = make_handler(None);
+        let cookie = handler.generate_cookie("csrf_token", None);
+        let mut jar = make_jar(cookie);
+
+        let (csrf, pkce) = handler.verify_cookies(&mut jar).unwrap().unwrap();
+        assert_eq!(csrf.secret(), "csrf_token");
+        assert!(pkce.is_none());
+    }
+
+    #[test]
+    fn cookie_is_consumed_on_verify() {
+        let handler = make_handler(None);
+        let cookie = handler.generate_cookie("csrf", Some("pkce"));
+        let mut jar = make_jar(cookie);
+
+        assert!(handler.verify_cookies(&mut jar).unwrap().is_some());
+        // Second call on the same jar should find no cookie.
+        assert!(handler.verify_cookies(&mut jar).unwrap().is_none());
+    }
+
+    #[test]
+    fn missing_cookie_returns_none() {
+        let handler = make_handler(None);
+        let mut jar = CookieJar::new();
+        assert!(handler.verify_cookies(&mut jar).unwrap().is_none());
+    }
+
+    #[test]
+    fn invalid_base64_returns_error() {
+        let handler = make_handler(None);
+        let bad = handler
+            .cookie_builder
+            .clone()
+            .value("not!valid!base64!@#")
+            .build();
+        let mut jar = make_jar(bad);
+        assert!(handler.verify_cookies(&mut jar).is_err());
+    }
+
+    #[test]
+    fn no_hmac_appended_returns_error() {
+        // Valid serialized state with no HMAC bytes appended must be rejected.
+        let handler = make_handler(None);
+        let now = utc_now_secs();
+        let state = OAuthState {
+            csrf_token: "csrf_token",
+            pkce_verifier: Some("pkce_verifier"),
+            provider_name: "test",
+            issued: now,
+            expires: now + 3600,
+        };
+        let data = wincode::serialize(&state).unwrap();
+        // No signature appended — the HMAC check should catch this.
+        let encoded = BASE64_STANDARD.encode(&data);
+        let bad = handler.cookie_builder.clone().value(encoded).build();
+        let mut jar = make_jar(bad);
+        assert!(handler.verify_cookies(&mut jar).is_err());
+    }
+
+    #[test]
+    fn hmac_one_byte_short_returns_error() {
+        // Valid serialized state with only HMAC_HASH_LEN-1 bytes of HMAC
+        // appended must be rejected.
+        let handler = make_handler(Some(vec![0u8; 32]));
+        let now = utc_now_secs();
+        let state = OAuthState {
+            csrf_token: "csrf_token",
+            pkce_verifier: Some("pkce_verifier"),
+            provider_name: "test",
+            issued: now,
+            expires: now + 3600,
+        };
+        let mut data = wincode::serialize(&state).unwrap();
+        let mut hmac = handler.secret.clone();
+        hmac.update(&data);
+        let full_signature = hmac.finalize().into_bytes();
+        // Append one byte fewer than required.
+        data.extend_from_slice(&full_signature[..HMAC_HASH_LEN - 1]);
+        let encoded = BASE64_STANDARD.encode(&data);
+        let bad = handler.cookie_builder.clone().value(encoded).build();
+        let mut jar = make_jar(bad);
+        assert!(handler.verify_cookies(&mut jar).is_err());
+    }
+
+    #[test]
+    fn wrong_hmac_signature_is_rejected() {
+        // Zeroing the appended HMAC bytes must cause verification to fail.
+        let handler = make_handler(None);
+        let cookie = handler.generate_cookie("csrf_token", Some("pkce_verifier"));
+        let value = cookie.value().to_string();
+
+        let mut decoded = BASE64_STANDARD.decode(&value).unwrap();
+        let len = decoded.len();
+        decoded[len - HMAC_HASH_LEN..].fill(0);
+        let tampered = BASE64_STANDARD.encode(decoded);
+
+        let bad = handler.cookie_builder.clone().value(tampered).build();
+        let mut jar = make_jar(bad);
+        assert!(
+            handler.verify_cookies(&mut jar).is_err(),
+            "cookie with zeroed HMAC should be rejected"
+        );
+    }
+
+    #[test]
+    fn different_secret_rejects_cookie() {
+        // A cookie signed by one secret must not be accepted by a handler using
+        // a different secret.
+        let handler1 = make_handler(Some(b"secret_aaa_32_bytes_exactly_____".to_vec()));
+        let handler2 = make_handler(Some(b"secret_bbb_32_bytes_exactly_____".to_vec()));
+
+        let cookie = handler1.generate_cookie("csrf", Some("pkce"));
+        let mut jar = make_jar(cookie);
+        assert!(
+            handler2.verify_cookies(&mut jar).is_err(),
+            "cookie signed with a different secret should be rejected"
+        );
+    }
+
+    #[test]
+    fn expired_cookie_returns_none() {
+        let handler = make_handler(Some(vec![0u8; 32]));
+        let now = utc_now_secs();
+
+        let state = OAuthState {
+            csrf_token: "csrf_token",
+            pkce_verifier: None,
+            provider_name: "test",
+            issued: now - 100,
+            expires: now - 1, // already past
+        };
+        let value = build_cookie_value(&handler, &state);
+        let cookie = handler.cookie_builder.clone().value(value).build();
+        let mut jar = make_jar(cookie);
+
+        assert!(
+            handler.verify_cookies(&mut jar).unwrap().is_none(),
+            "expired cookie should return None"
+        );
+    }
+
+    #[test]
+    fn future_issued_time_returns_none() {
+        // `issued` in the future means the server clock went backwards or the
+        // cookie was tampered with; both cases should be rejected.
+        let handler = make_handler(Some(vec![0u8; 32]));
+        let now = utc_now_secs();
+
+        let state = OAuthState {
+            csrf_token: "csrf_token",
+            pkce_verifier: None,
+            provider_name: "test",
+            issued: now + 1000,
+            expires: now + 2000,
+        };
+        let value = build_cookie_value(&handler, &state);
+        let cookie = handler.cookie_builder.clone().value(value).build();
+        let mut jar = make_jar(cookie);
+
+        assert!(
+            handler.verify_cookies(&mut jar).unwrap().is_none(),
+            "cookie with a future issued time should return None"
+        );
+    }
+
+    #[test]
+    fn provider_name_with_whitespace_is_rejected() {
+        assert!(
+            OAuthCookieBuilder::new("provider with spaces".into())
+                .try_build()
+                .is_err()
+        );
     }
 }
 
