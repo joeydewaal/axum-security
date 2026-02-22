@@ -6,7 +6,8 @@ use sha2::{Digest as _, Sha256};
 use std::{
     collections::HashMap,
     error::Error,
-    sync::{Arc, LazyLock, Mutex},
+    net::SocketAddr,
+    sync::{Arc, Mutex},
 };
 use tokio::net::TcpListener;
 use tower::ServiceExt;
@@ -30,6 +31,7 @@ const REDIRECT_URL: &str = "http://localhost/redirect";
 const AUTH_URL: &str = github::AUTH_URL;
 const TOKEN_URL: &str = github::TOKEN_URL;
 const LOGIN_PATH: &str = "/login-testing";
+const REDIRECT_PATH: &str = "/redirect";
 
 struct TestHandler;
 
@@ -110,9 +112,6 @@ struct ChallengeData {
 
 type ChallengeStore = Arc<Mutex<HashMap<String, ChallengeData>>>;
 
-static OAUTH_STATE: LazyLock<ChallengeStore> =
-    LazyLock::new(|| Arc::new(Mutex::new(HashMap::new())));
-
 async fn install_mock_oauth_server(pkce: bool) -> (MockServer, String, String) {
     const AUTH_URL_PATH: &str = "/oauth2/authorize";
     const TOKEN_URL_PATH: &str = "/oauth2/access_token";
@@ -121,6 +120,10 @@ async fn install_mock_oauth_server(pkce: bool) -> (MockServer, String, String) {
 
     let auth_url = format!("http://{}{AUTH_URL_PATH}", mock_server.address());
     let token_url = format!("http://{}{TOKEN_URL_PATH}", mock_server.address());
+
+    let oauth_state: ChallengeStore = Arc::new(Mutex::new(HashMap::new()));
+    let oauth_state_token = oauth_state.clone();
+    let oauth_state_exchange = oauth_state.clone();
 
     Mock::given(method("GET"))
         .and(path(AUTH_URL_PATH))
@@ -156,7 +159,7 @@ async fn install_mock_oauth_server(pkce: bool) -> (MockServer, String, String) {
             }
 
             {
-                let mut challenges = OAUTH_STATE.lock().unwrap();
+                let mut challenges = oauth_state_token.lock().unwrap();
                 challenges.insert(
                     auth_code.clone(),
                     ChallengeData {
@@ -222,7 +225,7 @@ async fn install_mock_oauth_server(pkce: bool) -> (MockServer, String, String) {
             };
 
             let challenge_data = {
-                let challenges = OAUTH_STATE.lock().unwrap();
+                let challenges = oauth_state_exchange.lock().unwrap();
                 challenges.get(&params.code).cloned()
             };
 
@@ -247,7 +250,7 @@ async fn install_mock_oauth_server(pkce: bool) -> (MockServer, String, String) {
             tracing::debug!("PKCE validation passed!");
 
             {
-                let mut challenges = OAUTH_STATE.lock().unwrap();
+                let mut challenges = oauth_state_exchange.lock().unwrap();
                 challenges.remove(&params.code);
             }
 
@@ -278,271 +281,140 @@ fn generate_code_challenge(verifier: &str) -> String {
     general_purpose::URL_SAFE_NO_PAD.encode(result)
 }
 
+struct TestServer {
+    _mock: MockServer,
+    addr: SocketAddr,
+}
+
+impl TestServer {
+    async fn pkce() -> Self {
+        Self::build(true).await
+    }
+
+    async fn authorization_code() -> Self {
+        Self::build(false).await
+    }
+
+    async fn build(pkce: bool) -> Self {
+        let (mock, auth_url, token_url) = install_mock_oauth_server(pkce).await;
+        let socket = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = socket.local_addr().unwrap();
+        let redirect_url = format!("http://{addr}{REDIRECT_PATH}");
+
+        let mut builder = OAuth2Context::builder("test")
+            .client_id(CLIENT_ID)
+            .client_secret(CLIENT_SECRET)
+            .redirect_url(redirect_url)
+            .auth_url(auth_url)
+            .token_url(token_url)
+            .login_path(LOGIN_PATH)
+            .use_dev_cookies(true);
+
+        if !pkce {
+            builder = builder.authorization_code_flow();
+        }
+
+        let router = Router::<()>::new().with_oauth2(builder.build(TestHandler));
+        tokio::spawn(async { axum::serve(socket, router).await });
+        TestServer { _mock: mock, addr }
+    }
+
+    fn cookie_client(&self) -> Client {
+        Client::builder()
+            .redirect(Policy::none())
+            .cookie_store(true)
+            .build()
+            .unwrap()
+    }
+
+    fn bare_client(&self) -> Client {
+        Client::builder().redirect(Policy::none()).build().unwrap()
+    }
+
+    fn login_url(&self) -> String {
+        format!("http://{}{LOGIN_PATH}", self.addr)
+    }
+
+    async fn login_to_callback(&self, client: &Client) -> String {
+        let res = client.get(self.login_url()).send().await.unwrap();
+        let oauth_url = res.headers()["location"].to_str().unwrap().to_owned();
+        let res = client.get(&oauth_url).send().await.unwrap();
+        res.headers()["location"].to_str().unwrap().to_owned()
+    }
+
+    async fn complete_login(&self, client: &Client) -> reqwest::Response {
+        let callback_url = self.login_to_callback(client).await;
+        client.get(&callback_url).send().await.unwrap()
+    }
+}
+
 #[tokio::test]
 async fn login_path() -> Result<(), Box<dyn Error>> {
     let _ = tracing_subscriber::fmt::try_init();
-
-    const REDIRECT_PATH: &str = "/redirect";
-    let (_, auth_url, token_url) = install_mock_oauth_server(true).await;
-
-    let http_client = Client::builder()
-        .redirect(Policy::none())
-        .cookie_store(true)
-        .build()?;
-
-    let socket = TcpListener::bind("127.0.0.1:0").await?;
-    let server_addr = socket.local_addr()?;
-    let redirect_url = format!("http://{server_addr}{REDIRECT_PATH}");
-
-    let oauth2_context = OAuth2Context::builder("test")
-        .client_id(CLIENT_ID)
-        .client_secret(CLIENT_SECRET)
-        .redirect_url(redirect_url)
-        .auth_url(auth_url)
-        .token_url(token_url)
-        .login_path(LOGIN_PATH)
-        .use_dev_cookies(true)
-        .build(TestHandler);
-
-    let router = Router::<()>::new().with_oauth2(oauth2_context);
-
-    tokio::spawn(async { axum::serve(socket, router).await });
-
-    // Start login flow.
-    let res = http_client
-        .get(format!("http://{server_addr}{LOGIN_PATH}"))
-        .send()
-        .await?;
-
-    // Login with the oauth server.
-    let redirect_url = res.headers()["location"].to_str()?;
-    let login_result = http_client.get(redirect_url).send().await?;
-
-    // Finish the flow on the server.
-    let redirect_url = login_result.headers()["location"].to_str()?;
-    let res = http_client.get(redirect_url).send().await?;
-
-    assert_eq!(res.status(), StatusCode::CREATED);
+    let server = TestServer::pkce().await;
+    let client = server.cookie_client();
+    assert_eq!(
+        server.complete_login(&client).await.status(),
+        StatusCode::CREATED
+    );
     Ok(())
 }
 
 #[tokio::test]
 async fn invalid_state() -> Result<(), Box<dyn Error>> {
     let _ = tracing_subscriber::fmt::try_init();
+    let server = TestServer::pkce().await;
+    let client = server.cookie_client();
+    let callback_url = server.login_to_callback(&client).await;
 
-    const REDIRECT_PATH: &str = "/redirect";
-    let (_, auth_url, token_url) = install_mock_oauth_server(true).await;
-
-    let http_client = Client::builder()
-        .redirect(Policy::none())
-        .cookie_store(true)
-        .build()?;
-
-    let socket = TcpListener::bind("127.0.0.1:0").await?;
-    let server_addr = socket.local_addr()?;
-    let redirect_url = format!("http://{server_addr}{REDIRECT_PATH}");
-
-    let oauth2_context = OAuth2Context::builder("test")
-        .client_id(CLIENT_ID)
-        .client_secret(CLIENT_SECRET)
-        .redirect_url(redirect_url)
-        .auth_url(auth_url)
-        .token_url(token_url)
-        .login_path(LOGIN_PATH)
-        .use_dev_cookies(true)
-        .build(TestHandler);
-
-    let router = Router::<()>::new().with_oauth2(oauth2_context);
-
-    tokio::spawn(async { axum::serve(socket, router).await });
-
-    // Start login flow.
-    let res = http_client
-        .get(format!("http://{server_addr}{LOGIN_PATH}"))
-        .send()
-        .await?;
-
-    // Login with the oauth server.
-    let redirect_url = res.headers()["location"].to_str()?;
-    let login_result = http_client.get(redirect_url).send().await?;
-
-    // Finish the flow on the server.
-    let redirect_url = login_result.headers()["location"].to_str()?;
-
-    // Puah another state param. (2 in total) this is one too many.
-    let mut url = Url::parse(&redirect_url)?;
+    let mut url = Url::parse(&callback_url)?;
     url.query_pairs_mut().append_pair("state", "too-many-state");
-    let res = http_client.get(url.as_str()).send().await?;
+    assert_eq!(
+        client.get(url.as_str()).send().await?.status(),
+        StatusCode::BAD_REQUEST
+    );
 
-    assert_eq!(res.status(), StatusCode::BAD_REQUEST);
-
-    let invalid_redirect_url = redirect_url.replace("state=", "state=bad-state");
-    let res = http_client.get(&invalid_redirect_url).send().await?;
-
-    assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
-
+    let bad_url = callback_url.replace("state=", "state=bad-state");
+    assert_eq!(
+        client.get(&bad_url).send().await?.status(),
+        StatusCode::UNAUTHORIZED
+    );
     Ok(())
 }
 
 #[tokio::test]
 async fn no_session_cookie() -> Result<(), Box<dyn Error>> {
-    // Hitting the callback endpoint without the session cookie must return 401.
     let _ = tracing_subscriber::fmt::try_init();
-
-    const REDIRECT_PATH: &str = "/redirect";
-    let (mock_server, auth_url, token_url) = install_mock_oauth_server(true).await;
-
-    let socket = TcpListener::bind("127.0.0.1:0").await?;
-    let server_addr = socket.local_addr()?;
-    let redirect_url = format!("http://{server_addr}{REDIRECT_PATH}");
-
-    let oauth2_context = OAuth2Context::builder("test")
-        .client_id(CLIENT_ID)
-        .client_secret(CLIENT_SECRET)
-        .redirect_url(redirect_url)
-        .auth_url(auth_url)
-        .token_url(token_url)
-        .login_path(LOGIN_PATH)
-        .use_dev_cookies(true)
-        .build(TestHandler);
-
-    let router = Router::<()>::new().with_oauth2(oauth2_context);
-    tokio::spawn(async { axum::serve(socket, router).await });
-
-    // Perform the login flow with a cookie-jar client so we can capture the
-    // callback URL that the mock OAuth server redirects to.
-    let http_client = Client::builder()
-        .redirect(Policy::none())
-        .cookie_store(true)
-        .build()?;
-
-    let res = http_client
-        .get(format!("http://{server_addr}{LOGIN_PATH}"))
-        .send()
-        .await?;
-    let auth_redirect = res.headers()["location"].to_str()?.to_owned();
-
-    let login_result = http_client.get(&auth_redirect).send().await?;
-    let callback_url = login_result.headers()["location"].to_str()?.to_owned();
-
-    // Make the final callback request without any cookies.
-    let no_cookie_client = Client::builder().redirect(Policy::none()).build()?;
-    let res = no_cookie_client.get(&callback_url).send().await?;
-
-    assert_eq!(
-        res.status(),
-        StatusCode::UNAUTHORIZED,
-        "callback without session cookie should be 401"
-    );
-
-    drop(mock_server);
+    let server = TestServer::pkce().await;
+    let callback_url = server.login_to_callback(&server.cookie_client()).await;
+    let res = server.bare_client().get(&callback_url).send().await?;
+    assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
     Ok(())
 }
 
 #[tokio::test]
 async fn invalid_session_cookie() -> Result<(), Box<dyn Error>> {
-    // A cookie with invalid base64 content must be rejected.
     let _ = tracing_subscriber::fmt::try_init();
-
-    const REDIRECT_PATH: &str = "/redirect";
-    let (mock_server, auth_url, token_url) = install_mock_oauth_server(true).await;
-
-    let socket = TcpListener::bind("127.0.0.1:0").await?;
-    let server_addr = socket.local_addr()?;
-    let redirect_url = format!("http://{server_addr}{REDIRECT_PATH}");
-
-    let oauth2_context = OAuth2Context::builder("test")
-        .client_id(CLIENT_ID)
-        .client_secret(CLIENT_SECRET)
-        .redirect_url(redirect_url)
-        .auth_url(auth_url)
-        .token_url(token_url)
-        .login_path(LOGIN_PATH)
-        .use_dev_cookies(true)
-        .build(TestHandler);
-
-    let router = Router::<()>::new().with_oauth2(oauth2_context);
-    tokio::spawn(async { axum::serve(socket, router).await });
-
-    // Capture the callback URL from the OAuth mock.
-    let http_client = Client::builder()
-        .redirect(Policy::none())
-        .cookie_store(true)
-        .build()?;
-
-    let res = http_client
-        .get(format!("http://{server_addr}{LOGIN_PATH}"))
-        .send()
-        .await?;
-    let auth_redirect = res.headers()["location"].to_str()?.to_owned();
-
-    let login_result = http_client.get(&auth_redirect).send().await?;
-    let callback_url = login_result.headers()["location"].to_str()?.to_owned();
-
-    // Replay with a garbage session cookie (invalid base64).
-    let bad_client = Client::builder().redirect(Policy::none()).build()?;
-    let res = bad_client
+    let server = TestServer::pkce().await;
+    let callback_url = server.login_to_callback(&server.cookie_client()).await;
+    let res = server
+        .bare_client()
         .get(&callback_url)
         .header("Cookie", "oauth2.session.test=!!!not_base64!!!")
         .send()
         .await?;
-
-    // Invalid base64 → Err(()) → 500 Internal Server Error.
-    assert_eq!(
-        res.status(),
-        StatusCode::INTERNAL_SERVER_ERROR,
-        "callback with invalid session cookie should be 500"
-    );
-
-    drop(mock_server);
+    assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
     Ok(())
 }
 
 #[tokio::test]
 async fn auth_flow() -> Result<(), Box<dyn Error>> {
     let _ = tracing_subscriber::fmt::try_init();
-
-    const REDIRECT_PATH: &str = "/redirect";
-    let (_, auth_url, token_url) = install_mock_oauth_server(false).await;
-
-    let http_client = Client::builder()
-        .redirect(Policy::none())
-        .cookie_store(true)
-        .build()?;
-
-    let socket = TcpListener::bind("127.0.0.1:0").await?;
-    let server_addr = socket.local_addr()?;
-    let redirect_url = format!("http://{server_addr}{REDIRECT_PATH}");
-
-    let oauth2_context = OAuth2Context::builder("test")
-        .client_id(CLIENT_ID)
-        .client_secret(CLIENT_SECRET)
-        .redirect_url(redirect_url)
-        .auth_url(auth_url)
-        .token_url(token_url)
-        .login_path(LOGIN_PATH)
-        .use_dev_cookies(true)
-        .authorization_code_flow()
-        .build(TestHandler);
-
-    let router = Router::<()>::new().with_oauth2(oauth2_context);
-
-    tokio::spawn(async { axum::serve(socket, router).await });
-
-    // Start login flow.
-    let res = http_client
-        .get(format!("http://{server_addr}{LOGIN_PATH}"))
-        .send()
-        .await?;
-
-    // Login with the oauth server.
-    let redirect_url = res.headers()["location"].to_str()?;
-    let login_result = http_client.get(redirect_url).send().await?;
-
-    // Finish the flow on the server.
-    let redirect_url = login_result.headers()["location"].to_str()?;
-    let res = http_client.get(redirect_url).send().await?;
-
-    assert_eq!(res.status(), StatusCode::CREATED);
+    let server = TestServer::authorization_code().await;
+    let client = server.cookie_client();
+    assert_eq!(
+        server.complete_login(&client).await.status(),
+        StatusCode::CREATED
+    );
     Ok(())
 }

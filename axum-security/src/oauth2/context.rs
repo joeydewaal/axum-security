@@ -47,10 +47,8 @@ impl<H: OAuth2Handler> OAuth2Context<H> {
     ) -> axum::response::Response {
         tracing::debug!("handling redirect");
 
-        let (csrf_token, pkce_verifier) = match self.0.session.verify_cookies(&mut jar) {
-            Ok(Some(session)) => session,
-            Ok(None) => return StatusCode::UNAUTHORIZED.into_response(),
-            Err(_) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+        let Some((csrf_token, pkce_verifier)) = self.0.session.verify_cookies(&mut jar) else {
+            return StatusCode::UNAUTHORIZED.into_response();
         };
 
         // verify that csrf token is equal

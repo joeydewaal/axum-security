@@ -62,43 +62,31 @@ impl OAuth2Cookie {
     pub fn verify_cookies(
         &self,
         jar: &mut CookieJar,
-    ) -> Result<Option<(CsrfToken, Option<PkceCodeVerifier>)>, ()> {
-        let Some(cookie) = jar.remove(self.cookie_builder.clone()) else {
-            // cookie not found
-            return Ok(None);
-        };
+    ) -> Option<(CsrfToken, Option<PkceCodeVerifier>)> {
+        let cookie = jar.remove(self.cookie_builder.clone())?;
 
         let now = utc_now_secs();
 
-        let Ok(decoded) = BASE64_STANDARD.decode(cookie.value()) else {
-            // not valid base64
-            return Err(());
-        };
-
-        let Some(data) = self.verify_signature(&decoded) else {
-            return Err(());
-        };
+        let decoded = BASE64_STANDARD.decode(cookie.value()).ok()?;
+        let data = self.verify_signature(&decoded)?;
 
         // deserialize into the state struct.
-        let Ok(data) = wincode::deserialize::<OAuthState>(&data) else {
-            // could not deserialize state.
-            return Err(());
-        };
+        let data = wincode::deserialize::<OAuthState>(data).ok()?;
 
         if now < data.issued {
             // went back in time?
-            return Ok(None);
+            return None;
         }
 
         if now > data.expires {
             // expired
-            return Ok(None);
+            return None;
         }
 
-        Ok(Some((
+        Some((
             CsrfToken::new(data.csrf_token.into()),
             data.pkce_verifier.map(|v| PkceCodeVerifier::new(v.into())),
-        )))
+        ))
     }
 
     fn verify_signature<'a>(&self, data: &'a [u8]) -> Option<&'a [u8]> {
@@ -157,7 +145,7 @@ mod tests {
         let cookie = handler.generate_cookie("csrf_token", Some("pkce_verifier"));
         let mut jar = make_jar(cookie);
 
-        let (csrf, pkce) = handler.verify_cookies(&mut jar).unwrap().unwrap();
+        let (csrf, pkce) = handler.verify_cookies(&mut jar).unwrap();
         assert_eq!(csrf.secret(), "csrf_token");
         assert_eq!(pkce.unwrap().secret(), "pkce_verifier");
     }
@@ -168,7 +156,7 @@ mod tests {
         let cookie = handler.generate_cookie("csrf_token", None);
         let mut jar = make_jar(cookie);
 
-        let (csrf, pkce) = handler.verify_cookies(&mut jar).unwrap().unwrap();
+        let (csrf, pkce) = handler.verify_cookies(&mut jar).unwrap();
         assert_eq!(csrf.secret(), "csrf_token");
         assert!(pkce.is_none());
     }
@@ -179,16 +167,16 @@ mod tests {
         let cookie = handler.generate_cookie("csrf", Some("pkce"));
         let mut jar = make_jar(cookie);
 
-        assert!(handler.verify_cookies(&mut jar).unwrap().is_some());
+        assert!(handler.verify_cookies(&mut jar).is_some());
         // Second call on the same jar should find no cookie.
-        assert!(handler.verify_cookies(&mut jar).unwrap().is_none());
+        assert!(handler.verify_cookies(&mut jar).is_none());
     }
 
     #[test]
     fn missing_cookie_returns_none() {
         let handler = make_handler(None);
         let mut jar = CookieJar::new();
-        assert!(handler.verify_cookies(&mut jar).unwrap().is_none());
+        assert!(handler.verify_cookies(&mut jar).is_none());
     }
 
     #[test]
@@ -200,7 +188,7 @@ mod tests {
             .value("not!valid!base64!@#")
             .build();
         let mut jar = make_jar(bad);
-        assert!(handler.verify_cookies(&mut jar).is_err());
+        assert!(handler.verify_cookies(&mut jar).is_none());
     }
 
     #[test]
@@ -220,7 +208,7 @@ mod tests {
         let encoded = BASE64_STANDARD.encode(&data);
         let bad = handler.cookie_builder.clone().value(encoded).build();
         let mut jar = make_jar(bad);
-        assert!(handler.verify_cookies(&mut jar).is_err());
+        assert!(handler.verify_cookies(&mut jar).is_none());
     }
 
     #[test]
@@ -245,7 +233,7 @@ mod tests {
         let encoded = BASE64_STANDARD.encode(&data);
         let bad = handler.cookie_builder.clone().value(encoded).build();
         let mut jar = make_jar(bad);
-        assert!(handler.verify_cookies(&mut jar).is_err());
+        assert!(handler.verify_cookies(&mut jar).is_none());
     }
 
     #[test]
@@ -263,7 +251,7 @@ mod tests {
         let bad = handler.cookie_builder.clone().value(tampered).build();
         let mut jar = make_jar(bad);
         assert!(
-            handler.verify_cookies(&mut jar).is_err(),
+            handler.verify_cookies(&mut jar).is_none(),
             "cookie with zeroed HMAC should be rejected"
         );
     }
@@ -278,7 +266,7 @@ mod tests {
         let cookie = handler1.generate_cookie("csrf", Some("pkce"));
         let mut jar = make_jar(cookie);
         assert!(
-            handler2.verify_cookies(&mut jar).is_err(),
+            handler2.verify_cookies(&mut jar).is_none(),
             "cookie signed with a different secret should be rejected"
         );
     }
@@ -300,7 +288,7 @@ mod tests {
         let mut jar = make_jar(cookie);
 
         assert!(
-            handler.verify_cookies(&mut jar).unwrap().is_none(),
+            handler.verify_cookies(&mut jar).is_none(),
             "expired cookie should return None"
         );
     }
@@ -324,7 +312,7 @@ mod tests {
         let mut jar = make_jar(cookie);
 
         assert!(
-            handler.verify_cookies(&mut jar).unwrap().is_none(),
+            handler.verify_cookies(&mut jar).is_none(),
             "cookie with a future issued time should return None"
         );
     }
