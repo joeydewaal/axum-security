@@ -3,7 +3,6 @@ A security toolbox for the Axum library.
 
 todo:
 * OpenIDConnect
-* Bearer Auth
 
 * Docs
 * Auth2 use cookies, cleanup pkce support
