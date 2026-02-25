@@ -11,6 +11,8 @@ use axum::{
     extract::{FromRef, FromRequestParts},
     http::{HeaderMap, request::Parts},
 };
+
+#[cfg(feature = "oauth2")]
 pub(crate) use builder::CookieOptionsBuilder;
 pub use builder::CookieSessionBuilder;
 pub use id::SessionId;

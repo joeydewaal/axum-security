@@ -1,4 +1,4 @@
-use std::{borrow::Cow, sync::Arc, time::Duration};
+use std::{sync::Arc, time::Duration};
 
 use cookie_monster::{Cookie, CookieBuilder, SameSite};
 
@@ -37,18 +37,19 @@ impl CookieOptionsBuilder {
         }
     }
 
-    #[allow(unused)]
-    pub fn set_name(&mut self, name: Cow<'static, str>) {
+    #[cfg(feature = "jwt")]
+    pub(crate) fn set_name(&mut self, name: std::borrow::Cow<'static, str>) {
         self.dev_cookie.set_name(name.clone());
         self.cookie.set_name(name);
     }
 
-    pub fn set_max_age_secs(&mut self, duration: u64) {
+    #[cfg(feature = "oauth2")]
+    pub(crate) fn set_max_age_secs(&mut self, duration: u64) {
         self.cookie.set_max_age_secs(duration);
         self.dev_cookie.set_max_age_secs(duration);
     }
 
-    pub fn build(self) -> CookieBuilder {
+    pub(crate) fn build(self) -> CookieBuilder {
         if self.dev {
             self.dev_cookie
         } else {
@@ -56,12 +57,14 @@ impl CookieOptionsBuilder {
         }
     }
 
-    pub fn cookie(mut self, f: impl FnOnce(CookieBuilder) -> CookieBuilder) -> Self {
+    #[cfg(feature = "oauth2")]
+    pub(crate) fn cookie(mut self, f: impl FnOnce(CookieBuilder) -> CookieBuilder) -> Self {
         self.cookie = f(self.cookie);
         self
     }
 
-    pub fn dev_cookie(mut self, f: impl FnOnce(CookieBuilder) -> CookieBuilder) -> Self {
+    #[cfg(feature = "oauth2")]
+    pub(crate) fn dev_cookie(mut self, f: impl FnOnce(CookieBuilder) -> CookieBuilder) -> Self {
         self.dev_cookie = f(self.dev_cookie);
         self
     }

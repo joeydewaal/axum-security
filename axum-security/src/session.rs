@@ -14,18 +14,50 @@ pub enum Session<U> {
 }
 
 impl<U: Clone + Send + Sync + 'static> Session<U> {
+    pub fn from_extensions(extensions: &mut Extensions) -> Option<Session<U>> {
+        #[cfg(feature = "jwt")]
+        if let Some(jwt) = extensions.remove::<crate::jwt::Jwt<U>>() {
+            return Some(Session::Jwt(jwt));
+        }
+
+        #[cfg(feature = "cookie")]
+        if let Some(c) = extensions.remove::<crate::cookie::CookieSession<U>>() {
+            return Some(Session::Cookie(c));
+        }
+
+        #[cfg(feature = "basic-auth")]
+        if let Some(b) = extensions.remove::<crate::basic_auth::BasicAuth<U>>() {
+            return Some(Session::Basic(b));
+        }
+
+        None
+    }
+
     pub fn insert_into(self, extensions: &mut Extensions) {
         match self {
             #[cfg(feature = "jwt")]
-            Self::Jwt(jwt) => extensions.insert(jwt),
+            Self::Jwt(jwt) => {
+                extensions.insert(jwt);
+            }
             #[cfg(feature = "cookie")]
-            Self::Cookie(c) => extensions.insert(c),
+            Self::Cookie(c) => {
+                extensions.insert(c);
+            }
             #[cfg(feature = "basic-auth")]
-            Self::Basic(b) => extensions.insert(b),
+            Self::Basic(b) => {
+                extensions.insert(b);
+            }
         };
     }
 }
 
+impl<S: Sync, U: Clone + Send + Sync + 'static> FromRequestParts<S> for Session<U> {
+    type Rejection = StatusCode;
+
+    async fn from_request_parts(parts: &mut Parts, _: &S) -> Result<Self, StatusCode> {
+        Session::from_extensions(&mut parts.extensions).ok_or(StatusCode::UNAUTHORIZED)
+    }
+}
 impl<U> std::ops::Deref for Session<U> {
     type Target = U;
 
@@ -41,25 +73,15 @@ impl<U> std::ops::Deref for Session<U> {
     }
 }
 
-impl<S: Sync, U: Clone + Send + Sync + 'static> FromRequestParts<S> for Session<U> {
-    type Rejection = StatusCode;
-
-    async fn from_request_parts(parts: &mut Parts, _: &S) -> Result<Self, StatusCode> {
-        #[cfg(feature = "jwt")]
-        if let Some(jwt) = parts.extensions.remove::<crate::jwt::Jwt<U>>() {
-            return Ok(Session::Jwt(jwt));
+impl<U> std::ops::DerefMut for Session<U> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        match self {
+            #[cfg(feature = "jwt")]
+            Self::Jwt(jwt) => &mut jwt.0,
+            #[cfg(feature = "cookie")]
+            Self::Cookie(c) => &mut c.state,
+            #[cfg(feature = "basic-auth")]
+            Self::Basic(b) => &mut b.0,
         }
-
-        #[cfg(feature = "cookie")]
-        if let Some(c) = parts.extensions.remove::<crate::cookie::CookieSession<U>>() {
-            return Ok(Session::Cookie(c));
-        }
-
-        #[cfg(feature = "basic-auth")]
-        if let Some(b) = parts.extensions.remove::<crate::basic_auth::BasicAuth<U>>() {
-            return Ok(Session::Basic(b));
-        }
-
-        Err(StatusCode::UNAUTHORIZED)
     }
 }

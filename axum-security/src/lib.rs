@@ -1,5 +1,3 @@
-// #![allow(unused)]
-
 #[cfg(feature = "oauth2")]
 pub mod oauth2;
 
@@ -18,7 +16,10 @@ pub mod basic_auth;
 #[cfg(any(feature = "jwt", feature = "cookie", feature = "basic-auth"))]
 pub mod session;
 
-#[cfg(feature = "rbac")]
+#[cfg(all(
+    feature = "rbac",
+    any(feature = "jwt", feature = "cookie", feature = "basic-auth")
+))]
 pub mod rbac;
 
 pub(crate) mod utils;
