@@ -20,7 +20,7 @@ wincode = { version = "0.4.4", features = ["derive"] }
 
 tracing = { version = "0.1.44" }
 base64 = "0.22.1"
-hmac = { version = "0.12.1", features = [] }
+hmac = { version = "0.12.1" }
 sha2 = "0.10.9"
 rand = "0.10.0"
 subtle = "2.6.1"
