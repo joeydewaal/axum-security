@@ -8,9 +8,6 @@ use axum::{
 };
 use tower::{Layer, Service};
 
-#[cfg(feature = "cookie")]
-use crate::cookie::CookieSession;
-
 #[cfg(any(feature = "jwt", feature = "cookie", feature = "basic-auth"))]
 use crate::session::Session;
 
@@ -71,12 +68,11 @@ where
         self.inner.poll_ready(cx)
     }
 
-    fn call(&mut self, req: Request) -> Self::Future {
+    fn call(&mut self, mut req: Request) -> Self::Future {
         let required = self.required.clone();
         let mut inner = self.inner.clone();
         Box::pin(async move {
-            let (mut parts, body) = req.into_parts();
-            let Ok(session) = Session::<R::Resource>::from_request_parts(&mut parts, &()).await
+            let Some(session) = Session::<R::Resource>::from_extensions(req.extensions_mut())
             else {
                 return Ok(StatusCode::UNAUTHORIZED.into_response());
             };
@@ -92,8 +88,8 @@ where
                 return Ok(StatusCode::UNAUTHORIZED.into_response());
             }
 
-            session.insert_into(&mut parts.extensions);
-            inner.call(Request::from_parts(parts, body)).await
+            session.insert_into(req.extensions_mut());
+            inner.call(req).await
         })
     }
 }
@@ -141,31 +137,15 @@ pub struct RolesExtractor<T: RBAC> {
     _p: PhantomData<T>,
 }
 
-fn extract_roles<R: RBAC + Copy>(parts: &mut Parts) -> Option<Vec<R>> {
-    #[cfg(feature = "jwt")]
-    if let Some(jwt) = parts.extensions.remove::<crate::jwt::Jwt<R::Resource>>() {
-        let roles = R::extract_roles(&jwt.0).into_iter().copied().collect();
-        parts.extensions.insert(jwt);
-        return Some(roles);
-    }
+#[cfg(any(feature = "jwt", feature = "cookie", feature = "basic-auth"))]
+fn extract_roles__<R: RBAC + Copy>(parts: &mut Parts) -> Option<Vec<R>> {
+    let session = Session::<R::Resource>::from_extensions(&mut parts.extensions)?;
+    let roles: Vec<R> = R::extract_roles(&session).into_iter().copied().collect();
+    Some(roles)
+}
 
-    #[cfg(feature = "cookie")]
-    if let Some(c) = parts.extensions.remove::<CookieSession<R::Resource>>() {
-        let roles = R::extract_roles(&c.state).into_iter().copied().collect();
-        parts.extensions.insert(c);
-        return Some(roles);
-    }
-
-    #[cfg(feature = "basic-auth")]
-    if let Some(b) = parts
-        .extensions
-        .remove::<crate::basic_auth::BasicAuth<R::Resource>>()
-    {
-        let roles = R::extract_roles(&b.0).into_iter().copied().collect();
-        parts.extensions.insert(b);
-        return Some(roles);
-    }
-
+#[cfg(not(any(feature = "jwt", feature = "cookie", feature = "basic-auth")))]
+fn extract_roles__<R: RBAC + Copy>(parts: &mut Parts) -> Option<Vec<R>> {
     None
 }
 
@@ -173,7 +153,7 @@ impl<S: Send + Sync, R: RBAC + Copy> FromRequestParts<S> for RolesExtractor<R> {
     type Rejection = StatusCode;
 
     async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
-        let Some(roles) = extract_roles(parts) else {
+        let Some(roles) = extract_roles__(parts) else {
             return Err(StatusCode::UNAUTHORIZED);
         };
 

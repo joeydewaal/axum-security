@@ -134,15 +134,13 @@ impl<T> Clone for JwtContext<T> {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "cookie"))]
 mod jwt_test {
-    #[cfg(feature = "cookie")]
     use std::error::Error;
 
     use http::StatusCode;
     use serde::Deserialize;
 
-    #[cfg(feature = "cookie")]
     #[tokio::test]
     async fn test_cookie() -> Result<(), Box<dyn Error>> {
         use axum::{Router, body::Body, routing::get};
