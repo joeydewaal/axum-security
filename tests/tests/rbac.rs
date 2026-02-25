@@ -230,10 +230,16 @@ mod macro_tests {
         StatusCode::OK
     }
 
+    #[axum_security::rbac::requires(Role::Admin, Role::Mod)]
+    async fn admin_and_mod() -> StatusCode {
+        StatusCode::OK
+    }
+
     fn make_macro_router(user: Option<UserData>) -> Router {
         Router::new()
             .route("/admin", route_get(admin_only))
             .route("/admin-or-mod", route_get(admin_or_mod))
+            .route("/admin-and-mod", route_get(admin_and_mod))
             .layer(SeedLayer(user))
     }
 
@@ -277,6 +283,28 @@ mod macro_tests {
         };
         assert_eq!(
             call(make_macro_router(Some(user)), "/admin-or-mod").await,
+            StatusCode::UNAUTHORIZED
+        );
+    }
+
+    #[tokio::test]
+    async fn macro_requires_admin_and_mod_with_both_passes() {
+        let user = UserData {
+            roles: vec![Role::Admin, Role::Mod],
+        };
+        assert_eq!(
+            call(make_macro_router(Some(user)), "/admin-and-mod").await,
+            StatusCode::OK
+        );
+    }
+
+    #[tokio::test]
+    async fn macro_requires_admin_and_mod_with_only_admin_fails() {
+        let user = UserData {
+            roles: vec![Role::Admin],
+        };
+        assert_eq!(
+            call(make_macro_router(Some(user)), "/admin-and-mod").await,
             StatusCode::UNAUTHORIZED
         );
     }
