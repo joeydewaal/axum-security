@@ -15,6 +15,9 @@ pub mod jwt;
 #[cfg(feature = "basic-auth")]
 pub mod basic_auth;
 
+#[cfg(any(feature = "jwt", feature = "cookie", feature = "basic-auth"))]
+pub mod session;
+
 #[cfg(feature = "rbac")]
 pub mod rbac;
 

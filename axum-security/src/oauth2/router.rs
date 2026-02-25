@@ -21,8 +21,7 @@ where
             self = self.route(start_challenge_path, challenge_route);
         }
 
-        let route =
-            MethodRouter::new().get_service(OAuth2RedirectService::new(context.clone()));
+        let route = MethodRouter::new().get_service(OAuth2RedirectService::new(context.clone()));
 
         self.route(context.callback_url(), route)
     }

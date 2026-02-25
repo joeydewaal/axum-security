@@ -10,7 +10,8 @@ use axum::{
 };
 use axum_security::{
     cookie::{CookieSession, SessionId},
-    rbac::{RBAC, RBACExt, Session},
+    rbac::{RBAC, RBACExt},
+    session::Session,
 };
 use tower::{Layer, Service, ServiceExt as _};
 

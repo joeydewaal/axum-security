@@ -4,9 +4,6 @@ A security toolbox for the Axum library.
 todo:
 * OpenIDConnect
 
-* Docs
-* Auth2 use cookies, cleanup pkce support
-
 * Role based auth
 * Policy Based auth
 
