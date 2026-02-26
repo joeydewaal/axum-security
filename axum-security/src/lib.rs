@@ -22,6 +22,12 @@ pub mod session;
 ))]
 pub mod rbac;
 
+#[cfg(all(
+    feature = "pbac",
+    any(feature = "jwt", feature = "cookie", feature = "basic-auth")
+))]
+pub mod pbac;
+
 pub(crate) mod utils;
 #[allow(unused)]
 pub(crate) use utils::{debug, error};

@@ -11,6 +11,7 @@ oauth2 = ["axum-security/oauth2"]
 basic-auth = ["axum-security/basic-auth"]
 rbac = ["axum-security/rbac", "axum-security/cookie"]
 rbac-macros = ["rbac", "axum-security/rbac-macros"]
+pbac = ["axum-security/pbac", "axum-security/cookie"]
 
 
 [dev-dependencies]

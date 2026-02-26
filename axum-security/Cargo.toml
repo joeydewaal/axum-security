@@ -13,7 +13,7 @@ categories = ["web-programming", "security", "asynchronous"]
 
 
 [package.metadata.docs.rs]
-features = ["cookie", "jwt", "oauth2", "rbac", "headers", "jiff", "chrono", "time"]
+features = ["cookie", "jwt", "oauth2", "rbac", "pbac", "headers", "jiff", "chrono", "time"]
 
 [features]
 tracing = ["dep:tracing"]
@@ -23,6 +23,7 @@ oauth2 = ["dep:oauth2", "dep:wincode", "dep:base64", "dep:hmac", "dep:sha2", "de
 basic-auth = ["dep:base64"]
 rbac = []
 rbac-macros = ["rbac", "dep:axum-security-macros"]
+pbac = []
 headers = ["dep:pin-project-lite"]
 
 jiff = ["cookie-monster?/jiff"]
