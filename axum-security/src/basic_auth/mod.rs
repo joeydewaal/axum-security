@@ -6,6 +6,7 @@ use std::{convert::Infallible, future::Future};
 use axum::{
     extract::{FromRequestParts, OptionalFromRequestParts},
     http::{Extensions, StatusCode, request::Parts},
+    response::IntoResponse,
 };
 
 /// Implement this trait to verify Basic Auth credentials.
@@ -14,7 +15,7 @@ use axum::{
 /// and `Err(e)` when the verification itself fails (e.g. database error).
 pub trait BasicAuthenticator: Send + Sync {
     type User: Clone + Send + Sync + 'static;
-    type Error: Send + 'static;
+    type Error: IntoResponse + Send + 'static;
 
     fn authenticate(
         &self,

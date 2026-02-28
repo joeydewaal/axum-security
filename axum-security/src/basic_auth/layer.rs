@@ -7,7 +7,7 @@ use std::{
 
 use axum::{
     extract::Request,
-    http::{HeaderMap, StatusCode, header},
+    http::{HeaderMap, header},
     response::{IntoResponse, Response},
 };
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
@@ -91,9 +91,9 @@ where
                     Ok(None) => {
                         crate::debug!("basic_auth: invalid credentials");
                     }
-                    Err(_) => {
+                    Err(e) => {
                         crate::error!("basic_auth: authenticator returned an error");
-                        return Ok(StatusCode::INTERNAL_SERVER_ERROR.into_response());
+                        return Ok(e.into_response());
                     }
                 }
             } else {

@@ -20,7 +20,7 @@ enum Role {
 }
 
 impl RBAC for Role {
-    type Resource = AppUser;
+    type Resource = User;
 
     fn extract_roles(resource: &Self::Resource) -> impl IntoIterator<Item = &Self> {
         &resource.roles
@@ -28,18 +28,19 @@ impl RBAC for Role {
 }
 
 #[derive(Clone)]
-struct AppUser {
+struct User {
+    #[allow(unused)]
     name: String,
     banned: bool,
     roles: Vec<Role>,
 }
 
-fn is_not_banned(u: &AppUser) -> bool {
+fn is_not_banned(u: &User) -> bool {
     !u.banned
 }
 
-async fn set_role(cookie: CookieContext<AppUser>, Path(role): Path<Role>) -> impl IntoResponse {
-    let user = AppUser {
+async fn set_role(cookie: CookieContext<User>, Path(role): Path<Role>) -> impl IntoResponse {
+    let user = User {
         name: "user1".into(),
         banned: false,
         roles: vec![role],
@@ -53,7 +54,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .use_dev_cookie(true)
         .dev_cookie(|c| c.name("policy-cookie"))
         .store(MemStore::new())
-        .build::<AppUser>();
+        .build::<User>();
 
     let state = cookie_service.clone();
 
@@ -81,12 +82,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .with_state(state);
 
     let listener = TcpListener::bind("0.0.0.0:3000").await?;
-    println!("Listening on http://0.0.0.0:3000");
-    println!("  GET /role/admin     — set role to admin");
-    println!("  GET /not-banned     — accessible if not banned");
-    println!("  GET /admin          — requires Admin + not banned");
-    println!("  GET /mod-area       — requires Admin or Mod + not banned");
-
     axum::serve(listener, router).await?;
     Ok(())
 }
