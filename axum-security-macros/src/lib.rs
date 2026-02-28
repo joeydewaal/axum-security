@@ -1,8 +1,7 @@
 use proc_macro::TokenStream;
 use quote::{ToTokens, format_ident, quote};
 use syn::{
-    Expr, ExprPath, FnArg, ItemFn, PatType, Token, parse_macro_input,
-    punctuated::Punctuated,
+    Expr, ExprPath, FnArg, ItemFn, PatType, Token, parse_macro_input, punctuated::Punctuated,
 };
 
 #[proc_macro_attribute]

@@ -1,9 +1,4 @@
-use std::{
-    convert::Infallible,
-    future::Future,
-    marker::PhantomData,
-    pin::Pin,
-};
+use std::{convert::Infallible, future::Future, marker::PhantomData, pin::Pin};
 
 use axum::{
     extract::Request,
@@ -17,6 +12,7 @@ use crate::session::Session;
 
 pub trait Policy<U>: Send + Sync + 'static + Clone {
     type Error: IntoResponse + Send;
+
     fn evaluate(&self, user: &U) -> impl Future<Output = Result<bool, Self::Error>> + Send;
 }
 
@@ -25,51 +21,10 @@ where
     F: Fn(&U) -> bool + Send + Sync + 'static + Clone,
 {
     type Error = Infallible;
+
     fn evaluate(&self, user: &U) -> impl Future<Output = Result<bool, Self::Error>> + Send {
         let result = (self)(user);
         async move { Ok(result) }
-    }
-}
-
-pub struct AsyncPolicy<F>(pub F);
-
-impl<F: Clone> Clone for AsyncPolicy<F> {
-    fn clone(&self) -> Self {
-        AsyncPolicy(self.0.clone())
-    }
-}
-
-impl<U, F, Fut> Policy<U> for AsyncPolicy<F>
-where
-    F: Fn(&U) -> Fut + Send + Sync + 'static + Clone,
-    Fut: Future<Output = bool> + Send,
-    U: Send + Sync + 'static,
-{
-    type Error = Infallible;
-    fn evaluate(&self, user: &U) -> impl Future<Output = Result<bool, Self::Error>> + Send {
-        let fut = (self.0)(user);
-        async move { Ok(fut.await) }
-    }
-}
-
-pub struct AsyncFalliblePolicy<F>(pub F);
-
-impl<F: Clone> Clone for AsyncFalliblePolicy<F> {
-    fn clone(&self) -> Self {
-        AsyncFalliblePolicy(self.0.clone())
-    }
-}
-
-impl<U, F, Fut, E> Policy<U> for AsyncFalliblePolicy<F>
-where
-    F: Fn(&U) -> Fut + Send + Sync + 'static + Clone,
-    Fut: Future<Output = Result<bool, E>> + Send,
-    E: IntoResponse + Send,
-    U: Send + Sync + 'static,
-{
-    type Error = E;
-    fn evaluate(&self, user: &U) -> impl Future<Output = Result<bool, Self::Error>> + Send {
-        (self.0)(user)
     }
 }
 
@@ -83,9 +38,18 @@ where
     P2: Policy<U>,
 {
     type Error = Response;
+
     async fn evaluate(&self, user: &U) -> Result<bool, Self::Error> {
-        let a = self.0.evaluate(user).await.map_err(IntoResponse::into_response)?;
-        let b = self.1.evaluate(user).await.map_err(IntoResponse::into_response)?;
+        let a = self
+            .0
+            .evaluate(user)
+            .await
+            .map_err(IntoResponse::into_response)?;
+        let b = self
+            .1
+            .evaluate(user)
+            .await
+            .map_err(IntoResponse::into_response)?;
         Ok(a && b)
     }
 }
@@ -100,9 +64,18 @@ where
     P2: Policy<U>,
 {
     type Error = Response;
+
     async fn evaluate(&self, user: &U) -> Result<bool, Self::Error> {
-        let a = self.0.evaluate(user).await.map_err(IntoResponse::into_response)?;
-        let b = self.1.evaluate(user).await.map_err(IntoResponse::into_response)?;
+        let a = self
+            .0
+            .evaluate(user)
+            .await
+            .map_err(IntoResponse::into_response)?;
+        let b = self
+            .1
+            .evaluate(user)
+            .await
+            .map_err(IntoResponse::into_response)?;
         Ok(a || b)
     }
 }
@@ -115,10 +88,10 @@ where
     U: Send + Sync + 'static,
     P: Policy<U>,
 {
-    type Error = Response;
+    type Error = P::Error;
+
     async fn evaluate(&self, user: &U) -> Result<bool, Self::Error> {
-        let v = self.0.evaluate(user).await.map_err(IntoResponse::into_response)?;
-        Ok(!v)
+        Ok(!self.0.evaluate(user).await?)
     }
 }
 
@@ -143,6 +116,7 @@ pub struct Allow;
 
 impl<U: Send + Sync + 'static> Policy<U> for Allow {
     type Error = Infallible;
+
     async fn evaluate(&self, _user: &U) -> Result<bool, Self::Error> {
         Ok(true)
     }
@@ -153,6 +127,7 @@ pub struct Deny;
 
 impl<U: Send + Sync + 'static> Policy<U> for Deny {
     type Error = Infallible;
+
     async fn evaluate(&self, _user: &U) -> Result<bool, Self::Error> {
         Ok(false)
     }
@@ -180,6 +155,7 @@ impl<R: crate::rbac::RBAC> HasRole<R> {
 #[cfg(feature = "rbac")]
 impl<R: crate::rbac::RBAC> Policy<R::Resource> for HasRole<R> {
     type Error = Infallible;
+
     async fn evaluate(&self, user: &R::Resource) -> Result<bool, Self::Error> {
         Ok(R::extract_roles(user).into_iter().any(|r| *r == self.role))
     }
@@ -320,6 +296,10 @@ mod tests {
         !u.banned
     }
 
+    async fn is_not_admin(u: &User) -> bool {
+        !u.admin
+    }
+
     #[tokio::test]
     async fn closure_policy_passes() {
         let user = User {
@@ -415,9 +395,7 @@ mod tests {
         let policy = is_admin.and(is_not_banned);
         assert!(policy.evaluate(&user).await.unwrap());
 
-        let policy2 = (is_admin as fn(&User) -> bool)
-            .not()
-            .or(is_not_banned);
+        let policy2 = (is_admin as fn(&User) -> bool).not().or(is_not_banned);
         assert!(policy2.evaluate(&user).await.unwrap());
     }
 }

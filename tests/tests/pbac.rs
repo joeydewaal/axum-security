@@ -125,8 +125,7 @@ async fn closure_policy_passes() {
     let router = Router::new()
         .route(
             "/test",
-            route_get(|| async { StatusCode::OK })
-                .with_policy(is_admin),
+            route_get(|| async { StatusCode::OK }).with_policy(is_admin),
         )
         .layer(SeedLayer(Some(default_user())));
 
@@ -138,8 +137,7 @@ async fn closure_policy_fails_returns_403() {
     let router = Router::new()
         .route(
             "/test",
-            route_get(|| async { StatusCode::OK })
-                .with_policy(is_admin),
+            route_get(|| async { StatusCode::OK }).with_policy(is_admin),
         )
         .layer(SeedLayer(Some(make_user(false, false))));
 
@@ -151,8 +149,7 @@ async fn no_session_returns_401() {
     let router = Router::new()
         .route(
             "/test",
-            route_get(|| async { StatusCode::OK })
-                .with_policy(is_admin),
+            route_get(|| async { StatusCode::OK }).with_policy(is_admin),
         )
         .layer(SeedLayer(None));
 
@@ -165,8 +162,7 @@ async fn all_of_combinator_both_pass() {
     let router = Router::new()
         .route(
             "/test",
-            route_get(|| async { StatusCode::OK })
-                .with_policy(policy),
+            route_get(|| async { StatusCode::OK }).with_policy(policy),
         )
         .layer(SeedLayer(Some(make_user(true, false))));
 
@@ -179,8 +175,7 @@ async fn all_of_combinator_one_fails() {
     let router = Router::new()
         .route(
             "/test",
-            route_get(|| async { StatusCode::OK })
-                .with_policy(policy),
+            route_get(|| async { StatusCode::OK }).with_policy(policy),
         )
         .layer(SeedLayer(Some(UserData {
             admin: true,
@@ -198,8 +193,7 @@ async fn any_of_combinator_one_passes() {
     let router = Router::new()
         .route(
             "/test",
-            route_get(|| async { StatusCode::OK })
-                .with_policy(policy),
+            route_get(|| async { StatusCode::OK }).with_policy(policy),
         )
         .layer(SeedLayer(Some(UserData {
             admin: true,
@@ -217,8 +211,7 @@ async fn not_combinator() {
     let router = Router::new()
         .route(
             "/test",
-            route_get(|| async { StatusCode::OK })
-                .with_policy(policy),
+            route_get(|| async { StatusCode::OK }).with_policy(policy),
         )
         .layer(SeedLayer(Some(default_user())));
 
@@ -230,8 +223,7 @@ async fn allow_always_passes() {
     let router = Router::new()
         .route(
             "/test",
-            route_get(|| async { StatusCode::OK })
-                .with_policy::<_, UserData>(Allow),
+            route_get(|| async { StatusCode::OK }).with_policy::<_, UserData>(Allow),
         )
         .layer(SeedLayer(Some(make_user(false, true))));
 
@@ -243,8 +235,7 @@ async fn deny_always_fails() {
     let router = Router::new()
         .route(
             "/test",
-            route_get(|| async { StatusCode::OK })
-                .with_policy::<_, UserData>(Deny),
+            route_get(|| async { StatusCode::OK }).with_policy::<_, UserData>(Deny),
         )
         .layer(SeedLayer(Some(default_user())));
 
@@ -279,8 +270,7 @@ async fn has_role_bridge() {
     let router = Router::new()
         .route(
             "/test",
-            route_get(|| async { StatusCode::OK })
-                .with_policy(policy),
+            route_get(|| async { StatusCode::OK }).with_policy(policy),
         )
         .layer(SeedLayer(Some(default_user())));
 
@@ -296,8 +286,7 @@ async fn has_role_bridge_fails() {
     let router = Router::new()
         .route(
             "/test",
-            route_get(|| async { StatusCode::OK })
-                .with_policy(policy),
+            route_get(|| async { StatusCode::OK }).with_policy(policy),
         )
         .layer(SeedLayer(Some(default_user())));
 
