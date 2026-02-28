@@ -138,7 +138,7 @@ impl<H: OidcHandler> OidcContext<H> {
             }
         };
 
-        let id_token: &CoreIdToken = match token_response.id_token() {
+        let id_token: CoreIdToken = match token_response.id_token().cloned() {
             Some(id_token) => id_token,
             None => {
                 crate::debug!("no id_token in token response");
@@ -146,8 +146,8 @@ impl<H: OidcHandler> OidcContext<H> {
             }
         };
 
-        let claims: &IdTokenClaims<EmptyAdditionalClaims, CoreGenderClaim> =
-            match id_token.claims(&self.0.client.id_token_verifier(), &nonce) {
+        let claims: IdTokenClaims<EmptyAdditionalClaims, CoreGenderClaim> =
+            match id_token.into_claims(&self.0.client.id_token_verifier(), &nonce) {
                 Ok(claims) => claims,
                 Err(_e) => {
                     crate::debug!("id_token verification failed: {_e}");
@@ -156,7 +156,7 @@ impl<H: OidcHandler> OidcContext<H> {
             };
 
         let oidc_response = OidcTokenResponse {
-            claims: claims.clone(),
+            claims,
             access_token: OAuth2TokenResponse::access_token(&token_response)
                 .secret()
                 .clone(),
