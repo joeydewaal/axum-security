@@ -12,7 +12,7 @@ use axum::{
     http::{HeaderMap, request::Parts},
 };
 
-#[cfg(any(feature = "oauth2", feature = "jwt"))]
+#[cfg(any(feature = "oauth2", feature = "oidc", feature = "jwt"))]
 pub(crate) use builder::CookieOptionsBuilder;
 pub use builder::CookieSessionBuilder;
 pub use id::SessionId;

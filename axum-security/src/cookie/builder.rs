@@ -43,7 +43,7 @@ impl CookieOptionsBuilder {
         self.cookie.set_name(name);
     }
 
-    #[cfg(feature = "oauth2")]
+    #[cfg(any(feature = "oauth2", feature = "oidc"))]
     pub(crate) fn set_max_age_secs(&mut self, duration: u64) {
         self.cookie.set_max_age_secs(duration);
         self.dev_cookie.set_max_age_secs(duration);
@@ -57,13 +57,13 @@ impl CookieOptionsBuilder {
         }
     }
 
-    #[cfg(feature = "oauth2")]
+    #[cfg(any(feature = "oauth2", feature = "oidc"))]
     pub(crate) fn cookie(mut self, f: impl FnOnce(CookieBuilder) -> CookieBuilder) -> Self {
         self.cookie = f(self.cookie);
         self
     }
 
-    #[cfg(feature = "oauth2")]
+    #[cfg(any(feature = "oauth2", feature = "oidc"))]
     pub(crate) fn dev_cookie(mut self, f: impl FnOnce(CookieBuilder) -> CookieBuilder) -> Self {
         self.dev_cookie = f(self.dev_cookie);
         self

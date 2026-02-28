@@ -296,10 +296,6 @@ mod tests {
         !u.banned
     }
 
-    async fn is_not_admin(u: &User) -> bool {
-        !u.admin
-    }
-
     #[tokio::test]
     async fn closure_policy_passes() {
         let user = User {

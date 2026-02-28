@@ -12,6 +12,7 @@ basic-auth = ["axum-security/basic-auth"]
 rbac = ["axum-security/rbac", "axum-security/cookie"]
 rbac-macros = ["rbac", "axum-security/rbac-macros"]
 pbac = ["axum-security/pbac", "axum-security/cookie"]
+oidc = ["axum-security/oidc"]
 
 
 [dev-dependencies]
@@ -30,3 +31,6 @@ wiremock = "0.6.5"
 reqwest = { version = "0.13.1", features = ["cookies"], default-features=false }
 sha2 = "0.10"
 base64 = "0.22"
+openidconnect = { workspace = true }
+chrono = "0.4"
+serde_json = "1"

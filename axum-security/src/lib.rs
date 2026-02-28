@@ -1,5 +1,11 @@
+#[cfg(any(feature = "oauth2", feature = "oidc"))]
+pub(crate) mod after_login;
+
 #[cfg(feature = "oauth2")]
 pub mod oauth2;
+
+#[cfg(feature = "oidc")]
+pub mod oidc;
 
 #[cfg(feature = "cookie")]
 pub mod cookie;

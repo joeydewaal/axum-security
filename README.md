@@ -1,12 +1,6 @@
 # axum-security
 A security toolbox for the Axum library.
 
-todo:
-* OpenIDConnect
-
-* Role based auth
-* Policy Based auth
-
 ### Features
 * `cookie`, adds support for cookie sessions.
 * `jwt`, adds support for jwt sessions.

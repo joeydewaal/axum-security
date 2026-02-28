@@ -13,13 +13,14 @@ categories = ["web-programming", "security", "asynchronous"]
 
 
 [package.metadata.docs.rs]
-features = ["cookie", "jwt", "oauth2", "rbac", "pbac", "headers", "jiff", "chrono", "time"]
+features = ["cookie", "jwt", "oauth2", "oidc", "rbac", "pbac", "headers", "jiff", "chrono", "time"]
 
 [features]
 tracing = ["dep:tracing"]
 cookie = ["dep:cookie-monster", "dep:uuid"]
 jwt = ["dep:jsonwebtoken"]
 oauth2 = ["dep:oauth2", "dep:wincode", "dep:base64", "dep:hmac", "dep:sha2", "dep:rand", "dep:subtle", "cookie"]
+oidc = ["dep:openidconnect", "dep:wincode", "dep:base64", "dep:hmac", "dep:sha2", "dep:rand", "dep:subtle", "cookie"]
 basic-auth = ["dep:base64"]
 rbac = []
 rbac-macros = ["rbac", "dep:axum-security-macros"]
@@ -43,6 +44,7 @@ pin-project-lite = { workspace = true, optional = true }
 cookie-monster = { workspace = true, optional = true }
 jsonwebtoken = { workspace = true, features = ["aws_lc_rs"], optional = true }
 oauth2 = { workspace = true, features = ["reqwest", "rustls-tls"], optional = true }
+openidconnect = { workspace = true, optional = true }
 
 axum-security-macros = { path = "../axum-security-macros", version = "0.0.1", optional = true }
 
