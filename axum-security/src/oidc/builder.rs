@@ -135,11 +135,7 @@ impl OidcContextBuilder {
 
     pub fn scopes(mut self, scopes: &[&str]) -> Self {
         self.scopes = scopes.iter().map(|s| Scope::new(s.to_string())).collect();
-        // Ensure "openid" is always present
-        let openid = Scope::new("openid".to_string());
-        if !self.scopes.contains(&openid) {
-            self.scopes.insert(0, openid);
-        }
+
         self
     }
 
@@ -190,7 +186,7 @@ impl OidcContextBuilder {
         self.try_build(handler).unwrap()
     }
 
-    pub fn try_build<T>(self, handler: T) -> Result<OidcContext<T>, OidcBuilderError>
+    pub fn try_build<T>(mut self, handler: T) -> Result<OidcContext<T>, OidcBuilderError>
     where
         T: OidcHandler,
     {
@@ -249,12 +245,11 @@ impl OidcContextBuilder {
             .set_redirect_uri(redirect_url)
         };
 
-        // Ensure scopes default to ["openid"] if none set
-        let scopes = if self.scopes.is_empty() {
-            vec![Scope::new("openid".to_string())]
-        } else {
-            self.scopes
-        };
+        // Ensure "openid" is always present
+        let openid = Scope::new("openid".to_string());
+        if !self.scopes.contains(&openid) {
+            self.scopes.insert(0, openid);
+        }
 
         Ok(OidcContext(Arc::new(OidcContextInner {
             client,
@@ -262,7 +257,7 @@ impl OidcContextBuilder {
             session: self.cookie_builder.try_build()?,
             login_path: self.login_path,
             http_client: self.http_client.unwrap_or_else(default_oidc_http_client),
-            scopes,
+            scopes: self.scopes,
         })))
     }
 }

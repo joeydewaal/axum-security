@@ -14,16 +14,13 @@ use openidconnect::{
     core::{CoreClient, CoreGenderClaim, CoreIdToken},
 };
 
-use crate::after_login::AfterLoginCookies;
+use crate::{
+    after_login::AfterLoginCookies,
+    oidc::{OidcBuilderError, builder::OidcContextBuilder},
+};
 
 use super::{OidcHandler, OidcTokenResponse, cookie::OidcCookie};
 
-/// The concrete `CoreClient` type produced by `from_provider_metadata` + `set_redirect_uri`.
-///
-/// - `HasAuthUrl = EndpointSet` (authorization endpoint always present)
-/// - `HasTokenUrl = EndpointMaybeSet` (may or may not be in metadata)
-/// - `HasUserInfoUrl = EndpointMaybeSet`
-/// - All others `EndpointNotSet`
 pub(crate) type OidcClient = CoreClient<
     EndpointSet,
     EndpointNotSet,
@@ -45,17 +42,15 @@ pub(super) struct OidcContextInner<H> {
 }
 
 impl OidcContext<()> {
-    pub fn builder(
-        provider_name: impl Into<Cow<'static, str>>,
-    ) -> super::builder::OidcContextBuilder {
-        super::builder::OidcContextBuilder::new(provider_name.into())
+    pub fn builder(provider_name: impl Into<Cow<'static, str>>) -> OidcContextBuilder {
+        OidcContextBuilder::new(provider_name.into())
     }
 
     pub async fn discover(
         provider_name: impl Into<Cow<'static, str>>,
         issuer_url: &str,
-    ) -> Result<super::builder::OidcContextBuilder, super::OidcBuilderError> {
-        super::builder::OidcContextBuilder::discover(provider_name.into(), issuer_url).await
+    ) -> Result<OidcContextBuilder, OidcBuilderError> {
+        OidcContextBuilder::discover(provider_name.into(), issuer_url).await
     }
 }
 
