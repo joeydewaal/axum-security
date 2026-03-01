@@ -74,7 +74,7 @@ impl OidcHandler for TestHandler {
         _context: &mut AfterLoginCookies<'_>,
     ) -> impl axum::response::IntoResponse {
         // Verify we got meaningful claims
-        assert_eq!(token_res.claims.subject().as_str(), "user-123");
+        assert_eq!(token_res.claims.subject, "user-123");
         StatusCode::CREATED
     }
 }

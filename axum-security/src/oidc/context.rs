@@ -8,10 +8,9 @@ use axum::{
 
 use cookie_monster::{CookieBuilder, CookieJar};
 use openidconnect::{
-    AuthenticationFlow, AuthorizationCode, CsrfToken, EmptyAdditionalClaims, EndpointMaybeSet,
-    EndpointNotSet, EndpointSet, IdTokenClaims, Nonce, OAuth2TokenResponse, PkceCodeChallenge,
-    Scope, TokenResponse as _,
-    core::{CoreClient, CoreGenderClaim, CoreIdToken},
+    AuthenticationFlow, AuthorizationCode, CsrfToken, EndpointMaybeSet, EndpointNotSet,
+    EndpointSet, Nonce, OAuth2TokenResponse, PkceCodeChallenge, Scope, TokenResponse as _,
+    core::CoreClient,
 };
 
 use crate::{
@@ -133,7 +132,7 @@ impl<H: OidcHandler> OidcContext<H> {
             }
         };
 
-        let id_token: CoreIdToken = match token_response.id_token().cloned() {
+        let id_token = match token_response.id_token() {
             Some(id_token) => id_token,
             None => {
                 crate::debug!("no id_token in token response");
@@ -141,14 +140,21 @@ impl<H: OidcHandler> OidcContext<H> {
             }
         };
 
-        let claims: IdTokenClaims<EmptyAdditionalClaims, CoreGenderClaim> =
-            match id_token.into_claims(&self.0.client.id_token_verifier(), &nonce) {
-                Ok(claims) => claims,
-                Err(_e) => {
-                    crate::debug!("id_token verification failed: {_e}");
-                    return StatusCode::UNAUTHORIZED.into_response();
-                }
-            };
+        // Verify the token (signature, nonce, audience, expiration)
+        if let Err(_e) = id_token.claims(&self.0.client.id_token_verifier(), &nonce) {
+            crate::debug!("id_token verification failed: {_e}");
+            return StatusCode::UNAUTHORIZED.into_response();
+        }
+
+        // Extract and deserialize the JWT payload into our own claims struct
+        let jwt_str = id_token.to_string();
+        let claims = match super::OidcClaims::from_jwt_payload(&jwt_str) {
+            Ok(claims) => claims,
+            Err(_e) => {
+                crate::debug!("failed to deserialize claims: {_e}");
+                return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+            }
+        };
 
         let oidc_response = OidcTokenResponse {
             claims,
