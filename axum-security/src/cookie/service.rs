@@ -4,7 +4,7 @@ use std::{
     task::{Context, Poll},
 };
 
-use axum::{extract::Request, http::StatusCode, response::IntoResponse};
+use axum::{extract::Request, response::IntoResponse};
 use tower::{Layer, Service};
 
 use crate::cookie::CookieContext;
@@ -42,7 +42,7 @@ where
                 Ok(None) => {
                     crate::debug!("cookie: no session in request");
                 }
-                Err(_) => return Ok(StatusCode::INTERNAL_SERVER_ERROR.into_response()),
+                Err(e) => return Ok(e),
             }
 
             this.rest.call(req).await.map(|e| e.into_response())

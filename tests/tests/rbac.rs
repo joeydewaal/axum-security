@@ -132,7 +132,7 @@ async fn requires_admin_with_user_fails() -> Result<(), Box<dyn Error>> {
     };
     assert_eq!(
         call(make_router(Some(user)), "/admin").await,
-        StatusCode::UNAUTHORIZED
+        StatusCode::FORBIDDEN
     );
     Ok(())
 }
@@ -142,7 +142,7 @@ async fn requires_admin_with_no_roles_fails() -> Result<(), Box<dyn Error>> {
     let user = UserData { roles: vec![] };
     assert_eq!(
         call(make_router(Some(user)), "/admin").await,
-        StatusCode::UNAUTHORIZED
+        StatusCode::FORBIDDEN
     );
     Ok(())
 }
@@ -175,7 +175,7 @@ async fn requires_all_with_only_admin_fails() -> Result<(), Box<dyn Error>> {
     };
     assert_eq!(
         call(make_router(Some(user)), "/admin-and-mod").await,
-        StatusCode::UNAUTHORIZED
+        StatusCode::FORBIDDEN
     );
     Ok(())
 }
@@ -199,7 +199,7 @@ async fn requires_any_with_only_user_fails() -> Result<(), Box<dyn Error>> {
     };
     assert_eq!(
         call(make_router(Some(user)), "/admin-or-mod").await,
-        StatusCode::UNAUTHORIZED
+        StatusCode::FORBIDDEN
     );
     Ok(())
 }
@@ -261,7 +261,7 @@ mod macro_tests {
         };
         assert_eq!(
             call(make_macro_router(Some(user)), "/admin").await,
-            StatusCode::UNAUTHORIZED
+            StatusCode::FORBIDDEN
         );
     }
 
@@ -283,7 +283,7 @@ mod macro_tests {
         };
         assert_eq!(
             call(make_macro_router(Some(user)), "/admin-or-mod").await,
-            StatusCode::UNAUTHORIZED
+            StatusCode::FORBIDDEN
         );
     }
 
@@ -305,7 +305,7 @@ mod macro_tests {
         };
         assert_eq!(
             call(make_macro_router(Some(user)), "/admin-and-mod").await,
-            StatusCode::UNAUTHORIZED
+            StatusCode::FORBIDDEN
         );
     }
 }

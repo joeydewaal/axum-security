@@ -85,7 +85,7 @@ where
             };
 
             if !ok {
-                return Ok(StatusCode::UNAUTHORIZED.into_response());
+                return Ok(StatusCode::FORBIDDEN.into_response());
             }
 
             session.insert_into(req.extensions_mut());
@@ -168,7 +168,7 @@ pub fn __requires<T: RBAC>(resource: RolesExtractor<T>, roles: &[T]) -> Option<R
     if roles.iter().all(|r| resource.roles.contains(r)) {
         None
     } else {
-        Some(StatusCode::UNAUTHORIZED.into_response())
+        Some(StatusCode::FORBIDDEN.into_response())
     }
 }
 
@@ -176,7 +176,7 @@ pub fn __requires_any<T: RBAC>(resource: RolesExtractor<T>, roles: &[T]) -> Opti
     if resource.roles.iter().any(|r| roles.contains(r)) {
         None
     } else {
-        Some(StatusCode::UNAUTHORIZED.into_response())
+        Some(StatusCode::FORBIDDEN.into_response())
     }
 }
 

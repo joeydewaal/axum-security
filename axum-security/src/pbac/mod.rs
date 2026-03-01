@@ -45,12 +45,13 @@ where
             .evaluate(user)
             .await
             .map_err(IntoResponse::into_response)?;
-        let b = self
-            .1
+        if !a {
+            return Ok(false);
+        }
+        self.1
             .evaluate(user)
             .await
-            .map_err(IntoResponse::into_response)?;
-        Ok(a && b)
+            .map_err(IntoResponse::into_response)
     }
 }
 
@@ -71,12 +72,13 @@ where
             .evaluate(user)
             .await
             .map_err(IntoResponse::into_response)?;
-        let b = self
-            .1
+        if a {
+            return Ok(true);
+        }
+        self.1
             .evaluate(user)
             .await
-            .map_err(IntoResponse::into_response)?;
-        Ok(a || b)
+            .map_err(IntoResponse::into_response)
     }
 }
 

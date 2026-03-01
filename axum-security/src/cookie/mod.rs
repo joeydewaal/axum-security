@@ -5,11 +5,12 @@ mod service;
 mod session;
 mod store;
 
-use std::{borrow::Cow, convert::Infallible, error::Error, sync::Arc};
+use std::{borrow::Cow, convert::Infallible, sync::Arc};
 
 use axum::{
     extract::{FromRef, FromRequestParts},
     http::{HeaderMap, request::Parts},
+    response::Response,
 };
 
 #[cfg(any(feature = "oauth2", feature = "oidc", feature = "jwt"))]
@@ -22,10 +23,7 @@ pub use store::{CookieStore, MemStore};
 pub use cookie_monster::{Cookie, CookieBuilder, CookieJar, Expires, SameSite};
 use tokio::task::JoinHandle;
 
-use crate::{
-    cookie::store::{BoxDynError, ErasedStore},
-    utils::utc_now,
-};
+use crate::{cookie::store::ErasedStore, utils::utc_now};
 
 pub struct CookieContext<S>(Arc<CookieContextInner<S>>);
 
@@ -46,10 +44,7 @@ impl<S: 'static> CookieContext<S> {
         self.0.cookie_opts.clone().value(session_id).build()
     }
 
-    pub async fn create_session(
-        &self,
-        state: S,
-    ) -> Result<Cookie, Box<dyn Error + Send + 'static>> {
+    pub async fn create_session(&self, state: S) -> Result<Cookie, Response> {
         let session_id = SessionId::new();
         crate::debug!("Storing {session_id:?} in cookie store");
         let now = utc_now().as_secs();
@@ -62,7 +57,7 @@ impl<S: 'static> CookieContext<S> {
     pub async fn remove_session_jar(
         &self,
         jar: &CookieJar,
-    ) -> Result<Option<CookieSession<S>>, BoxDynError> {
+    ) -> Result<Option<CookieSession<S>>, Response> {
         let Some(session_id) = self.session_id_from_jar(jar) else {
             return Ok(None);
         };
@@ -73,7 +68,7 @@ impl<S: 'static> CookieContext<S> {
     pub async fn remove_session_cookie(
         &self,
         cookie: &Cookie,
-    ) -> Result<Option<CookieSession<S>>, BoxDynError> {
+    ) -> Result<Option<CookieSession<S>>, Response> {
         let session_id = SessionId::from_cookie(cookie);
         self.remove_session(&session_id).await
     }
@@ -81,7 +76,7 @@ impl<S: 'static> CookieContext<S> {
     pub async fn remove_session(
         &self,
         session_id: &SessionId,
-    ) -> Result<Option<CookieSession<S>>, BoxDynError> {
+    ) -> Result<Option<CookieSession<S>>, Response> {
         self.0.store.remove_session(session_id).await
     }
 
@@ -93,14 +88,14 @@ impl<S: 'static> CookieContext<S> {
         &self.0.cookie_opts
     }
 
-    pub async fn remove_before(&self, deadline: u64) -> Result<(), BoxDynError> {
+    pub async fn remove_before(&self, deadline: u64) -> Result<(), Response> {
         self.0.store.remove_before(deadline).await
     }
 
     pub(crate) async fn load_from_headers(
         &self,
         headers: &HeaderMap,
-    ) -> Result<Option<CookieSession<S>>, BoxDynError> {
+    ) -> Result<Option<CookieSession<S>>, Response> {
         let cookies = CookieJar::from_headers(headers);
 
         self.load_from_jar(&cookies).await
@@ -109,7 +104,7 @@ impl<S: 'static> CookieContext<S> {
     pub(crate) async fn load_from_jar(
         &self,
         cookies: &CookieJar,
-    ) -> Result<Option<CookieSession<S>>, BoxDynError> {
+    ) -> Result<Option<CookieSession<S>>, Response> {
         let Some(session_id) = self.session_id_from_jar(cookies) else {
             return Ok(None);
         };
@@ -126,7 +121,7 @@ impl<S: 'static> CookieContext<S> {
     pub async fn load_from_cookie(
         &self,
         cookie: &Cookie,
-    ) -> Result<Option<CookieSession<S>>, BoxDynError> {
+    ) -> Result<Option<CookieSession<S>>, Response> {
         let session_id = SessionId::from_cookie(cookie);
 
         self.0.store.load_session(&session_id).await

@@ -81,7 +81,7 @@ where
 }
 
 #[cfg(test)]
-mod haeders_service {
+mod headers_service {
     use std::error::Error;
 
     use axum::{Router, body::Body};

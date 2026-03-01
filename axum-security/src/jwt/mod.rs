@@ -54,7 +54,7 @@ impl<T: Serialize> JwtContext<T> {
         let token = encode(&self.0.jwt_header, data, &self.0.encoding_key)?;
         match &self.0.extract {
             ExtractFrom::Cookie(cookie_builder) => Ok(cookie_builder.clone().value(token).build()),
-            ExtractFrom::Header { .. } => panic!("no cookie config set"),
+            ExtractFrom::Header { .. } => Err(jsonwebtoken::errors::ErrorKind::InvalidToken.into()),
         }
     }
 

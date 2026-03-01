@@ -79,7 +79,7 @@ define_header!(
 );
 
 define_header!(
-    ReferrerPolicy(REFERRER_POLICY = "referer-policy"),
+    ReferrerPolicy(REFERRER_POLICY = "referrer-policy"),
     NO_REFERRER => "no-referrer",
     NO_REFERRER_WHEN_DOWNGRADE => "no-referrer-when-downgrade",
     ORIGIN => "origin",
@@ -97,8 +97,8 @@ define_header!(
 
 define_header!(
     DnsPrefetchControl(X_DNS_PREFETCH_CONTROL = "x-dns-prefetch-control"),
-    ON => "ON",
-    OFF => "OFF",
+    ON => "on",
+    OFF => "off",
 );
 
 define_header!(
@@ -112,7 +112,7 @@ define_header!(
     ZERO => "0",
 );
 
-#[derive(Eq)]
+#[derive(Clone, Eq)]
 struct SecurityHeader {
     name: HeaderName,
     value: HeaderValue,
@@ -187,7 +187,7 @@ impl SecurityHeaders {
 
     pub fn use_dev_headers(mut self, dev_headers: bool) -> Self {
         self.dev = dev_headers;
-        Arc::get_mut(&mut self.headers).unwrap().clear();
+        Arc::make_mut(&mut self.headers).clear();
         self
     }
 
@@ -195,9 +195,7 @@ impl SecurityHeaders {
     #[allow(clippy::should_implement_trait)]
     pub fn add(mut self, header: impl IntoSecurityHeader) -> Self {
         if !self.dev {
-            Arc::get_mut(&mut self.headers)
-                .unwrap()
-                .replace(header.into_header().into());
+            Arc::make_mut(&mut self.headers).replace(header.into_header().into());
         }
         self
     }
@@ -205,9 +203,7 @@ impl SecurityHeaders {
     /// Does not override existing
     pub fn try_add(mut self, header: impl IntoSecurityHeader) -> Self {
         if !self.dev {
-            Arc::get_mut(&mut self.headers)
-                .unwrap()
-                .insert(header.into_header().into());
+            Arc::make_mut(&mut self.headers).insert(header.into_header().into());
         }
         self
     }

@@ -1,19 +1,15 @@
 use std::borrow::Cow;
 
-use base64::{Engine, prelude::BASE64_STANDARD};
-use cookie_monster::{Cookie, CookieBuilder, CookieJar, SameSite};
-use hmac::{Hmac, Mac};
+use cookie_monster::{Cookie, CookieJar};
 use openidconnect::{CsrfToken, Nonce, PkceCodeVerifier};
-use rand::Rng;
-use sha2::Sha256;
-use subtle::ConstantTimeEq;
 use wincode::{SchemaRead, SchemaWrite};
 
-use crate::{cookie::CookieOptionsBuilder, utils::utc_now_secs};
+use crate::{
+    signed_cookie::{SignedCookie, SignedCookieBuilder},
+    utils::utc_now_secs,
+};
 
 use super::OidcBuilderError;
-
-const HMAC_HASH_LEN: usize = 32;
 
 #[derive(SchemaWrite, SchemaRead, Debug)]
 pub struct OidcState<'a> {
@@ -26,17 +22,21 @@ pub struct OidcState<'a> {
 }
 
 pub(crate) struct OidcCookie {
-    provider_name: Cow<'static, str>,
-    pub(crate) secret: Hmac<Sha256>,
-    pub(crate) cookie_builder: CookieBuilder,
-    max_login_duration_seconds: u64,
+    inner: SignedCookie,
+}
+
+impl std::ops::Deref for OidcCookie {
+    type Target = SignedCookie;
+    fn deref(&self) -> &SignedCookie {
+        &self.inner
+    }
 }
 
 impl OidcCookie {
     pub fn generate_cookie(&self, csrf_token: &str, pkce_verifier: &str, nonce: &str) -> Cookie {
         let issued = utc_now_secs();
-        let expires = issued + self.max_login_duration_seconds;
-        let provider_name = &self.provider_name;
+        let expires = issued + self.inner.max_login_duration_seconds;
+        let provider_name = &self.inner.provider_name;
 
         let state = OidcState {
             csrf_token,
@@ -47,31 +47,18 @@ impl OidcCookie {
             expires,
         };
 
-        let mut data = wincode::serialize(&state).expect("OidcState serialization cannot fail");
-
-        let mut hmac = self.secret.clone();
-        hmac.update(&data);
-        let signature = hmac.finalize().into_bytes();
-
-        data.extend_from_slice(&signature);
-
-        let encoded_data = BASE64_STANDARD.encode(data);
-
-        self.cookie_builder.clone().value(encoded_data).build()
+        let data = wincode::serialize(&state).expect("OidcState serialization cannot fail");
+        self.inner.generate_cookie(&data)
     }
 
     pub fn verify_cookies(
         &self,
         jar: &mut CookieJar,
     ) -> Option<(CsrfToken, PkceCodeVerifier, Nonce)> {
-        let cookie = jar.remove(self.cookie_builder.clone())?;
+        let payload = self.inner.decode_and_verify(jar)?;
 
         let now = utc_now_secs();
-
-        let decoded = BASE64_STANDARD.decode(cookie.value()).ok()?;
-        let data = self.verify_signature(&decoded)?;
-
-        let data = wincode::deserialize::<OidcState>(data).ok()?;
+        let data = wincode::deserialize::<OidcState>(&payload).ok()?;
 
         if now < data.issued {
             return None;
@@ -87,101 +74,48 @@ impl OidcCookie {
             Nonce::new(data.nonce.into()),
         ))
     }
-
-    fn verify_signature<'a>(&self, data: &'a [u8]) -> Option<&'a [u8]> {
-        if data.len() < HMAC_HASH_LEN {
-            return None;
-        }
-
-        let (payload, received_signature) = data.split_at(data.len() - HMAC_HASH_LEN);
-
-        let mut hmac = self.secret.clone();
-        hmac.update(payload);
-        let signature = hmac.finalize().into_bytes();
-
-        if received_signature.ct_ne(&signature[..]).into() {
-            None
-        } else {
-            Some(payload)
-        }
-    }
 }
 
 pub(crate) struct OidcCookieBuilder {
-    provider_name: Cow<'static, str>,
-    pub(crate) secret: Option<Vec<u8>>,
-    pub(crate) cookie_builder: CookieOptionsBuilder,
-    max_login_duration_seconds: u64,
+    inner: SignedCookieBuilder,
 }
 
 impl OidcCookieBuilder {
     pub fn new(provider_name: Cow<'static, str>) -> Self {
-        let cookie_name = format!("oidc.session.{provider_name}");
-
-        // 30 minutes
-        let max_login_duration_seconds = 30 * 60;
-
-        let dev_cookie = Cookie::named(cookie_name.clone())
-            .path("/")
-            .same_site(SameSite::Lax)
-            .max_age_secs(max_login_duration_seconds);
-
-        let cookie = Cookie::named(cookie_name)
-            .http_only()
-            .same_site(SameSite::Strict)
-            .secure()
-            .max_age_secs(max_login_duration_seconds);
-
         Self {
-            provider_name,
-            secret: None,
-            cookie_builder: CookieOptionsBuilder {
-                dev: false,
-                dev_cookie,
-                cookie,
-            },
-            max_login_duration_seconds,
+            inner: SignedCookieBuilder::new(provider_name, "oidc.session."),
         }
     }
 
     pub fn set_max_login_duration_secs(&mut self, max_login_duration_seconds: u64) {
-        self.cookie_builder
-            .set_max_age_secs(max_login_duration_seconds);
+        self.inner
+            .set_max_login_duration_secs(max_login_duration_seconds);
     }
 
     pub fn try_build(self) -> Result<OidcCookie, OidcBuilderError> {
-        if self
-            .provider_name
-            .find(|c: char| c.is_whitespace())
-            .is_some()
-        {
-            return Err(OidcBuilderError::WhitespaceInProviderName);
-        }
+        self.inner
+            .try_build(OidcBuilderError::WhitespaceInProviderName)
+            .map(|inner| OidcCookie { inner })
+    }
+}
 
-        let secret = if let Some(secret) = self.secret {
-            secret
-        } else {
-            let mut secret = [0u8; 32];
-            rand::rng().fill_bytes(&mut secret);
-            secret.to_vec()
-        };
+impl std::ops::Deref for OidcCookieBuilder {
+    type Target = SignedCookieBuilder;
+    fn deref(&self) -> &SignedCookieBuilder {
+        &self.inner
+    }
+}
 
-        let secret = Hmac::new_from_slice(&secret).expect("Hmac accepts any secret length");
-
-        let cookie_builder = self.cookie_builder.build();
-
-        Ok(OidcCookie {
-            provider_name: self.provider_name,
-            secret,
-            cookie_builder,
-            max_login_duration_seconds: self.max_login_duration_seconds,
-        })
+impl std::ops::DerefMut for OidcCookieBuilder {
+    fn deref_mut(&mut self) -> &mut SignedCookieBuilder {
+        &mut self.inner
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use base64::{Engine, prelude::BASE64_STANDARD};
     use cookie_monster::CookieJar;
 
     use crate::utils::utc_now_secs;
@@ -202,12 +136,8 @@ mod tests {
     }
 
     fn build_cookie_value(handler: &OidcCookie, state: &OidcState<'_>) -> String {
-        let mut data = wincode::serialize(state).unwrap();
-        let mut hmac = handler.secret.clone();
-        hmac.update(&data);
-        let signature = hmac.finalize().into_bytes();
-        data.extend_from_slice(&signature);
-        BASE64_STANDARD.encode(data)
+        let data = wincode::serialize(state).unwrap();
+        handler.inner.sign_and_encode(&data)
     }
 
     #[test]
@@ -259,7 +189,7 @@ mod tests {
 
         let mut decoded = BASE64_STANDARD.decode(&value).unwrap();
         let len = decoded.len();
-        decoded[len - HMAC_HASH_LEN..].fill(0);
+        decoded[len - 32..].fill(0);
         let tampered = BASE64_STANDARD.encode(decoded);
 
         let bad = handler.cookie_builder.clone().value(tampered).build();

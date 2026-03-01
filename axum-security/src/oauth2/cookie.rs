@@ -1,17 +1,15 @@
 use std::borrow::Cow;
-use subtle::ConstantTimeEq;
 
-use base64::{Engine, prelude::BASE64_STANDARD};
-use cookie_monster::{Cookie, CookieBuilder, CookieJar, SameSite};
-use hmac::{Hmac, Mac};
+use cookie_monster::Cookie;
+use cookie_monster::CookieJar;
 use oauth2::{CsrfToken, PkceCodeVerifier};
-use rand::Rng;
-use sha2::Sha256;
 use wincode::{SchemaRead, SchemaWrite};
 
-use crate::{cookie::CookieOptionsBuilder, oauth2::OAuth2BuilderError, utils::utc_now_secs};
-
-const HMAC_HASH_LEN: usize = 32;
+use crate::{
+    oauth2::OAuth2BuilderError,
+    signed_cookie::{SignedCookie, SignedCookieBuilder},
+    utils::utc_now_secs,
+};
 
 #[derive(SchemaWrite, SchemaRead, Debug)]
 pub struct OAuthState<'a> {
@@ -23,17 +21,21 @@ pub struct OAuthState<'a> {
 }
 
 pub(crate) struct OAuth2Cookie {
-    provider_name: Cow<'static, str>,
-    pub(crate) secret: Hmac<Sha256>,
-    pub(crate) cookie_builder: CookieBuilder,
-    max_login_duration_seconds: u64,
+    inner: SignedCookie,
+}
+
+impl std::ops::Deref for OAuth2Cookie {
+    type Target = SignedCookie;
+    fn deref(&self) -> &SignedCookie {
+        &self.inner
+    }
 }
 
 impl OAuth2Cookie {
     pub fn generate_cookie(&self, csrf_token: &str, pkce_verifier: Option<&str>) -> Cookie {
         let issued = utc_now_secs();
-        let expires = issued + self.max_login_duration_seconds;
-        let provider_name = &self.provider_name;
+        let expires = issued + self.inner.max_login_duration_seconds;
+        let provider_name = &self.inner.provider_name;
 
         let state = OAuthState {
             csrf_token,
@@ -43,43 +45,24 @@ impl OAuth2Cookie {
             expires,
         };
 
-        let mut data = wincode::serialize(&state).expect("OAuthState serialization cannot fail");
-
-        // get the signature
-        let mut hmac = self.secret.clone();
-        hmac.update(&data);
-        let signature = hmac.finalize().into_bytes();
-
-        // put the signature at the end of the payload
-        data.extend_from_slice(&signature);
-
-        // encode the payload
-        let encoded_data = BASE64_STANDARD.encode(data);
-
-        self.cookie_builder.clone().value(encoded_data).build()
+        let data = wincode::serialize(&state).expect("OAuthState serialization cannot fail");
+        self.inner.generate_cookie(&data)
     }
 
     pub fn verify_cookies(
         &self,
         jar: &mut CookieJar,
     ) -> Option<(CsrfToken, Option<PkceCodeVerifier>)> {
-        let cookie = jar.remove(self.cookie_builder.clone())?;
+        let payload = self.inner.decode_and_verify(jar)?;
 
         let now = utc_now_secs();
-
-        let decoded = BASE64_STANDARD.decode(cookie.value()).ok()?;
-        let data = self.verify_signature(&decoded)?;
-
-        // deserialize into the state struct.
-        let data = wincode::deserialize::<OAuthState>(data).ok()?;
+        let data = wincode::deserialize::<OAuthState>(&payload).ok()?;
 
         if now < data.issued {
-            // went back in time?
             return None;
         }
 
         if now > data.expires {
-            // expired
             return None;
         }
 
@@ -88,38 +71,21 @@ impl OAuth2Cookie {
             data.pkce_verifier.map(|v| PkceCodeVerifier::new(v.into())),
         ))
     }
-
-    fn verify_signature<'a>(&self, data: &'a [u8]) -> Option<&'a [u8]> {
-        if data.len() < HMAC_HASH_LEN {
-            return None;
-        }
-
-        let (payload, received_signature) = data.split_at(data.len() - HMAC_HASH_LEN);
-
-        let mut hmac = self.secret.clone();
-        hmac.update(payload);
-        let signature = hmac.finalize().into_bytes();
-
-        if received_signature.ct_ne(&signature[..]).into() {
-            None
-        } else {
-            Some(payload)
-        }
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use base64::{Engine, prelude::BASE64_STANDARD};
     use cookie_monster::CookieJar;
 
     use crate::utils::utc_now_secs;
 
     fn make_handler(secret: Option<Vec<u8>>) -> OAuth2Cookie {
         let mut builder = OAuthCookieBuilder::new("test".into());
-        builder.cookie_builder.dev = true;
+        builder.inner.cookie_builder.dev = true;
         if let Some(s) = secret {
-            builder.secret = Some(s);
+            builder.inner.secret = Some(s);
         }
         builder.try_build().unwrap()
     }
@@ -131,12 +97,8 @@ mod tests {
     }
 
     fn build_cookie_value(handler: &OAuth2Cookie, state: &OAuthState<'_>) -> String {
-        let mut data = wincode::serialize(state).unwrap();
-        let mut hmac = handler.secret.clone();
-        hmac.update(&data);
-        let signature = hmac.finalize().into_bytes();
-        data.extend_from_slice(&signature);
-        BASE64_STANDARD.encode(data)
+        let data = wincode::serialize(state).unwrap();
+        handler.inner.sign_and_encode(&data)
     }
 
     #[test]
@@ -213,8 +175,8 @@ mod tests {
 
     #[test]
     fn hmac_one_byte_short_returns_error() {
-        // Valid serialized state with only HMAC_HASH_LEN-1 bytes of HMAC
-        // appended must be rejected.
+        use hmac::Mac;
+
         let handler = make_handler(Some(vec![0u8; 32]));
         let now = utc_now_secs();
         let state = OAuthState {
@@ -229,7 +191,7 @@ mod tests {
         hmac.update(&data);
         let full_signature = hmac.finalize().into_bytes();
         // Append one byte fewer than required.
-        data.extend_from_slice(&full_signature[..HMAC_HASH_LEN - 1]);
+        data.extend_from_slice(&full_signature[..31]);
         let encoded = BASE64_STANDARD.encode(&data);
         let bad = handler.cookie_builder.clone().value(encoded).build();
         let mut jar = make_jar(bad);
@@ -238,14 +200,13 @@ mod tests {
 
     #[test]
     fn wrong_hmac_signature_is_rejected() {
-        // Zeroing the appended HMAC bytes must cause verification to fail.
         let handler = make_handler(None);
         let cookie = handler.generate_cookie("csrf_token", Some("pkce_verifier"));
         let value = cookie.value().to_string();
 
         let mut decoded = BASE64_STANDARD.decode(&value).unwrap();
         let len = decoded.len();
-        decoded[len - HMAC_HASH_LEN..].fill(0);
+        decoded[len - 32..].fill(0);
         let tampered = BASE64_STANDARD.encode(decoded);
 
         let bad = handler.cookie_builder.clone().value(tampered).build();
@@ -258,8 +219,6 @@ mod tests {
 
     #[test]
     fn different_secret_rejects_cookie() {
-        // A cookie signed by one secret must not be accepted by a handler using
-        // a different secret.
         let handler1 = make_handler(Some(b"secret_aaa_32_bytes_exactly_____".to_vec()));
         let handler2 = make_handler(Some(b"secret_bbb_32_bytes_exactly_____".to_vec()));
 
@@ -295,8 +254,6 @@ mod tests {
 
     #[test]
     fn future_issued_time_returns_none() {
-        // `issued` in the future means the server clock went backwards or the
-        // cookie was tampered with; both cases should be rejected.
         let handler = make_handler(Some(vec![0u8; 32]));
         let now = utc_now_secs();
 
@@ -328,74 +285,37 @@ mod tests {
 }
 
 pub(crate) struct OAuthCookieBuilder {
-    provider_name: Cow<'static, str>,
-    pub(crate) secret: Option<Vec<u8>>,
-    pub(crate) cookie_builder: CookieOptionsBuilder,
-    max_login_duration_seconds: u64,
+    inner: SignedCookieBuilder,
 }
 
 impl OAuthCookieBuilder {
     pub fn new(provider_name: Cow<'static, str>) -> Self {
-        let cookie_name = format!("oauth2.session.{provider_name}");
-
-        // 30 minutes
-        let max_login_duration_seconds = 30 * 60;
-
-        // Make sure to use "/" as path so all paths can see the cookie in dev mode.
-        let dev_cookie = Cookie::named(cookie_name.clone())
-            .path("/")
-            .same_site(SameSite::Lax)
-            .max_age_secs(max_login_duration_seconds);
-
-        let cookie = Cookie::named(cookie_name)
-            .http_only()
-            .same_site(SameSite::Strict)
-            .secure()
-            .max_age_secs(max_login_duration_seconds);
-
         Self {
-            provider_name,
-            secret: None,
-            cookie_builder: CookieOptionsBuilder {
-                dev: false,
-                dev_cookie,
-                cookie,
-            },
-            max_login_duration_seconds,
+            inner: SignedCookieBuilder::new(provider_name, "oauth2.session."),
         }
     }
 
     pub fn set_max_login_duration_secs(&mut self, max_login_duration_seconds: u64) {
-        self.cookie_builder
-            .set_max_age_secs(max_login_duration_seconds);
+        self.inner
+            .set_max_login_duration_secs(max_login_duration_seconds);
     }
 
     pub fn try_build(self) -> Result<OAuth2Cookie, OAuth2BuilderError> {
-        if self
-            .provider_name
-            .find(|c: char| c.is_whitespace())
-            .is_some()
-        {
-            return Err(OAuth2BuilderError::WhitespaceInProviderName);
-        }
+        self.inner
+            .try_build(OAuth2BuilderError::WhitespaceInProviderName)
+            .map(|inner| OAuth2Cookie { inner })
+    }
+}
 
-        let secret = if let Some(secret) = self.secret {
-            secret
-        } else {
-            let mut secret = [0u8; 32];
-            rand::rng().fill_bytes(&mut secret);
-            secret.to_vec()
-        };
+impl std::ops::Deref for OAuthCookieBuilder {
+    type Target = SignedCookieBuilder;
+    fn deref(&self) -> &SignedCookieBuilder {
+        &self.inner
+    }
+}
 
-        let secret = Hmac::new_from_slice(&secret).expect("Hmac accepts any secret length");
-
-        let cookie_builder = self.cookie_builder.build();
-
-        Ok(OAuth2Cookie {
-            provider_name: self.provider_name,
-            secret,
-            cookie_builder,
-            max_login_duration_seconds: self.max_login_duration_seconds,
-        })
+impl std::ops::DerefMut for OAuthCookieBuilder {
+    fn deref_mut(&mut self) -> &mut SignedCookieBuilder {
+        &mut self.inner
     }
 }

@@ -140,12 +140,12 @@ impl OidcContextBuilder {
     }
 
     pub fn cookie(mut self, f: impl FnOnce(CookieBuilder) -> CookieBuilder) -> Self {
-        self.cookie_builder.cookie_builder = self.cookie_builder.cookie_builder.cookie(f);
+        self.cookie_builder.cookie_builder.apply_cookie(f);
         self
     }
 
     pub fn dev_cookie(mut self, f: impl FnOnce(CookieBuilder) -> CookieBuilder) -> Self {
-        self.cookie_builder.cookie_builder = self.cookie_builder.cookie_builder.dev_cookie(f);
+        self.cookie_builder.cookie_builder.apply_dev_cookie(f);
         self
     }
 

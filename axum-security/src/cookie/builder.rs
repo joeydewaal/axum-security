@@ -58,15 +58,15 @@ impl CookieOptionsBuilder {
     }
 
     #[cfg(any(feature = "oauth2", feature = "oidc"))]
-    pub(crate) fn cookie(mut self, f: impl FnOnce(CookieBuilder) -> CookieBuilder) -> Self {
-        self.cookie = f(self.cookie);
-        self
+    pub(crate) fn apply_cookie(&mut self, f: impl FnOnce(CookieBuilder) -> CookieBuilder) {
+        let cookie = std::mem::replace(&mut self.cookie, Cookie::named(""));
+        self.cookie = f(cookie);
     }
 
     #[cfg(any(feature = "oauth2", feature = "oidc"))]
-    pub(crate) fn dev_cookie(mut self, f: impl FnOnce(CookieBuilder) -> CookieBuilder) -> Self {
-        self.dev_cookie = f(self.dev_cookie);
-        self
+    pub(crate) fn apply_dev_cookie(&mut self, f: impl FnOnce(CookieBuilder) -> CookieBuilder) {
+        let dev_cookie = std::mem::replace(&mut self.dev_cookie, Cookie::named(""));
+        self.dev_cookie = f(dev_cookie);
     }
 }
 
