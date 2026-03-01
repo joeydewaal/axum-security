@@ -10,7 +10,7 @@ use axum::{
     http::{HeaderMap, header},
     response::{IntoResponse, Response},
 };
-use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
+use base64::{Engine as _, engine::general_purpose::STANDARD};
 use tower::{Layer, Service};
 
 use super::{BasicAuth, BasicAuthenticator};
@@ -81,9 +81,11 @@ where
         let auth = self.authenticator.clone();
         let mut inner = self.inner.clone();
         Box::pin(async move {
-            if let Some((username, password)) = parse_basic_auth_header(req.headers()) {
+            if let Some(header) = decode_header(req.headers())
+                && let Some((username, password)) = header.split_once(':')
+            {
                 crate::debug!("basic_auth: verifying credentials for user {username}");
-                match auth.authenticate(&username, &password).await {
+                match auth.authenticate(username, password).await {
                     Ok(Some(user)) => {
                         crate::debug!("basic_auth: authenticated");
                         req.extensions_mut().insert(BasicAuth(user));
@@ -108,11 +110,9 @@ where
     }
 }
 
-fn parse_basic_auth_header(headers: &HeaderMap) -> Option<(String, String)> {
+fn decode_header(headers: &HeaderMap) -> Option<String> {
     let value = headers.get(header::AUTHORIZATION)?.to_str().ok()?;
     let encoded = value.strip_prefix("Basic ")?;
-    let decoded = BASE64.decode(encoded).ok()?;
-    let decoded = String::from_utf8(decoded).ok()?;
-    let (username, password) = decoded.split_once(':')?;
-    Some((username.to_owned(), password.to_owned()))
+    let decoded = STANDARD.decode(encoded).ok()?;
+    String::from_utf8(decoded).ok()
 }

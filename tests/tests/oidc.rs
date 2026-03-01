@@ -472,7 +472,11 @@ impl ClaimsTestServer {
     }
 
     fn take_claims(&self) -> OidcClaims {
-        self.claims.lock().unwrap().take().expect("no claims captured")
+        self.claims
+            .lock()
+            .unwrap()
+            .take()
+            .expect("no claims captured")
     }
 }
 
@@ -654,21 +658,30 @@ async fn claims_timestamps_convert_to_time() {
 #[tokio::test]
 async fn utc_timestamp_rejects_out_of_range_jiff() {
     let result = serde_json::from_value::<UtcTimestamp>(serde_json::json!(i64::MAX));
-    assert!(result.is_err(), "i64::MAX should be rejected with jiff feature");
+    assert!(
+        result.is_err(),
+        "i64::MAX should be rejected with jiff feature"
+    );
 }
 
 #[cfg(feature = "chrono")]
 #[tokio::test]
 async fn utc_timestamp_rejects_out_of_range_chrono() {
     let result = serde_json::from_value::<UtcTimestamp>(serde_json::json!(i64::MAX));
-    assert!(result.is_err(), "i64::MAX should be rejected with chrono feature");
+    assert!(
+        result.is_err(),
+        "i64::MAX should be rejected with chrono feature"
+    );
 }
 
 #[cfg(feature = "time")]
 #[tokio::test]
 async fn utc_timestamp_rejects_out_of_range_time() {
     let result = serde_json::from_value::<UtcTimestamp>(serde_json::json!(i64::MAX));
-    assert!(result.is_err(), "i64::MAX should be rejected with time feature");
+    assert!(
+        result.is_err(),
+        "i64::MAX should be rejected with time feature"
+    );
 }
 
 #[tokio::test]
