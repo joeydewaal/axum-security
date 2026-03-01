@@ -9,7 +9,8 @@ use std::{
 
 use axum::{Router, http::StatusCode};
 use axum_security::oidc::{
-    AfterLoginCookies, OidcContext, OidcExt, OidcHandler, OidcTokenResponse,
+    AfterLoginCookies, OidcClaims, OidcContext, OidcExt, OidcHandler, OidcTokenResponse,
+    UtcTimestamp,
 };
 use base64::{Engine as _, engine::general_purpose};
 use chrono::Utc;
@@ -397,6 +398,84 @@ impl TestServer {
     }
 }
 
+#[derive(Clone)]
+struct ClaimsCapture(Arc<Mutex<Option<OidcClaims>>>);
+
+impl OidcHandler for ClaimsCapture {
+    async fn after_login(
+        &self,
+        token_res: OidcTokenResponse,
+        _context: &mut AfterLoginCookies<'_>,
+    ) -> impl axum::response::IntoResponse {
+        *self.0.lock().unwrap() = Some(token_res.claims);
+        StatusCode::CREATED
+    }
+}
+
+struct ClaimsTestServer {
+    _mock: MockServer,
+    addr: SocketAddr,
+    claims: Arc<Mutex<Option<OidcClaims>>>,
+}
+
+impl ClaimsTestServer {
+    async fn new() -> Self {
+        let (mock, issuer_url) = install_mock_oidc_server().await;
+        let socket = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = socket.local_addr().unwrap();
+        let redirect_url = format!("http://{addr}{REDIRECT_PATH}");
+
+        let claims = Arc::new(Mutex::new(None));
+        let handler = ClaimsCapture(claims.clone());
+
+        let oidc_context = OidcContext::discover("test-oidc", &issuer_url)
+            .await
+            .unwrap()
+            .client_id(CLIENT_ID)
+            .client_secret(CLIENT_SECRET)
+            .redirect_url(redirect_url)
+            .login_path(LOGIN_PATH)
+            .scopes(&["openid", "email", "profile"])
+            .use_dev_cookies(true)
+            .build(handler);
+
+        let router = Router::<()>::new().with_oidc(oidc_context);
+        tokio::spawn(async { axum::serve(socket, router).await });
+
+        ClaimsTestServer {
+            _mock: mock,
+            addr,
+            claims,
+        }
+    }
+
+    fn cookie_client(&self) -> Client {
+        Client::builder()
+            .redirect(Policy::none())
+            .cookie_store(true)
+            .build()
+            .unwrap()
+    }
+
+    fn login_url(&self) -> String {
+        format!("http://{}{LOGIN_PATH}", self.addr)
+    }
+
+    async fn complete_login(&self, client: &Client) -> reqwest::Response {
+        let res = client.get(self.login_url()).send().await.unwrap();
+        assert_eq!(res.status(), StatusCode::SEE_OTHER);
+        let oauth_url = res.headers()["location"].to_str().unwrap().to_owned();
+        let res = client.get(&oauth_url).send().await.unwrap();
+        assert_eq!(res.status(), StatusCode::FOUND);
+        let callback_url = res.headers()["location"].to_str().unwrap().to_owned();
+        client.get(&callback_url).send().await.unwrap()
+    }
+
+    fn take_claims(&self) -> OidcClaims {
+        self.claims.lock().unwrap().take().expect("no claims captured")
+    }
+}
+
 #[tokio::test]
 async fn full_oidc_login_flow() -> Result<(), Box<dyn Error>> {
     let _ = tracing_subscriber::fmt::try_init();
@@ -517,4 +596,84 @@ async fn replay_code_is_rejected() -> Result<(), Box<dyn Error>> {
     assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
 
     Ok(())
+}
+
+// ── Wiremock happy-path: timestamp conversion ──────────────────────────
+
+#[cfg(feature = "jiff")]
+#[tokio::test]
+async fn claims_timestamps_convert_to_jiff() {
+    let server = ClaimsTestServer::new().await;
+    let client = server.cookie_client();
+    let res = server.complete_login(&client).await;
+    assert_eq!(res.status(), StatusCode::CREATED);
+
+    let claims = server.take_claims();
+    let exp = claims.expiration().to_jiff();
+    let iat = claims.issued_at().to_jiff();
+
+    assert_eq!(exp.as_second(), claims.expiration().as_secs());
+    assert_eq!(iat.as_second(), claims.issued_at().as_secs());
+}
+
+#[cfg(feature = "chrono")]
+#[tokio::test]
+async fn claims_timestamps_convert_to_chrono() {
+    let server = ClaimsTestServer::new().await;
+    let client = server.cookie_client();
+    let res = server.complete_login(&client).await;
+    assert_eq!(res.status(), StatusCode::CREATED);
+
+    let claims = server.take_claims();
+    let exp = claims.expiration().to_chrono();
+    let iat = claims.issued_at().to_chrono();
+
+    assert_eq!(exp.timestamp(), claims.expiration().as_secs());
+    assert_eq!(iat.timestamp(), claims.issued_at().as_secs());
+}
+
+#[cfg(feature = "time")]
+#[tokio::test]
+async fn claims_timestamps_convert_to_time() {
+    let server = ClaimsTestServer::new().await;
+    let client = server.cookie_client();
+    let res = server.complete_login(&client).await;
+    assert_eq!(res.status(), StatusCode::CREATED);
+
+    let claims = server.take_claims();
+    let exp = claims.expiration().to_time();
+    let iat = claims.issued_at().to_time();
+
+    assert_eq!(exp.unix_timestamp(), claims.expiration().as_secs());
+    assert_eq!(iat.unix_timestamp(), claims.issued_at().as_secs());
+}
+
+// ── Direct serde rejection: UtcTimestamp ───────────────────────────────
+
+#[cfg(feature = "jiff")]
+#[tokio::test]
+async fn utc_timestamp_rejects_out_of_range_jiff() {
+    let result = serde_json::from_value::<UtcTimestamp>(serde_json::json!(i64::MAX));
+    assert!(result.is_err(), "i64::MAX should be rejected with jiff feature");
+}
+
+#[cfg(feature = "chrono")]
+#[tokio::test]
+async fn utc_timestamp_rejects_out_of_range_chrono() {
+    let result = serde_json::from_value::<UtcTimestamp>(serde_json::json!(i64::MAX));
+    assert!(result.is_err(), "i64::MAX should be rejected with chrono feature");
+}
+
+#[cfg(feature = "time")]
+#[tokio::test]
+async fn utc_timestamp_rejects_out_of_range_time() {
+    let result = serde_json::from_value::<UtcTimestamp>(serde_json::json!(i64::MAX));
+    assert!(result.is_err(), "i64::MAX should be rejected with time feature");
+}
+
+#[tokio::test]
+async fn utc_timestamp_accepts_valid_value() {
+    let result = serde_json::from_value::<UtcTimestamp>(serde_json::json!(1_700_000_000i64));
+    assert!(result.is_ok(), "valid timestamp should be accepted");
+    assert_eq!(result.unwrap().as_secs(), 1_700_000_000);
 }

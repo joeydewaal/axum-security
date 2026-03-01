@@ -13,6 +13,9 @@ rbac = ["axum-security/rbac", "axum-security/cookie"]
 rbac-macros = ["rbac", "axum-security/rbac-macros"]
 pbac = ["axum-security/pbac", "axum-security/cookie"]
 oidc = ["axum-security/oidc"]
+jiff = ["axum-security/jiff"]
+chrono = ["axum-security/chrono"]
+time = ["axum-security/time"]
 
 
 [dev-dependencies]
@@ -33,4 +36,6 @@ sha2 = "0.10"
 base64 = "0.22"
 openidconnect = { workspace = true }
 chrono = "0.4"
+jiff = { workspace = true }
+time = { workspace = true }
 serde_json = "1"
