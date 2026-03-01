@@ -32,6 +32,30 @@ impl OAuth2Context<()> {
     pub fn builder(oauth2_provider_name: impl Into<Cow<'static, str>>) -> OAuth2ContextBuilder {
         OAuth2ContextBuilder::new(oauth2_provider_name.into())
     }
+
+    pub fn github() -> OAuth2ContextBuilder {
+        Self::builder("github")
+            .auth_url(super::providers::github::AUTH_URL)
+            .token_url(super::providers::github::TOKEN_URL)
+    }
+
+    pub fn discord() -> OAuth2ContextBuilder {
+        Self::builder("discord")
+            .auth_url(super::providers::discord::AUTH_URL)
+            .token_url(super::providers::discord::TOKEN_URL)
+    }
+
+    pub fn spotify() -> OAuth2ContextBuilder {
+        Self::builder("spotify")
+            .auth_url(super::providers::spotify::AUTH_URL)
+            .token_url(super::providers::spotify::TOKEN_URL)
+    }
+
+    pub fn twitch() -> OAuth2ContextBuilder {
+        Self::builder("twitch")
+            .auth_url(super::providers::twitch::AUTH_URL)
+            .token_url(super::providers::twitch::TOKEN_URL)
+    }
 }
 
 impl<H: OAuth2Handler> OAuth2Context<H> {

@@ -7,10 +7,7 @@ use axum::{
 };
 use axum_security::{
     cookie::{CookieContext, CookieSession, MemStore},
-    oidc::{
-        AfterLoginCookies, OidcContext, OidcExt, OidcHandler, OidcTokenResponse,
-        providers::google,
-    },
+    oidc::{AfterLoginCookies, OidcContext, OidcExt, OidcHandler, OidcTokenResponse},
 };
 use serde::Serialize;
 use tokio::net::TcpListener;
@@ -73,7 +70,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         cookie_service: cookie_service.clone(),
     };
 
-    let oidc_context = OidcContext::discover("google", google::ISSUER_URL)
+    let oidc_context = OidcContext::google()
         .await?
         .client_id_env("GOOGLE_CLIENT_ID")
         .client_secret_env("GOOGLE_CLIENT_SECRET")

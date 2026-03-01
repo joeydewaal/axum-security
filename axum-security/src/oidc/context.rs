@@ -51,6 +51,31 @@ impl OidcContext<()> {
     ) -> Result<OidcContextBuilder, OidcBuilderError> {
         OidcContextBuilder::discover(provider_name.into(), issuer_url).await
     }
+
+    pub async fn google() -> Result<OidcContextBuilder, OidcBuilderError> {
+        Self::discover("google", super::providers::google::ISSUER_URL).await
+    }
+
+    pub async fn microsoft() -> Result<OidcContextBuilder, OidcBuilderError> {
+        Self::discover("microsoft", super::providers::microsoft::ISSUER_URL_COMMON).await
+    }
+
+    pub async fn apple() -> Result<OidcContextBuilder, OidcBuilderError> {
+        Self::discover("apple", super::providers::apple::ISSUER_URL).await
+    }
+
+    pub async fn keycloak(
+        base_url: &str,
+        realm: &str,
+    ) -> Result<OidcContextBuilder, OidcBuilderError> {
+        let issuer_url = format!("{}/realms/{}", base_url.trim_end_matches('/'), realm);
+        Self::discover("keycloak", &issuer_url).await
+    }
+
+    pub async fn auth0(domain: &str) -> Result<OidcContextBuilder, OidcBuilderError> {
+        let issuer_url = format!("https://{}/", domain.trim_end_matches('/'));
+        Self::discover("auth0", &issuer_url).await
+    }
 }
 
 impl<H: OidcHandler> OidcContext<H> {

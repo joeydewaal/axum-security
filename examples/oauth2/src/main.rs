@@ -7,10 +7,7 @@ use axum::{
 };
 use axum_security::{
     cookie::{CookieContext, CookieSession, MemStore},
-    oauth2::{
-        AfterLoginCookies, OAuth2Context, OAuth2Ext, OAuth2Handler, TokenResponse,
-        providers::github,
-    },
+    oauth2::{AfterLoginCookies, OAuth2Context, OAuth2Ext, OAuth2Handler, TokenResponse},
 };
 use jiff::Timestamp;
 use reqwest::{Client, StatusCode, header::USER_AGENT};
@@ -119,9 +116,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         http_client: Client::new(),
     };
 
-    let oauth2_service = OAuth2Context::builder("test")
-        .auth_url(github::AUTH_URL)
-        .token_url(github::TOKEN_URL)
+    let oauth2_service = OAuth2Context::github()
         .client_id_env("CLIENT_ID")
         .client_secret_env("CLIENT_SECRET")
         // Where the app is redirected to after login in.
