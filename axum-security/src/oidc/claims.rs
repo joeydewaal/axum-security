@@ -1,9 +1,29 @@
-use serde::{Deserialize, Deserializer, de};
+use serde::{Deserialize, Deserializer, de, de::Error};
 
 /// A UTC timestamp represented as seconds since the Unix epoch.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
-#[serde(transparent)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct UtcTimestamp(i64);
+
+impl<'de> serde::Deserialize<'de> for UtcTimestamp {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let value = i64::deserialize(deserializer)?;
+
+        #[cfg(feature = "jiff")]
+        jiff::Timestamp::from_second(value).map_err(Error::custom)?;
+
+        #[cfg(feature = "chrono")]
+        if chrono::DateTime::<chrono::Utc>::from_timestamp(value, 0).is_none() {
+            return Err(serde::de::Error::custom(
+                "timestamp out of range for chrono",
+            ));
+        }
+
+        #[cfg(feature = "time")]
+        time::OffsetDateTime::from_unix_timestamp(value).map_err(Error::custom)?;
+
+        Ok(UtcTimestamp(value))
+    }
+}
 
 impl UtcTimestamp {
     pub fn as_secs(&self) -> i64 {
@@ -12,17 +32,17 @@ impl UtcTimestamp {
 
     #[cfg(feature = "jiff")]
     pub fn to_jiff(&self) -> jiff::Timestamp {
-        jiff::Timestamp::from_second(self.0).expect("timestamp out of range")
+        jiff::Timestamp::from_second(self.0).expect("validated during deserialization")
     }
 
     #[cfg(feature = "chrono")]
     pub fn to_chrono(&self) -> chrono::DateTime<chrono::Utc> {
-        chrono::DateTime::from_timestamp(self.0, 0).expect("timestamp out of range")
+        chrono::DateTime::from_timestamp(self.0, 0).expect("validated during deserialization")
     }
 
     #[cfg(feature = "time")]
     pub fn to_time(&self) -> time::OffsetDateTime {
-        time::OffsetDateTime::from_unix_timestamp(self.0).expect("timestamp out of range")
+        time::OffsetDateTime::from_unix_timestamp(self.0).expect("validated during deserialization")
     }
 }
 
@@ -127,11 +147,9 @@ impl OidcClaims {
             .nth(1)
             .ok_or(JwtPayloadError::InvalidFormat)?;
 
-        let bytes = base64::Engine::decode(
-            &base64::engine::general_purpose::URL_SAFE_NO_PAD,
-            payload,
-        )
-        .map_err(|_| JwtPayloadError::Base64)?;
+        let bytes =
+            base64::Engine::decode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, payload)
+                .map_err(|_| JwtPayloadError::Base64)?;
 
         serde_json::from_slice(&bytes).map_err(|_| JwtPayloadError::Json)
     }
