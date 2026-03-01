@@ -1,4 +1,4 @@
-use serde::{Deserialize, Deserializer, de, de::Error};
+use serde::{Deserialize, Deserializer, de};
 
 /// A UTC timestamp represented as seconds since the Unix epoch.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -9,17 +9,15 @@ impl<'de> serde::Deserialize<'de> for UtcTimestamp {
         let value = i64::deserialize(deserializer)?;
 
         #[cfg(feature = "jiff")]
-        jiff::Timestamp::from_second(value).map_err(Error::custom)?;
+        jiff::Timestamp::from_second(value).map_err(de::Error::custom)?;
 
         #[cfg(feature = "chrono")]
         if chrono::DateTime::<chrono::Utc>::from_timestamp(value, 0).is_none() {
-            return Err(serde::de::Error::custom(
-                "timestamp out of range for chrono",
-            ));
+            return Err(de::Error::custom("timestamp out of range for chrono"));
         }
 
         #[cfg(feature = "time")]
-        time::OffsetDateTime::from_unix_timestamp(value).map_err(Error::custom)?;
+        time::OffsetDateTime::from_unix_timestamp(value).map_err(de::Error::custom)?;
 
         Ok(UtcTimestamp(value))
     }
