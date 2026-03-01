@@ -8,7 +8,7 @@ use crate::cookie::{CookieSession, SessionId};
 
 pub trait CookieStore: Send + Sync + 'static {
     type State: Send + Sync + 'static;
-    type Error: std::error::Error + Send + Sync + 'static;
+    type Error: std::error::Error + Send + Sync + 'static; // TODO: Should be IntoResponse
 
     fn spawn_maintenance_task(&self) -> bool {
         true

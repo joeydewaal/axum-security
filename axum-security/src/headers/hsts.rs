@@ -6,6 +6,7 @@ use tower::Layer;
 
 use crate::{headers::IntoSecurityHeader, utils::headers::InsertHeadersService};
 
+// in seconds
 const PRELOAD_MIN_MAX_AGE: u64 = 365 * 24 * 60 * 60;
 
 #[derive(Clone)]
@@ -24,6 +25,7 @@ impl StrictTransportSecurity {
 }
 
 pub struct HstsBuilder {
+    /// Max age in seconds.
     max_age: Option<u64>,
     include_subdomains: bool,
     preload: bool,
