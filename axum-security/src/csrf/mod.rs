@@ -6,9 +6,11 @@ use axum::{
     extract::FromRequestParts,
     http::{HeaderName, StatusCode, request::Parts},
 };
-use cookie_monster::{Cookie, SameSite};
+use cookie_monster::{Cookie, CookieBuilder, SameSite};
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
+
+use crate::cookie_options::CookieOptionsBuilder;
 
 pub use service::CsrfService;
 
@@ -27,18 +29,12 @@ pub(crate) struct CsrfConfig {
     pub(crate) cookie_name: Cow<'static, str>,
     pub(crate) header_name: HeaderName,
     pub(crate) form_field: Cow<'static, str>,
-    pub(crate) cookie_builder: cookie_monster::CookieBuilder,
+    pub(crate) cookie_builder: CookieBuilder,
 }
 
 impl Csrf {
     pub fn builder() -> CsrfLayerBuilder {
-        CsrfLayerBuilder {
-            secret: None,
-            cookie_name: DEFAULT_COOKIE_NAME.into(),
-            header_name: DEFAULT_HEADER_NAME,
-            form_field: DEFAULT_FORM_FIELD.into(),
-            dev: false,
-        }
+        CsrfLayerBuilder::new()
     }
 }
 
@@ -55,20 +51,40 @@ impl<S> tower::Layer<S> for Csrf {
 
 pub struct CsrfLayerBuilder {
     secret: Option<Vec<u8>>,
-    cookie_name: Cow<'static, str>,
     header_name: HeaderName,
     form_field: Cow<'static, str>,
-    dev: bool,
+    cookie_opts: CookieOptionsBuilder,
 }
 
 impl CsrfLayerBuilder {
+    fn new() -> Self {
+        Self {
+            secret: None,
+            header_name: DEFAULT_HEADER_NAME,
+            form_field: DEFAULT_FORM_FIELD.into(),
+            cookie_opts: CookieOptionsBuilder {
+                dev: false,
+                dev_cookie: Cookie::named(DEFAULT_COOKIE_NAME)
+                    .path("/")
+                    .same_site(SameSite::Lax),
+                cookie: Cookie::named(DEFAULT_COOKIE_NAME)
+                    .path("/")
+                    .same_site(SameSite::Strict)
+                    .http_only()
+                    .secure(),
+            },
+        }
+    }
+
     pub fn secret(mut self, secret: impl AsRef<[u8]>) -> Self {
         self.secret = Some(secret.as_ref().to_vec());
         self
     }
 
     pub fn cookie_name(mut self, name: impl Into<Cow<'static, str>>) -> Self {
-        self.cookie_name = name.into();
+        let name = name.into();
+        self.cookie_opts.dev_cookie.set_name(name.clone());
+        self.cookie_opts.cookie.set_name(name);
         self
     }
 
@@ -83,7 +99,17 @@ impl CsrfLayerBuilder {
     }
 
     pub fn use_dev_cookie(mut self, dev: bool) -> Self {
-        self.dev = dev;
+        self.cookie_opts.dev = dev;
+        self
+    }
+
+    pub fn cookie(mut self, f: impl FnOnce(CookieBuilder) -> CookieBuilder) -> Self {
+        self.cookie_opts.cookie = f(self.cookie_opts.cookie);
+        self
+    }
+
+    pub fn dev_cookie(mut self, f: impl FnOnce(CookieBuilder) -> CookieBuilder) -> Self {
+        self.cookie_opts.dev_cookie = f(self.cookie_opts.dev_cookie);
         self
     }
 
@@ -99,21 +125,13 @@ impl CsrfLayerBuilder {
         let secret =
             Hmac::<Sha256>::new_from_slice(&secret_bytes).expect("HMAC accepts any key length");
 
-        let cookie_builder = if self.dev {
-            Cookie::named(self.cookie_name.clone())
-                .path("/")
-                .same_site(SameSite::Lax)
-        } else {
-            Cookie::named(self.cookie_name.clone())
-                .path("/")
-                .same_site(SameSite::Strict)
-                .secure()
-        };
+        let cookie_builder = self.cookie_opts.build();
+        let cookie_name = Cow::from(cookie_builder.get_name().to_owned());
 
         Csrf {
             inner: Arc::new(CsrfConfig {
                 secret,
-                cookie_name: self.cookie_name,
+                cookie_name,
                 header_name: self.header_name,
                 form_field: self.form_field,
                 cookie_builder,

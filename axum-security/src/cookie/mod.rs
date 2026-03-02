@@ -13,8 +13,6 @@ use axum::{
     response::Response,
 };
 
-#[cfg(any(feature = "oauth2", feature = "oidc", feature = "jwt"))]
-pub(crate) use builder::CookieOptionsBuilder;
 pub use builder::CookieSessionBuilder;
 pub use id::SessionId;
 pub use session::CookieSession;

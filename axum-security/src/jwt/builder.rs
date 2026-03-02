@@ -6,7 +6,7 @@ use cookie_monster::CookieBuilder;
 use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation};
 
 #[cfg(feature = "cookie")]
-use crate::cookie::CookieOptionsBuilder;
+use crate::cookie_options::CookieOptionsBuilder;
 use crate::{
     jwt::{ExtractFrom, JwtContext, JwtContextInner},
     utils::get_env,

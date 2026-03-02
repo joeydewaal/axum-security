@@ -37,6 +37,9 @@ pub mod rbac;
 ))]
 pub mod pbac;
 
+#[cfg(any(feature = "cookie", feature = "csrf"))]
+pub(crate) mod cookie_options;
+
 pub(crate) mod utils;
 #[allow(unused)]
 pub(crate) use utils::{debug, error};

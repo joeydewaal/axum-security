@@ -7,7 +7,7 @@ use rand::Rng;
 use sha2::Sha256;
 use subtle::ConstantTimeEq;
 
-use crate::cookie::CookieOptionsBuilder;
+use crate::cookie_options::CookieOptionsBuilder;
 
 const HMAC_HASH_LEN: usize = 32;
 
