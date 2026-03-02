@@ -65,19 +65,17 @@ impl KeyExtractor for SmartIpKeyExtractor {
         if let Some(val) = req.headers().get("x-forwarded-for")
             && let Ok(s) = val.to_str()
             && let Some(first) = s.split(',').next()
+            && let Ok(addr) = first.trim().parse()
         {
-            if let Ok(addr) = first.trim().parse() {
-                return Some(addr);
-            }
+            return Some(addr);
         }
 
         // Check X-Real-Ip
         if let Some(val) = req.headers().get("x-real-ip")
             && let Ok(s) = val.to_str()
+            && let Ok(addr) = s.trim().parse()
         {
-            if let Ok(addr) = s.trim().parse() {
-                return Some(addr);
-            }
+            return Some(addr);
         }
 
         // Fall back to peer IP

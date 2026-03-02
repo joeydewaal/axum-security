@@ -70,6 +70,51 @@ impl<H: OidcHandler> Service<axum::http::Request<Body>> for OidcRedirectService<
     }
 }
 
+pub(crate) struct OidcLogoutService<H: OidcHandler> {
+    context: OidcContext<H>,
+}
+
+impl<H: OidcHandler> Clone for OidcLogoutService<H> {
+    fn clone(&self) -> Self {
+        Self {
+            context: self.context.clone(),
+        }
+    }
+}
+
+impl<H: OidcHandler> OidcLogoutService<H> {
+    pub(crate) fn new(context: OidcContext<H>) -> Self {
+        Self { context }
+    }
+}
+
+impl<H: OidcHandler> Service<axum::http::Request<Body>> for OidcLogoutService<H> {
+    type Response = Response;
+    type Error = Infallible;
+    type Future = BoxFuture<Result<Response, Infallible>>;
+
+    fn poll_ready(
+        &mut self,
+        _cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Result<(), Self::Error>> {
+        std::task::Poll::Ready(Ok(()))
+    }
+
+    fn call(&mut self, _req: axum::http::Request<Body>) -> Self::Future {
+        let context = self.context.clone();
+        Box::pin(async move {
+            let (parts, _) = _req.into_parts();
+            let logout_context = context.build_logout_context(parts.extensions);
+            Ok(context
+                .0
+                .handler
+                .logout(logout_context)
+                .await
+                .into_response())
+        })
+    }
+}
+
 pub(crate) struct OidcLoginService<H: OidcHandler> {
     context: OidcContext<H>,
 }

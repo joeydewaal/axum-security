@@ -9,7 +9,7 @@ mod router;
 
 pub use builder::OidcBuilderError;
 pub use claims::{OidcAddress, OidcClaims, UtcTimestamp};
-pub use context::OidcContext;
+pub use context::{LogoutContext, OidcContext};
 pub use handler::OidcHandler;
 pub use router::OidcExt;
 

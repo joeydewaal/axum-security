@@ -2,8 +2,8 @@ use std::{borrow::Cow, error::Error, fmt::Display, sync::Arc, time::Duration};
 
 use cookie_monster::CookieBuilder;
 use openidconnect::{
-    AuthUrl, ClientId, ClientSecret, IssuerUrl, JsonWebKeySetUrl, RedirectUrl, ResponseTypes,
-    Scope, TokenUrl,
+    AuthUrl, ClientId, ClientSecret, EndSessionUrl, IssuerUrl, JsonWebKeySetUrl,
+    PostLogoutRedirectUrl, ProviderMetadataWithLogout, RedirectUrl, ResponseTypes, Scope, TokenUrl,
     core::{
         CoreClient, CoreJwsSigningAlgorithm, CoreProviderMetadata, CoreResponseType,
         CoreSubjectIdentifierType,
@@ -25,6 +25,8 @@ fn default_oidc_http_client() -> HttpClient {
 pub struct OidcContextBuilder {
     cookie_builder: OidcCookieBuilder,
     login_path: Option<Cow<'static, str>>,
+    logout_path: Option<Cow<'static, str>>,
+    post_logout_redirect_url: Option<String>,
     redirect_url: Option<String>,
     client_id: Option<String>,
     client_secret: Option<String>,
@@ -36,7 +38,8 @@ pub struct OidcContextBuilder {
     auth_url: Option<String>,
     token_url: Option<String>,
     jwks_url: Option<String>,
-    provider_metadata: Option<CoreProviderMetadata>,
+    end_session_url: Option<String>,
+    provider_metadata: Option<ProviderMetadataWithLogout>,
 }
 
 impl OidcContextBuilder {
@@ -44,6 +47,8 @@ impl OidcContextBuilder {
         Self {
             cookie_builder: OidcCookieBuilder::new(provider_name.into()),
             login_path: None,
+            logout_path: None,
+            post_logout_redirect_url: None,
             redirect_url: None,
             client_id: None,
             client_secret: None,
@@ -53,6 +58,7 @@ impl OidcContextBuilder {
             auth_url: None,
             token_url: None,
             jwks_url: None,
+            end_session_url: None,
             provider_metadata: None,
         }
     }
@@ -66,13 +72,15 @@ impl OidcContextBuilder {
 
         let http_client = default_oidc_http_client();
 
-        let metadata = CoreProviderMetadata::discover_async(issuer, &http_client)
+        let metadata = ProviderMetadataWithLogout::discover_async(issuer, &http_client)
             .await
             .map_err(|e| OidcBuilderError::DiscoveryError(e.to_string()))?;
 
         Ok(Self {
             cookie_builder: OidcCookieBuilder::new(provider_name),
             login_path: None,
+            logout_path: None,
+            post_logout_redirect_url: None,
             redirect_url: None,
             client_id: None,
             client_secret: None,
@@ -82,6 +90,7 @@ impl OidcContextBuilder {
             auth_url: None,
             token_url: None,
             jwks_url: None,
+            end_session_url: None,
             provider_metadata: Some(metadata),
         })
     }
@@ -154,6 +163,21 @@ impl OidcContextBuilder {
         self
     }
 
+    pub fn logout_path(mut self, path: impl Into<Cow<'static, str>>) -> Self {
+        self.logout_path = Some(path.into());
+        self
+    }
+
+    pub fn post_logout_redirect_url(mut self, url: impl Into<String>) -> Self {
+        self.post_logout_redirect_url = Some(url.into());
+        self
+    }
+
+    pub fn end_session_url(mut self, url: impl Into<String>) -> Self {
+        self.end_session_url = Some(url.into());
+        self
+    }
+
     pub fn use_dev_cookies(mut self, dev: bool) -> Self {
         self.cookie_builder.cookie_builder.dev = dev;
         self
@@ -192,37 +216,61 @@ impl OidcContextBuilder {
     {
         let client_id = self
             .client_id
+            .take()
             .ok_or(OidcBuilderError::MissingClientId)
             .map(ClientId::new)?;
 
         let redirect_url = self
             .redirect_url
+            .take()
             .ok_or(OidcBuilderError::MissingRedirectUrl)?;
 
         let redirect_url =
             RedirectUrl::new(redirect_url).map_err(OidcBuilderError::InvalidRedirectUrl)?;
 
-        let client = if let Some(metadata) = self.provider_metadata {
-            // Discovery path — build client from metadata
-            CoreClient::from_provider_metadata(
-                metadata,
-                client_id,
-                self.client_secret.map(ClientSecret::new),
-            )
-            .set_redirect_uri(redirect_url)
+        let client_secret = self.client_secret.take().map(ClientSecret::new);
+        let explicit_end_session = self
+            .end_session_url
+            .take()
+            .map(|u| EndSessionUrl::new(u).expect("invalid end_session_url"));
+
+        let (client, end_session_url) = if let Some(metadata) = self.provider_metadata.take() {
+            // Discovery path — extract end_session_endpoint before consuming metadata
+            let discovered_end_session =
+                metadata.additional_metadata().end_session_endpoint.clone();
+
+            let client = CoreClient::from_provider_metadata(metadata, client_id, client_secret)
+                .set_redirect_uri(redirect_url);
+
+            // Explicit end_session_url takes priority over discovered one
+            let end_session_url = explicit_end_session.or(discovered_end_session);
+
+            (client, end_session_url)
         } else {
             // Manual path — require all endpoints
-            let issuer_url = self.issuer_url.ok_or(OidcBuilderError::MissingIssuerUrl)?;
+            let issuer_url = self
+                .issuer_url
+                .take()
+                .ok_or(OidcBuilderError::MissingIssuerUrl)?;
             let issuer_url =
                 IssuerUrl::new(issuer_url).map_err(OidcBuilderError::InvalidIssuerUrl)?;
 
-            let auth_url = self.auth_url.ok_or(OidcBuilderError::MissingAuthUrl)?;
+            let auth_url = self
+                .auth_url
+                .take()
+                .ok_or(OidcBuilderError::MissingAuthUrl)?;
             let auth_url = AuthUrl::new(auth_url).map_err(OidcBuilderError::InvalidAuthUrl)?;
 
-            let token_url = self.token_url.ok_or(OidcBuilderError::MissingTokenUrl)?;
+            let token_url = self
+                .token_url
+                .take()
+                .ok_or(OidcBuilderError::MissingTokenUrl)?;
             let token_url = TokenUrl::new(token_url).map_err(OidcBuilderError::InvalidTokenUrl)?;
 
-            let jwks_url = self.jwks_url.ok_or(OidcBuilderError::MissingJwksUrl)?;
+            let jwks_url = self
+                .jwks_url
+                .take()
+                .ok_or(OidcBuilderError::MissingJwksUrl)?;
             let jwks_url =
                 JsonWebKeySetUrl::new(jwks_url).map_err(OidcBuilderError::InvalidJwksUrl)?;
 
@@ -237,12 +285,10 @@ impl OidcContextBuilder {
             )
             .set_token_endpoint(Some(token_url));
 
-            CoreClient::from_provider_metadata(
-                metadata,
-                client_id,
-                self.client_secret.map(ClientSecret::new),
-            )
-            .set_redirect_uri(redirect_url)
+            let client = CoreClient::from_provider_metadata(metadata, client_id, client_secret)
+                .set_redirect_uri(redirect_url);
+
+            (client, explicit_end_session)
         };
 
         // Ensure "openid" is always present
@@ -251,11 +297,19 @@ impl OidcContextBuilder {
             self.scopes.insert(0, openid);
         }
 
+        let post_logout_redirect_url = self
+            .post_logout_redirect_url
+            .take()
+            .map(|u| PostLogoutRedirectUrl::new(u).expect("invalid post_logout_redirect_url"));
+
         Ok(OidcContext(Arc::new(OidcContextInner {
             client,
             handler,
             session: self.cookie_builder.try_build()?,
             login_path: self.login_path,
+            logout_path: self.logout_path,
+            end_session_url,
+            post_logout_redirect_url,
             http_client: self.http_client.unwrap_or_else(default_oidc_http_client),
             scopes: self.scopes,
         })))

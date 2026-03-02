@@ -2,7 +2,7 @@ use axum::{Router, routing::MethodRouter};
 
 use super::{
     OidcContext, OidcHandler,
-    redirect::{OidcLoginService, OidcRedirectService},
+    redirect::{OidcLoginService, OidcLogoutService, OidcRedirectService},
 };
 
 pub trait OidcExt {
@@ -19,6 +19,13 @@ where
                 MethodRouter::new().get_service(OidcLoginService::new(context.clone()));
 
             self = self.route(start_challenge_path, challenge_route);
+        }
+
+        if let Some(logout_path) = context.get_logout_path() {
+            let logout_route =
+                MethodRouter::new().get_service(OidcLogoutService::new(context.clone()));
+
+            self = self.route(logout_path, logout_route);
         }
 
         let route = MethodRouter::new().get_service(OidcRedirectService::new(context.clone()));

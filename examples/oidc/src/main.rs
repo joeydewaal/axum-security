@@ -7,7 +7,9 @@ use axum::{
 };
 use axum_security::{
     cookie::{CookieContext, CookieSession, MemStore},
-    oidc::{AfterLoginCookies, OidcContext, OidcExt, OidcHandler, OidcTokenResponse},
+    oidc::{
+        AfterLoginCookies, LogoutContext, OidcContext, OidcExt, OidcHandler, OidcTokenResponse,
+    },
 };
 use serde::Serialize;
 use tokio::net::TcpListener;
@@ -17,6 +19,7 @@ struct User {
     subject: String,
     email: Option<String>,
     name: Option<String>,
+    id_token: String,
 }
 
 struct LoginHandler {
@@ -33,16 +36,21 @@ impl OidcHandler for LoginHandler {
             subject: token_res.claims.subject,
             email: token_res.claims.email,
             name: token_res.claims.name,
+            id_token: "".into(),
         };
 
-        let session_cookie = self
-            .cookie_service
-            .create_session(user)
-            .await
-            .unwrap();
+        let session_cookie = self.cookie_service.create_session(user).await.unwrap();
 
         cookies.add(session_cookie);
         Redirect::to("/")
+    }
+
+    async fn logout(&self, mut context: LogoutContext) -> impl IntoResponse {
+        if let Some(user) = context.cookie_session::<User>() {
+            context.set_id_token_hint(user.state.id_token);
+        }
+
+        context.default_redirect()
     }
 }
 
@@ -76,6 +84,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .client_secret_env("GOOGLE_CLIENT_SECRET")
         .redirect_url("http://localhost:3000/auth/oidc/callback")
         .login_path("/login")
+        .logout_path("/logout")
         .scopes(&["openid", "email", "profile"])
         .use_dev_cookies(true)
         .build(handler);

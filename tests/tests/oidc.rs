@@ -9,8 +9,8 @@ use std::{
 
 use axum::{Router, http::StatusCode};
 use axum_security::oidc::{
-    AfterLoginCookies, OidcClaims, OidcContext, OidcExt, OidcHandler, OidcTokenResponse,
-    UtcTimestamp,
+    AfterLoginCookies, LogoutContext, OidcClaims, OidcContext, OidcExt, OidcHandler,
+    OidcTokenResponse, UtcTimestamp,
 };
 use base64::{Engine as _, engine::general_purpose};
 use chrono::Utc;
@@ -689,4 +689,190 @@ async fn utc_timestamp_accepts_valid_value() {
     let result = serde_json::from_value::<UtcTimestamp>(serde_json::json!(1_700_000_000i64));
     assert!(result.is_ok(), "valid timestamp should be accepted");
     assert_eq!(result.unwrap().as_secs(), 1_700_000_000);
+}
+
+// ── Logout integration tests ───────────────────────────────────────────
+
+const LOGOUT_PATH: &str = "/auth/oidc/logout";
+const POST_LOGOUT_URL: &str = "http://localhost/after-logout";
+
+async fn install_mock_oidc_server_with_logout() -> (MockServer, String) {
+    let mock_server = MockServer::start().await;
+    let issuer_url = mock_server.uri();
+
+    let auth_path = "/authorize";
+    let token_path = "/token";
+    let jwks_path = "/.well-known/jwks.json";
+    let discovery_path = "/.well-known/openid-configuration";
+    let end_session_path = "/end_session";
+
+    let auth_url = format!("{issuer_url}{auth_path}");
+    let token_url = format!("{issuer_url}{token_path}");
+    let jwks_url = format!("{issuer_url}{jwks_path}");
+    let end_session_url = format!("{issuer_url}{end_session_path}");
+
+    let discovery_body = serde_json::json!({
+        "issuer": issuer_url,
+        "authorization_endpoint": auth_url,
+        "token_endpoint": token_url,
+        "jwks_uri": jwks_url,
+        "end_session_endpoint": end_session_url,
+        "response_types_supported": ["code"],
+        "subject_types_supported": ["public"],
+        "id_token_signing_alg_values_supported": ["RS256"],
+    });
+
+    Mock::given(method("GET"))
+        .and(path(discovery_path))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(&discovery_body)
+                .insert_header("Content-Type", "application/json"),
+        )
+        .mount(&mock_server)
+        .await;
+
+    let key = signing_key();
+    let jwks = CoreJsonWebKeySet::new(vec![key.as_verification_key()]);
+
+    Mock::given(method("GET"))
+        .and(path(jwks_path))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(&jwks)
+                .insert_header("Content-Type", "application/json"),
+        )
+        .mount(&mock_server)
+        .await;
+
+    (mock_server, issuer_url)
+}
+
+struct LogoutTestServer {
+    _mock: MockServer,
+    addr: SocketAddr,
+}
+
+impl LogoutTestServer {
+    async fn new() -> Self {
+        Self::build(install_mock_oidc_server_with_logout().await, TestHandler).await
+    }
+
+    async fn without_provider_logout() -> Self {
+        Self::build(install_mock_oidc_server().await, TestHandler).await
+    }
+
+    async fn with_custom_handler() -> Self {
+        Self::build(
+            install_mock_oidc_server_with_logout().await,
+            CustomLogoutHandler,
+        )
+        .await
+    }
+
+    async fn build(mock_and_url: (MockServer, String), handler: impl OidcHandler) -> Self {
+        let (mock, issuer_url) = mock_and_url;
+        let socket = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = socket.local_addr().unwrap();
+        let redirect_url = format!("http://{addr}{REDIRECT_PATH}");
+
+        let oidc_context = OidcContext::discover("test-oidc", &issuer_url)
+            .await
+            .unwrap()
+            .client_id(CLIENT_ID)
+            .client_secret(CLIENT_SECRET)
+            .redirect_url(redirect_url)
+            .login_path(LOGIN_PATH)
+            .logout_path(LOGOUT_PATH)
+            .post_logout_redirect_url(POST_LOGOUT_URL)
+            .scopes(&["openid", "email", "profile"])
+            .use_dev_cookies(true)
+            .build(handler);
+
+        let router = Router::<()>::new().with_oidc(oidc_context);
+        tokio::spawn(async { axum::serve(socket, router).await });
+
+        LogoutTestServer { _mock: mock, addr }
+    }
+
+    fn logout_url(&self) -> String {
+        format!("http://{}{LOGOUT_PATH}", self.addr)
+    }
+
+    fn bare_client(&self) -> Client {
+        Client::builder().redirect(Policy::none()).build().unwrap()
+    }
+}
+
+struct CustomLogoutHandler;
+
+impl OidcHandler for CustomLogoutHandler {
+    async fn after_login(
+        &self,
+        _token_res: OidcTokenResponse,
+        _context: &mut AfterLoginCookies<'_>,
+    ) -> impl axum::response::IntoResponse {
+        ()
+    }
+
+    async fn logout(&self, _ctx: LogoutContext) -> impl axum::response::IntoResponse {
+        (StatusCode::OK, "logged out")
+    }
+}
+
+#[tokio::test]
+async fn logout_redirects_to_provider_end_session() {
+    let server = LogoutTestServer::new().await;
+    let client = server.bare_client();
+
+    let res = client.get(server.logout_url()).send().await.unwrap();
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+
+    let location = res.headers()["location"].to_str().unwrap();
+    assert!(
+        location.contains("/end_session"),
+        "should redirect to provider end_session endpoint, got: {location}"
+    );
+    assert!(
+        location.contains("post_logout_redirect_uri="),
+        "should include post_logout_redirect_uri param, got: {location}"
+    );
+}
+
+#[tokio::test]
+async fn logout_without_provider_support_redirects_to_post_logout_url() {
+    let server = LogoutTestServer::without_provider_logout().await;
+    let client = server.bare_client();
+
+    let res = client.get(server.logout_url()).send().await.unwrap();
+    assert_eq!(res.status(), StatusCode::SEE_OTHER);
+
+    let location = res.headers()["location"].to_str().unwrap();
+    assert_eq!(location, POST_LOGOUT_URL);
+}
+
+#[tokio::test]
+async fn logout_with_custom_handler() {
+    let server = LogoutTestServer::with_custom_handler().await;
+    let client = server.bare_client();
+
+    let res = client.get(server.logout_url()).send().await.unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+
+    let body = res.text().await.unwrap();
+    assert_eq!(body, "logged out");
+}
+
+#[tokio::test]
+async fn logout_route_not_registered_without_config() {
+    // TestServer::new() does not set logout_path, so /logout should 404
+    let server = TestServer::new().await;
+    let client = server.bare_client();
+
+    let res = client
+        .get(format!("http://{}{LOGOUT_PATH}", server.addr))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::NOT_FOUND);
 }
