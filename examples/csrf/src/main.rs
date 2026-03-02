@@ -8,7 +8,7 @@ use axum::{
 use axum_security::csrf::{Csrf, CsrfToken};
 use tokio::net::TcpListener;
 
-async fn form(token: CsrfToken) -> Html<String> {
+async fn form(csrf: CsrfToken) -> Html<String> {
     Html(format!(
         r#"<!DOCTYPE html>
 <html>
@@ -36,7 +36,6 @@ async fn form(token: CsrfToken) -> Html<String> {
     </script>
 </body>
 </html>"#,
-        csrf = token.as_str()
     ))
 }
 
