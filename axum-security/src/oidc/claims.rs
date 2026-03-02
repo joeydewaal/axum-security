@@ -46,13 +46,13 @@ impl UtcTimestamp {
 
 /// The `address` claim from an OpenID Connect ID token.
 #[derive(Debug, Clone, Deserialize)]
-pub struct OidcAddress {
-    pub formatted: Option<String>,
-    pub street_address: Option<String>,
-    pub locality: Option<String>,
-    pub region: Option<String>,
-    pub postal_code: Option<String>,
-    pub country: Option<String>,
+pub struct OidcAddress<'a> {
+    pub formatted: Option<&'a str>,
+    pub street_address: Option<&'a str>,
+    pub locality: Option<&'a str>,
+    pub region: Option<&'a str>,
+    pub postal_code: Option<&'a str>,
+    pub country: Option<&'a str>,
 }
 
 /// Claims from an OpenID Connect ID token.
@@ -63,14 +63,14 @@ pub struct OidcAddress {
 ///
 /// Any non-standard claims are captured in the `extra` field via `#[serde(flatten)]`.
 #[derive(Debug, Clone, Deserialize)]
-pub struct OidcClaims {
+pub struct OidcClaims<'a> {
     // Required claims
     #[serde(rename = "iss")]
-    pub issuer: String,
+    pub issuer: &'a str,
     #[serde(rename = "aud", deserialize_with = "deserialize_audience")]
-    pub audiences: Vec<String>,
+    pub audiences: Vec<&'a str>,
     #[serde(rename = "sub")]
-    pub subject: String,
+    pub subject: &'a str,
 
     // Datetime claims (private)
     #[serde(rename = "exp")]
@@ -81,44 +81,44 @@ pub struct OidcClaims {
     updated_at: Option<UtcTimestamp>,
 
     // Optional standard claims
-    pub nonce: Option<String>,
-    pub acr: Option<String>,
-    pub amr: Option<Vec<String>>,
-    pub azp: Option<String>,
-    pub at_hash: Option<String>,
+    pub nonce: Option<&'a str>,
+    pub acr: Option<&'a str>,
+    pub amr: Option<Vec<&'a str>>,
+    pub azp: Option<&'a str>,
+    pub at_hash: Option<&'a str>,
 
     // Profile claims
-    pub name: Option<String>,
-    pub given_name: Option<String>,
-    pub family_name: Option<String>,
-    pub middle_name: Option<String>,
-    pub nickname: Option<String>,
-    pub preferred_username: Option<String>,
-    pub profile: Option<String>,
-    pub picture: Option<String>,
-    pub website: Option<String>,
-    pub gender: Option<String>,
-    pub birthdate: Option<String>,
-    pub zoneinfo: Option<String>,
-    pub locale: Option<String>,
+    pub name: Option<&'a str>,
+    pub given_name: Option<&'a str>,
+    pub family_name: Option<&'a str>,
+    pub middle_name: Option<&'a str>,
+    pub nickname: Option<&'a str>,
+    pub preferred_username: Option<&'a str>,
+    pub profile: Option<&'a str>,
+    pub picture: Option<&'a str>,
+    pub website: Option<&'a str>,
+    pub gender: Option<&'a str>,
+    pub birthdate: Option<&'a str>,
+    pub zoneinfo: Option<&'a str>,
+    pub locale: Option<&'a str>,
 
     // Email claims
-    pub email: Option<String>,
+    pub email: Option<&'a str>,
     pub email_verified: Option<bool>,
 
     // Phone claims
-    pub phone_number: Option<String>,
+    pub phone_number: Option<&'a str>,
     pub phone_number_verified: Option<bool>,
 
     // Address claim
-    pub address: Option<OidcAddress>,
+    pub address: Option<OidcAddress<'a>>,
 
     // Any additional/custom claims
     #[serde(flatten)]
     pub extra: serde_json::Map<String, serde_json::Value>,
 }
 
-impl OidcClaims {
+impl OidcClaims<'_> {
     pub fn expiration(&self) -> &UtcTimestamp {
         &self.exp
     }
@@ -135,21 +135,10 @@ impl OidcClaims {
         self.updated_at.as_ref()
     }
 
-    /// Deserialize claims from a raw JWT string (header.payload.signature).
-    ///
-    /// Extracts the payload segment and base64url-decodes it, then deserializes
-    /// into `OidcClaims`.
-    pub(crate) fn from_jwt_payload(jwt: &str) -> Result<Self, JwtPayloadError> {
-        let payload = jwt
-            .split('.')
-            .nth(1)
-            .ok_or(JwtPayloadError::InvalidFormat)?;
-
-        let bytes =
-            base64::Engine::decode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, payload)
-                .map_err(|_| JwtPayloadError::Base64)?;
-
-        serde_json::from_slice(&bytes).map_err(|_| JwtPayloadError::Json)
+    pub(crate) fn from_decoded_payload<'a>(
+        jwt: &'a [u8],
+    ) -> Result<OidcClaims<'a>, JwtPayloadError> {
+        serde_json::from_slice(jwt).map_err(move |_| JwtPayloadError::Json)
     }
 }
 
@@ -171,21 +160,21 @@ impl std::fmt::Display for JwtPayloadError {
 }
 
 /// Deserializes the `aud` claim which can be either a single string or an array of strings.
-fn deserialize_audience<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
+fn deserialize_audience<'de, D>(deserializer: D) -> Result<Vec<&'de str>, D::Error>
 where
     D: Deserializer<'de>,
 {
     struct AudienceVisitor;
 
     impl<'de> de::Visitor<'de> for AudienceVisitor {
-        type Value = Vec<String>;
+        type Value = Vec<&'de str>;
 
         fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
             f.write_str("a string or array of strings")
         }
 
-        fn visit_str<E: de::Error>(self, v: &str) -> Result<Self::Value, E> {
-            Ok(vec![v.to_owned()])
+        fn visit_borrowed_str<E: de::Error>(self, v: &'de str) -> Result<Self::Value, E> {
+            Ok(vec![v])
         }
 
         fn visit_seq<A: de::SeqAccess<'de>>(self, mut seq: A) -> Result<Self::Value, A::Error> {

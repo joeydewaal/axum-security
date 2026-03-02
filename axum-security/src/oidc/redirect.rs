@@ -177,7 +177,7 @@ mod tests {
     impl OidcHandler for TestHandler {
         async fn after_login(
             &self,
-            _token_res: OidcTokenResponse,
+            _token_res: OidcTokenResponse<'_>,
             _context: &mut AfterLoginCookies<'_>,
         ) -> impl IntoResponse {
             ()

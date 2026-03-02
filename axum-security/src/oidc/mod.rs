@@ -15,8 +15,9 @@ pub use router::OidcExt;
 
 pub use crate::after_login::AfterLoginCookies;
 
-pub struct OidcTokenResponse {
-    pub claims: OidcClaims,
+pub struct OidcTokenResponse<'a> {
+    pub id_token: &'a str,
+    pub claims: OidcClaims<'a>,
     pub access_token: String,
     pub refresh_token: Option<String>,
 }

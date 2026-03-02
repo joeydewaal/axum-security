@@ -71,7 +71,7 @@ struct TestHandler;
 impl OidcHandler for TestHandler {
     async fn after_login(
         &self,
-        token_res: OidcTokenResponse,
+        token_res: OidcTokenResponse<'_>,
         _context: &mut AfterLoginCookies<'_>,
     ) -> impl axum::response::IntoResponse {
         // Verify we got meaningful claims
@@ -399,15 +399,15 @@ impl TestServer {
 }
 
 #[derive(Clone)]
-struct ClaimsCapture(Arc<Mutex<Option<OidcClaims>>>);
+struct ClaimsCapture(Arc<Mutex<Option<String>>>);
 
 impl OidcHandler for ClaimsCapture {
     async fn after_login(
         &self,
-        token_res: OidcTokenResponse,
+        token_res: OidcTokenResponse<'_>,
         _context: &mut AfterLoginCookies<'_>,
     ) -> impl axum::response::IntoResponse {
-        *self.0.lock().unwrap() = Some(token_res.claims);
+        *self.0.lock().unwrap() = Some(token_res.id_token.to_string());
         StatusCode::CREATED
     }
 }
@@ -415,7 +415,7 @@ impl OidcHandler for ClaimsCapture {
 struct ClaimsTestServer {
     _mock: MockServer,
     addr: SocketAddr,
-    claims: Arc<Mutex<Option<OidcClaims>>>,
+    claims: Arc<Mutex<Option<String>>>,
 }
 
 impl ClaimsTestServer {
@@ -809,7 +809,7 @@ struct CustomLogoutHandler;
 impl OidcHandler for CustomLogoutHandler {
     async fn after_login(
         &self,
-        _token_res: OidcTokenResponse,
+        _token_res: OidcTokenResponse<'_>,
         _context: &mut AfterLoginCookies<'_>,
     ) -> impl axum::response::IntoResponse {
         ()

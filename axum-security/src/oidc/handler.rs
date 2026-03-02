@@ -7,7 +7,7 @@ use super::{OidcTokenResponse, context::LogoutContext};
 pub trait OidcHandler: Send + Sync + 'static {
     fn after_login(
         &self,
-        token_res: OidcTokenResponse,
+        token_res: OidcTokenResponse<'_>,
         context: &mut AfterLoginCookies<'_>,
     ) -> impl Future<Output = impl IntoResponse> + Send;
 

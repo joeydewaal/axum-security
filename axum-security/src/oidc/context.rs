@@ -20,7 +20,7 @@ use openidconnect::{
 
 use crate::{
     after_login::AfterLoginCookies,
-    oidc::{OidcBuilderError, builder::OidcContextBuilder},
+    oidc::{OidcBuilderError, builder::OidcContextBuilder, claims::JwtPayloadError},
 };
 
 use super::{OidcHandler, OidcTokenResponse, cookie::OidcCookie};
@@ -181,7 +181,15 @@ impl<H: OidcHandler> OidcContext<H> {
 
         // Extract and deserialize the JWT payload into our own claims struct
         let jwt_str = id_token.to_string();
-        let claims = match super::OidcClaims::from_jwt_payload(&jwt_str) {
+
+        let payload = jwt_str.split('.').nth(1).unwrap();
+
+        let bytes =
+            base64::Engine::decode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, payload)
+                .map_err(|_| JwtPayloadError::Base64)
+                .unwrap();
+
+        let claims = match super::OidcClaims::from_decoded_payload(&bytes) {
             Ok(claims) => claims,
             Err(_e) => {
                 crate::debug!("failed to deserialize claims: {_e}");
@@ -190,12 +198,10 @@ impl<H: OidcHandler> OidcContext<H> {
         };
 
         let oidc_response = OidcTokenResponse {
+            id_token: &jwt_str,
             claims,
-            access_token: OAuth2TokenResponse::access_token(&token_response)
-                .secret()
-                .clone(),
-            refresh_token: OAuth2TokenResponse::refresh_token(&token_response)
-                .map(|t| t.secret().clone()),
+            access_token: token_response.access_token().secret().clone(),
+            refresh_token: token_response.refresh_token().map(|t| t.secret().clone()),
         };
 
         let mut context = AfterLoginCookies {
