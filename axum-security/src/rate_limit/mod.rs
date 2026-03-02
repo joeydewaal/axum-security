@@ -25,6 +25,7 @@ pub trait RateLimitKey {
 
 pub trait KeyExtractor: Clone + Send + Sync + 'static {
     type Key: Hash + Eq + Clone + Send + Sync + 'static;
+
     fn extract(&self, req: &mut Request) -> Option<Self::Key>;
 }
 
@@ -34,6 +35,7 @@ where
     K: Hash + Eq + Clone + Send + Sync + 'static,
 {
     type Key = K;
+
     fn extract(&self, req: &mut Request) -> Option<K> {
         (self)(req)
     }
@@ -56,35 +58,32 @@ impl KeyExtractor for PeerIpKeyExtractor {
 pub struct SmartIpKeyExtractor;
 
 impl KeyExtractor for SmartIpKeyExtractor {
-    type Key = String;
+    type Key = SocketAddr;
 
     fn extract(&self, req: &mut Request) -> Option<Self::Key> {
         // Check X-Forwarded-For first
-        if let Some(val) = req.headers().get("x-forwarded-for") {
-            if let Ok(s) = val.to_str() {
-                if let Some(first) = s.split(',').next() {
-                    let ip = first.trim();
-                    if !ip.is_empty() {
-                        return Some(ip.to_owned());
-                    }
-                }
+        if let Some(val) = req.headers().get("x-forwarded-for")
+            && let Ok(s) = val.to_str()
+            && let Some(first) = s.split(',').next()
+        {
+            if let Ok(addr) = first.trim().parse() {
+                return Some(addr);
             }
         }
 
         // Check X-Real-Ip
-        if let Some(val) = req.headers().get("x-real-ip") {
-            if let Ok(s) = val.to_str() {
-                let ip = s.trim();
-                if !ip.is_empty() {
-                    return Some(ip.to_owned());
-                }
+        if let Some(val) = req.headers().get("x-real-ip")
+            && let Ok(s) = val.to_str()
+        {
+            if let Ok(addr) = s.trim().parse() {
+                return Some(addr);
             }
         }
 
         // Fall back to peer IP
         req.extensions()
             .get::<axum::extract::ConnectInfo<SocketAddr>>()
-            .map(|ci| ci.0.to_string())
+            .map(|ci| ci.0)
     }
 }
 

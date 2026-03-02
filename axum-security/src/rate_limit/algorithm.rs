@@ -1,6 +1,6 @@
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
-#[derive(Clone)]
+#[derive(Clone, Copy)]
 pub(crate) enum Algorithm {
     FixedWindow {
         max_requests: u64,
@@ -26,7 +26,7 @@ pub(crate) struct RateLimitResult {
 
 impl Algorithm {
     pub(crate) fn check(&self, state: &mut BucketState, now: Instant) -> RateLimitResult {
-        match (self, state) {
+        match (*self, state) {
             (
                 Algorithm::FixedWindow {
                     max_requests,
@@ -37,7 +37,7 @@ impl Algorithm {
                     window_start,
                 },
             ) => {
-                let window = std::time::Duration::from_secs(*window_secs);
+                let window = Duration::from_secs(window_secs);
                 let elapsed = now.duration_since(*window_start);
 
                 if elapsed >= window {
@@ -46,25 +46,25 @@ impl Algorithm {
                     return RateLimitResult {
                         allowed: true,
                         remaining: max_requests.saturating_sub(1),
-                        reset_after_secs: *window_secs,
-                        limit: *max_requests,
+                        reset_after_secs: window_secs,
+                        limit: max_requests,
                     };
                 }
 
-                if *count < *max_requests {
+                if *count < max_requests {
                     *count += 1;
                     RateLimitResult {
                         allowed: true,
                         remaining: max_requests - *count,
-                        reset_after_secs: (*window_secs).saturating_sub(elapsed.as_secs()),
-                        limit: *max_requests,
+                        reset_after_secs: window_secs.saturating_sub(elapsed.as_secs()),
+                        limit: max_requests,
                     }
                 } else {
                     RateLimitResult {
                         allowed: false,
                         remaining: 0,
-                        reset_after_secs: (*window_secs).saturating_sub(elapsed.as_secs()),
-                        limit: *max_requests,
+                        reset_after_secs: window_secs.saturating_sub(elapsed.as_secs()),
+                        limit: max_requests,
                     }
                 }
             }
@@ -80,7 +80,7 @@ impl Algorithm {
             ) => {
                 let elapsed = now.duration_since(*last_refill).as_secs_f64();
                 let refilled = *tokens + elapsed * refill_rate_per_sec;
-                let capped = refilled.min(*burst_size as f64);
+                let capped = refilled.min(burst_size as f64);
                 *last_refill = now;
 
                 if capped >= 1.0 {
@@ -95,7 +95,7 @@ impl Algorithm {
                         allowed: true,
                         remaining,
                         reset_after_secs: reset_after,
-                        limit: *burst_size,
+                        limit: burst_size,
                     }
                 } else {
                     *tokens = capped;
@@ -105,7 +105,7 @@ impl Algorithm {
                         allowed: false,
                         remaining: 0,
                         reset_after_secs: wait,
-                        limit: *burst_size,
+                        limit: burst_size,
                     }
                 }
             }

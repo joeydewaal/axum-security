@@ -56,7 +56,7 @@ impl From<CspSource> for Vec<CspSource> {
 }
 
 impl CspBuilder {
-    pub fn directive(
+    pub(crate) fn directive(
         mut self,
         name: impl Into<Cow<'static, str>>,
         sources: impl Into<Vec<CspSource>>,
@@ -175,7 +175,7 @@ mod csp_tests {
     #[test]
     fn multiple_sources() {
         let csp = ContentSecurityPolicy::builder()
-            .default_src(vec![
+            .default_src([
                 CspSource::Self_,
                 CspSource::Host("https://example.com".into()),
             ])
@@ -187,7 +187,7 @@ mod csp_tests {
     fn multiple_directives() {
         let csp = ContentSecurityPolicy::builder()
             .default_src(CspSource::Self_)
-            .script_src(vec![
+            .script_src([
                 CspSource::Self_,
                 CspSource::Host("https://cdn.example.com".into()),
             ])

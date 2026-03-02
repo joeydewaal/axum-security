@@ -1,7 +1,7 @@
 use std::{
     hash::Hash,
     sync::atomic::{AtomicU64, Ordering},
-    time::Instant,
+    time::{Duration, Instant},
 };
 
 use dashmap::DashMap;
@@ -59,7 +59,7 @@ impl<K: Hash + Eq + Clone + Send + Sync + 'static> Store<K> {
             return;
         }
 
-        let max_age = std::time::Duration::from_secs(self.max_entry_age_secs);
+        let max_age = Duration::from_secs(self.max_entry_age_secs);
         self.map.retain(|_, state| {
             let age = match state {
                 BucketState::FixedWindow { window_start, .. } => now.duration_since(*window_start),

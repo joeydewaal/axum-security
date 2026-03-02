@@ -6,6 +6,7 @@ use std::{
 
 use axum::{body::Body, extract::Request};
 use base64::{Engine, prelude::BASE64_URL_SAFE_NO_PAD};
+use cookie_monster::{Cookie, CookieJar};
 use hmac::Mac;
 use http::{Method, Response, StatusCode};
 use pin_project_lite::pin_project;
@@ -107,7 +108,7 @@ where
         // For state-changing methods, validate the CSRF token
         if is_state_changing(req.method()) {
             // Get the cookie token
-            let jar = cookie_monster::CookieJar::from_headers(req.headers());
+            let jar = CookieJar::from_headers(req.headers());
             let cookie_token = jar.get(&self.config.cookie_name);
 
             let valid = match cookie_token {
@@ -137,7 +138,7 @@ where
 
         // Generate or reuse a token
         let token = {
-            let jar = cookie_monster::CookieJar::from_headers(req.headers());
+            let jar = CookieJar::from_headers(req.headers());
             match jar.get(&self.config.cookie_name) {
                 Some(cookie) if self.verify_token(cookie.value()) => cookie.value().to_owned(),
                 _ => self.generate_token(),
@@ -169,7 +170,7 @@ pin_project! {
         Inner {
             #[pin]
             future: F,
-            cookie: Option<cookie_monster::Cookie>,
+            cookie: Option<Cookie>,
         },
         Forbidden,
     }

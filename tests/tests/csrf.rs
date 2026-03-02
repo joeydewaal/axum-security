@@ -6,11 +6,11 @@ use axum::{
     http::{self, Method, Request, StatusCode},
     routing::{delete, get, patch, post, put},
 };
-use axum_security::csrf::{CsrfLayer, CsrfToken};
+use axum_security::csrf::{Csrf, CsrfToken};
 use tower::ServiceExt;
 
-fn make_layer() -> CsrfLayer {
-    CsrfLayer::builder()
+fn make_layer() -> Csrf {
+    Csrf::builder()
         .secret("test-secret-key-for-csrf-testing")
         .use_dev_cookie(true)
         .build()

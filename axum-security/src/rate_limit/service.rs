@@ -48,10 +48,11 @@ where
 
         let result = self.store.check(key);
 
-        let header_val = format!(
+        let header_val = HeaderValue::from_str(&format!(
             "limit={}, remaining={}, reset={}",
             result.limit, result.remaining, result.reset_after_secs
-        );
+        ))
+        .expect("this header can't contain invalid characters");
 
         if result.allowed {
             crate::debug!(
@@ -70,7 +71,7 @@ where
                 result.reset_after_secs,
             );
             RateLimitFuture::Limited {
-                header: header_val,
+                header: Some(header_val),
                 reset: result.reset_after_secs,
             }
         }
@@ -83,10 +84,10 @@ pin_project! {
         Inner {
             #[pin]
             future: F,
-            headers: Option<String>,
+            headers: Option<HeaderValue>,
         },
         Limited {
-            header: String,
+            header: Option<HeaderValue>,
             reset: u64,
         },
     }
@@ -106,9 +107,7 @@ where
 
                 Poll::Ready(res.map(|mut res| {
                     if let Some(val) = header_val {
-                        if let Ok(hv) = HeaderValue::from_str(&val) {
-                            res.headers_mut().insert("ratelimit", hv);
-                        }
+                        res.headers_mut().insert("ratelimit", val);
                     }
                     res
                 }))
@@ -119,9 +118,8 @@ where
                     .body(Body::from("Too Many Requests"))
                     .unwrap();
 
-                if let Ok(hv) = HeaderValue::from_str(header) {
-                    res.headers_mut().insert("ratelimit", hv);
-                }
+                res.headers_mut()
+                    .insert("ratelimit", header.take().unwrap());
                 res.headers_mut()
                     .insert("retry-after", HeaderValue::from(*reset));
 

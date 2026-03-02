@@ -6,6 +6,7 @@ use axum::{
     extract::FromRequestParts,
     http::{HeaderName, StatusCode, request::Parts},
 };
+use cookie_monster::{Cookie, SameSite};
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
 
@@ -17,7 +18,7 @@ const DEFAULT_FORM_FIELD: &str = "_csrf";
 const TOKEN_BYTE_LEN: usize = 32;
 
 #[derive(Clone)]
-pub struct CsrfLayer {
+pub struct Csrf {
     inner: Arc<CsrfConfig>,
 }
 
@@ -29,7 +30,7 @@ pub(crate) struct CsrfConfig {
     pub(crate) cookie_builder: cookie_monster::CookieBuilder,
 }
 
-impl CsrfLayer {
+impl Csrf {
     pub fn builder() -> CsrfLayerBuilder {
         CsrfLayerBuilder {
             secret: None,
@@ -41,7 +42,7 @@ impl CsrfLayer {
     }
 }
 
-impl<S> tower::Layer<S> for CsrfLayer {
+impl<S> tower::Layer<S> for Csrf {
     type Service = CsrfService<S>;
 
     fn layer(&self, inner: S) -> Self::Service {
@@ -86,7 +87,7 @@ impl CsrfLayerBuilder {
         self
     }
 
-    pub fn build(self) -> CsrfLayer {
+    pub fn build(self) -> Csrf {
         let secret_bytes = if let Some(s) = self.secret {
             s
         } else {
@@ -99,17 +100,17 @@ impl CsrfLayerBuilder {
             Hmac::<Sha256>::new_from_slice(&secret_bytes).expect("HMAC accepts any key length");
 
         let cookie_builder = if self.dev {
-            cookie_monster::Cookie::named(self.cookie_name.clone())
+            Cookie::named(self.cookie_name.clone())
                 .path("/")
-                .same_site(cookie_monster::SameSite::Lax)
+                .same_site(SameSite::Lax)
         } else {
-            cookie_monster::Cookie::named(self.cookie_name.clone())
+            Cookie::named(self.cookie_name.clone())
                 .path("/")
-                .same_site(cookie_monster::SameSite::Strict)
+                .same_site(SameSite::Strict)
                 .secure()
         };
 
-        CsrfLayer {
+        Csrf {
             inner: Arc::new(CsrfConfig {
                 secret,
                 cookie_name: self.cookie_name,
