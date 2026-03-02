@@ -1,7 +1,8 @@
 use proc_macro::TokenStream;
 use quote::{ToTokens, format_ident, quote};
 use syn::{
-    Expr, ExprPath, FnArg, ItemFn, PatType, Token, parse_macro_input, punctuated::Punctuated,
+    Data, DeriveInput, Expr, ExprPath, Fields, FnArg, ItemFn, PatType, Token, parse_macro_input,
+    punctuated::Punctuated,
 };
 
 #[proc_macro_attribute]
@@ -93,6 +94,64 @@ fn expand_inner<T: ToTokens>(attr: TokenStream, item: TokenStream, auth_func: T)
             #fn_asyncness fn inner(#inner_params) #fn_output #fn_body
 
             axum::response::IntoResponse::into_response(inner(#(#arg_names),*).await)
+        }
+    };
+
+    TokenStream::from(expanded)
+}
+
+#[proc_macro_derive(RateLimitKey, attributes(key))]
+pub fn derive_rate_limit_key(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    let name = &input.ident;
+    let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
+
+    let fields = match &input.data {
+        Data::Struct(data) => match &data.fields {
+            Fields::Named(fields) => &fields.named,
+            _ => {
+                return syn::Error::new_spanned(
+                    &input.ident,
+                    "RateLimitKey can only be derived on structs with named fields",
+                )
+                .to_compile_error()
+                .into();
+            }
+        },
+        _ => {
+            return syn::Error::new_spanned(
+                &input.ident,
+                "RateLimitKey can only be derived on structs",
+            )
+            .to_compile_error()
+            .into();
+        }
+    };
+
+    let key_fields: Vec<_> = fields
+        .iter()
+        .filter(|f| f.attrs.iter().any(|a| a.path().is_ident("key")))
+        .collect();
+
+    if key_fields.len() != 1 {
+        return syn::Error::new_spanned(
+            &input.ident,
+            "exactly one field must be annotated with #[key]",
+        )
+        .to_compile_error()
+        .into();
+    }
+
+    let key_field = key_fields[0];
+    let field_name = key_field.ident.as_ref().unwrap();
+    let field_ty = &key_field.ty;
+
+    let expanded = quote! {
+        impl #impl_generics ::axum_security::rate_limit::RateLimitKey for #name #ty_generics #where_clause {
+            type Key = #field_ty;
+            fn rate_limit_key(&self) -> Self::Key {
+                self.#field_name.clone()
+            }
         }
     };
 

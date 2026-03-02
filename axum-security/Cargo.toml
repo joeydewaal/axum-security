@@ -13,7 +13,7 @@ categories = ["web-programming", "security", "asynchronous"]
 
 
 [package.metadata.docs.rs]
-features = ["cookie", "jwt", "oauth2", "oidc", "rbac", "pbac", "headers", "csrf", "jiff", "chrono", "time"]
+features = ["cookie", "jwt", "oauth2", "oidc", "rbac", "pbac", "headers", "csrf", "rate-limit", "jiff", "chrono", "time"]
 
 [features]
 tracing = ["dep:tracing"]
@@ -27,6 +27,8 @@ rbac-macros = ["rbac", "dep:axum-security-macros"]
 pbac = []
 headers = ["dep:pin-project-lite"]
 csrf = ["dep:rand", "dep:hmac", "dep:sha2", "dep:base64", "dep:subtle", "dep:cookie-monster", "dep:pin-project-lite", "dep:form_urlencoded"]
+rate-limit = ["dep:dashmap", "dep:pin-project-lite"]
+rate-limit-macros = ["rate-limit", "dep:axum-security-macros"]
 
 jiff = ["dep:jiff", "cookie-monster?/jiff"]
 chrono = ["dep:chrono", "cookie-monster?/chrono"]
@@ -59,6 +61,7 @@ rand = { workspace = true, optional = true }
 subtle = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
 form_urlencoded = { version = "1", optional = true }
+dashmap = { workspace = true, optional = true }
 jiff = { workspace = true, optional = true }
 chrono = { workspace = true, optional = true }
 time = { workspace = true, optional = true }

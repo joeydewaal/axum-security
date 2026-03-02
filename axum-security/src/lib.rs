@@ -46,3 +46,6 @@ pub mod headers;
 
 #[cfg(feature = "csrf")]
 pub mod csrf;
+
+#[cfg(feature = "rate-limit")]
+pub mod rate_limit;
