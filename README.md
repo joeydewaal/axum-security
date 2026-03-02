@@ -1,3 +1,15 @@
+TODO
+docs
+
+rate limit
+csp: nonce support
+oidc logout support
+
+more tests
+
+ci
+
+
 # axum-security
 A security toolbox for the Axum library.
 
