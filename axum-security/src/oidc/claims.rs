@@ -135,6 +135,16 @@ impl OidcClaims<'_> {
         self.updated_at.as_ref()
     }
 
+    pub(crate) fn decode_token(token: &str) -> Result<Vec<u8>, JwtPayloadError> {
+        let payload = token
+            .split('.')
+            .nth(1)
+            .ok_or(JwtPayloadError::InvalidFormat)?;
+
+        base64::Engine::decode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, payload)
+            .map_err(|_| JwtPayloadError::Base64)
+    }
+
     pub(crate) fn from_decoded_payload<'a>(
         jwt: &'a [u8],
     ) -> Result<OidcClaims<'a>, JwtPayloadError> {

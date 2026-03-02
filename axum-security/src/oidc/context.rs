@@ -20,7 +20,7 @@ use openidconnect::{
 
 use crate::{
     after_login::AfterLoginCookies,
-    oidc::{OidcBuilderError, builder::OidcContextBuilder, claims::JwtPayloadError},
+    oidc::{OidcBuilderError, OidcClaims, builder::OidcContextBuilder},
 };
 
 use super::{OidcHandler, OidcTokenResponse, cookie::OidcCookie};
@@ -182,14 +182,15 @@ impl<H: OidcHandler> OidcContext<H> {
         // Extract and deserialize the JWT payload into our own claims struct
         let jwt_str = id_token.to_string();
 
-        let payload = jwt_str.split('.').nth(1).unwrap();
+        let bytes = match OidcClaims::decode_token(&jwt_str) {
+            Ok(claims) => claims,
+            Err(_e) => {
+                crate::debug!("failed to decode claims: {_e}");
+                return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+            }
+        };
 
-        let bytes =
-            base64::Engine::decode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, payload)
-                .map_err(|_| JwtPayloadError::Base64)
-                .unwrap();
-
-        let claims = match super::OidcClaims::from_decoded_payload(&bytes) {
+        let claims = match OidcClaims::from_decoded_payload(&bytes) {
             Ok(claims) => claims,
             Err(_e) => {
                 crate::debug!("failed to deserialize claims: {_e}");
