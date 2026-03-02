@@ -471,13 +471,20 @@ impl ClaimsTestServer {
         client.get(&callback_url).send().await.unwrap()
     }
 
-    fn take_claims(&self) -> OidcClaims {
+    fn take_id_token(&self) -> String {
         self.claims
             .lock()
             .unwrap()
             .take()
             .expect("no claims captured")
     }
+}
+
+fn decode_jwt_payload(jwt: &str) -> Vec<u8> {
+    let payload = jwt.split('.').nth(1).expect("JWT missing payload segment");
+    general_purpose::URL_SAFE_NO_PAD
+        .decode(payload)
+        .expect("invalid base64url in JWT payload")
 }
 
 #[tokio::test]
@@ -612,7 +619,9 @@ async fn claims_timestamps_convert_to_jiff() {
     let res = server.complete_login(&client).await;
     assert_eq!(res.status(), StatusCode::CREATED);
 
-    let claims = server.take_claims();
+    let jwt = server.take_id_token();
+    let payload = decode_jwt_payload(&jwt);
+    let claims: OidcClaims = serde_json::from_slice(&payload).unwrap();
     let exp = claims.expiration().to_jiff();
     let iat = claims.issued_at().to_jiff();
 
@@ -628,7 +637,9 @@ async fn claims_timestamps_convert_to_chrono() {
     let res = server.complete_login(&client).await;
     assert_eq!(res.status(), StatusCode::CREATED);
 
-    let claims = server.take_claims();
+    let jwt = server.take_id_token();
+    let payload = decode_jwt_payload(&jwt);
+    let claims: OidcClaims = serde_json::from_slice(&payload).unwrap();
     let exp = claims.expiration().to_chrono();
     let iat = claims.issued_at().to_chrono();
 
@@ -644,7 +655,9 @@ async fn claims_timestamps_convert_to_time() {
     let res = server.complete_login(&client).await;
     assert_eq!(res.status(), StatusCode::CREATED);
 
-    let claims = server.take_claims();
+    let jwt = server.take_id_token();
+    let payload = decode_jwt_payload(&jwt);
+    let claims: OidcClaims = serde_json::from_slice(&payload).unwrap();
     let exp = claims.expiration().to_time();
     let iat = claims.issued_at().to_time();
 
