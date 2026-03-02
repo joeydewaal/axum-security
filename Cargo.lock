@@ -129,6 +129,7 @@ dependencies = [
  "base64 0.22.1",
  "chrono",
  "cookie-monster",
+ "form_urlencoded",
  "hmac",
  "http",
  "jiff",
