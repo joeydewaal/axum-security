@@ -95,11 +95,7 @@ where
                     }
                     Err(e) => {
                         crate::error!("basic_auth: authenticator returned an error");
-                        return Ok((
-                            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                            e.into_response(),
-                        )
-                            .into_response());
+                        return Ok(e.into_response());
                     }
                 }
             } else {

@@ -1,6 +1,6 @@
 #![cfg(feature = "basic-auth")]
 
-use std::{error::Error, net::SocketAddr};
+use std::{convert::Infallible, error::Error, net::SocketAddr};
 
 use axum::{
     Router,
@@ -13,32 +13,31 @@ use reqwest::Client;
 use tokio::net::TcpListener;
 use tower::Service;
 
-struct TestAuth;
-
 struct ErrorAuth;
 
 impl BasicAuthenticator for ErrorAuth {
     type User = String;
-    type Error = String;
+    type Error = (StatusCode, &'static str);
 
     async fn authenticate(
         &self,
         _username: &str,
         _password: &str,
-    ) -> Result<Option<String>, String> {
-        Err("db unavailable".to_owned())
+    ) -> Result<Option<String>, (StatusCode, &'static str)> {
+        Err((StatusCode::INTERNAL_SERVER_ERROR, "db unavailable"))
     }
 }
+struct TestAuth;
 
 impl BasicAuthenticator for TestAuth {
     type User = String;
-    type Error = std::convert::Infallible;
+    type Error = Infallible;
 
     async fn authenticate(
         &self,
         username: &str,
         password: &str,
-    ) -> Result<Option<String>, std::convert::Infallible> {
+    ) -> Result<Option<String>, Infallible> {
         Ok((password == "secret").then(|| username.to_owned()))
     }
 }

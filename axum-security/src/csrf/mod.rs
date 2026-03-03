@@ -16,11 +16,11 @@ pub use service::CsrfService;
 
 const DEFAULT_COOKIE_NAME: &str = "csrf-token";
 const DEFAULT_HEADER_NAME: HeaderName = HeaderName::from_static("x-csrf-token");
-const DEFAULT_FORM_FIELD: &str = "_csrf";
+const DEFAULT_FORM_FIELD: Cow<'static, str> = Cow::Borrowed("_csrf");
 const TOKEN_BYTE_LEN: usize = 32;
 
 #[derive(Clone)]
-pub struct Csrf {
+pub struct CsrfLayer {
     inner: Arc<CsrfConfig>,
 }
 
@@ -32,13 +32,13 @@ pub(crate) struct CsrfConfig {
     pub(crate) cookie_builder: CookieBuilder,
 }
 
-impl Csrf {
+impl CsrfLayer {
     pub fn builder() -> CsrfLayerBuilder {
         CsrfLayerBuilder::new()
     }
 }
 
-impl<S> tower::Layer<S> for Csrf {
+impl<S> tower::Layer<S> for CsrfLayer {
     type Service = CsrfService<S>;
 
     fn layer(&self, inner: S) -> Self::Service {
@@ -61,7 +61,7 @@ impl CsrfLayerBuilder {
         Self {
             secret: None,
             header_name: DEFAULT_HEADER_NAME,
-            form_field: DEFAULT_FORM_FIELD.into(),
+            form_field: DEFAULT_FORM_FIELD,
             cookie_opts: CookieOptionsBuilder {
                 dev: false,
                 dev_cookie: Cookie::named(DEFAULT_COOKIE_NAME)
@@ -113,7 +113,7 @@ impl CsrfLayerBuilder {
         self
     }
 
-    pub fn build(self) -> Csrf {
+    pub fn build(self) -> CsrfLayer {
         let secret_bytes = if let Some(s) = self.secret {
             s
         } else {
@@ -128,7 +128,7 @@ impl CsrfLayerBuilder {
         let cookie_builder = self.cookie_opts.build();
         let cookie_name = Cow::from(cookie_builder.get_name().to_owned());
 
-        Csrf {
+        CsrfLayer {
             inner: Arc::new(CsrfConfig {
                 secret,
                 cookie_name,
