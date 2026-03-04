@@ -85,8 +85,10 @@ impl<S> CookieSessionBuilder<S> {
         let handle = if let Some(expiry) = session_expiry
             && store.spawn_maintenance_task()
         {
-            let this = store.clone();
-            Some(tokio::spawn(super::expiry::maintenance_task(this, expiry)))
+            Some(tokio::spawn(super::expiry::maintenance_task(
+                store.clone(),
+                expiry,
+            )))
         } else {
             None
         };

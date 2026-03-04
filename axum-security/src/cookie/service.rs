@@ -9,6 +9,8 @@ use tower::{Layer, Service};
 
 use crate::cookie::CookieContext;
 
+type BoxFuture<T> = Pin<Box<dyn Future<Output = T> + Send>>;
+
 pub struct CookieService<S, SERV> {
     inner: CookieContext<S>,
     rest: SERV,
@@ -22,10 +24,8 @@ where
     S: Clone + Send + Sync + 'static,
 {
     type Response = axum::response::Response;
-
     type Error = Infallible;
-
-    type Future = Pin<Box<dyn Future<Output = Result<Self::Response, Self::Error>> + Send>>;
+    type Future = BoxFuture<Result<Self::Response, Self::Error>>;
 
     fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         self.rest.poll_ready(cx)
@@ -42,10 +42,13 @@ where
                 Ok(None) => {
                     crate::debug!("cookie: no session in request");
                 }
-                Err(e) => return Ok(e),
+                Err(e) => {
+                    crate::debug!("cookie: error loading session");
+                    return Ok(e);
+                }
             }
 
-            this.rest.call(req).await.map(|e| e.into_response())
+            this.rest.call(req).await.map(IntoResponse::into_response)
         })
     }
 }

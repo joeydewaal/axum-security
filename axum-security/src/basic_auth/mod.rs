@@ -29,7 +29,7 @@ pub trait BasicAuthenticator: Send + Sync {
 #[derive(Clone, Debug)]
 pub struct BasicAuth<U>(pub U);
 
-impl<U: Clone + Send + Sync + 'static> BasicAuth<U> {
+impl<U: Send + Sync + 'static> BasicAuth<U> {
     fn from_extensions(ext: &mut Extensions) -> Option<Self> {
         ext.remove()
     }
@@ -38,7 +38,7 @@ impl<U: Clone + Send + Sync + 'static> BasicAuth<U> {
 impl<S, U> FromRequestParts<S> for BasicAuth<U>
 where
     S: Send + Sync,
-    U: Clone + Send + Sync + 'static,
+    U: Send + Sync + 'static,
 {
     type Rejection = StatusCode;
 
@@ -50,7 +50,7 @@ where
 impl<S, U> OptionalFromRequestParts<S> for BasicAuth<U>
 where
     S: Send + Sync,
-    U: Clone + Send + Sync + 'static,
+    U: Send + Sync + 'static,
 {
     type Rejection = Infallible;
 

@@ -21,14 +21,6 @@ pub struct BasicAuthLayer<A> {
     authenticator: Arc<A>,
 }
 
-impl<A> Clone for BasicAuthLayer<A> {
-    fn clone(&self) -> Self {
-        Self {
-            authenticator: self.authenticator.clone(),
-        }
-    }
-}
-
 impl<A> BasicAuthLayer<A> {
     pub fn new(authenticator: A) -> Self {
         Self {
@@ -84,22 +76,22 @@ where
             if let Some(header) = decode_header(req.headers())
                 && let Some((username, password)) = header.split_once(':')
             {
-                crate::debug!("basic_auth: verifying credentials for user {username}");
+                crate::debug!("basic-auth: verifying credentials for user {username}");
                 match auth.authenticate(username, password).await {
                     Ok(Some(user)) => {
-                        crate::debug!("basic_auth: authenticated");
+                        crate::debug!("basic-auth: authenticated");
                         req.extensions_mut().insert(BasicAuth(user));
                     }
                     Ok(None) => {
-                        crate::debug!("basic_auth: invalid credentials");
+                        crate::debug!("basic-auth: invalid credentials");
                     }
                     Err(e) => {
-                        crate::error!("basic_auth: authenticator returned an error");
+                        crate::error!("basic-auth: authenticator returned an error");
                         return Ok(e.into_response());
                     }
                 }
             } else {
-                crate::debug!("basic_auth: no Authorization header");
+                crate::debug!("basic-auth: no Authorization header");
             }
             inner.call(req).await
         })
@@ -111,4 +103,12 @@ fn decode_header(headers: &HeaderMap) -> Option<String> {
     let encoded = value.strip_prefix("Basic ")?;
     let decoded = STANDARD.decode(encoded).ok()?;
     String::from_utf8(decoded).ok()
+}
+
+impl<A> Clone for BasicAuthLayer<A> {
+    fn clone(&self) -> Self {
+        Self {
+            authenticator: self.authenticator.clone(),
+        }
+    }
 }

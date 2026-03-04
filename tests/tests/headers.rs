@@ -23,8 +23,8 @@ async fn call(router: Router, path: &str) -> axum::http::Response<Body> {
 #[tokio::test]
 async fn csp_layer_sets_header() {
     let csp = ContentSecurityPolicy::builder()
-        .default_src(CspSource::Self_)
-        .script_src([CspSource::Self_, CspSource::UnsafeInline])
+        .default_src(CspSource::SELF)
+        .script_src([CspSource::SELF, CspSource::UNSAFE_INLINE])
         .build();
 
     let router = Router::new().route("/", get(|| async { "ok" })).layer(csp);
@@ -40,12 +40,9 @@ async fn csp_layer_sets_header() {
 #[tokio::test]
 async fn csp_with_hosts_and_schemes() {
     let csp = ContentSecurityPolicy::builder()
-        .default_src(CspSource::None)
-        .img_src([
-            CspSource::Self_,
-            CspSource::Host("https://cdn.example.com".into()),
-        ])
-        .font_src(CspSource::Scheme("data:".into()))
+        .default_src(CspSource::NONE)
+        .img_src([CspSource::SELF, CspSource::host("https://cdn.example.com")])
+        .font_src(CspSource::scheme("data:"))
         .build();
 
     let router = Router::new().route("/", get(|| async { "ok" })).layer(csp);
@@ -60,7 +57,7 @@ async fn csp_with_hosts_and_schemes() {
 #[tokio::test]
 async fn csp_upgrade_insecure_requests() {
     let csp = ContentSecurityPolicy::builder()
-        .default_src(CspSource::Self_)
+        .default_src(CspSource::SELF)
         .upgrade_insecure_requests()
         .build();
 
@@ -130,7 +127,7 @@ async fn security_headers_try_add_does_not_override() {
 #[tokio::test]
 async fn security_headers_with_csp() {
     let csp = ContentSecurityPolicy::builder()
-        .default_src(CspSource::Self_)
+        .default_src(CspSource::SELF)
         .build();
 
     let headers = SecurityHeaders::new().add(XssProtection::ZERO).add(csp);

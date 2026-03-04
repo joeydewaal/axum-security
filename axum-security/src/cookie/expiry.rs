@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{cmp, time::Duration};
 
 use crate::{cookie::store::ErasedStore, utils::utc_now_secs};
 
@@ -8,7 +8,7 @@ pub(crate) enum SessionExpiry {
 }
 
 pub(crate) async fn maintenance_task<S: 'static>(this: ErasedStore<S>, expires_after: Duration) {
-    let check_interval = (expires_after / 2).max(Duration::from_secs(60));
+    let check_interval = cmp::max(expires_after / 2, Duration::from_secs(60));
     let mut interval = tokio::time::interval(check_interval);
     loop {
         interval.tick().await;

@@ -24,8 +24,10 @@ pub struct CspBuilder {
     directives: Vec<(Cow<'static, str>, Vec<CspSource>)>,
 }
 
+pub struct CspSource(CspSourceInner);
+
 #[derive(Clone)]
-pub enum CspSource {
+enum CspSourceInner {
     None,
     Self_,
     UnsafeInline,
@@ -36,15 +38,29 @@ pub enum CspSource {
 }
 
 impl CspSource {
+    pub const NONE: CspSource = CspSource(CspSourceInner::None);
+    pub const SELF: CspSource = CspSource(CspSourceInner::Self_);
+    pub const UNSAFE_INLINE: CspSource = CspSource(CspSourceInner::UnsafeInline);
+    pub const UNSAFE_EVAL: CspSource = CspSource(CspSourceInner::UnsafeEval);
+    pub const STRICT_DYNAMIC: CspSource = CspSource(CspSourceInner::StrictDynamic);
+
+    pub fn host(host: impl Into<Cow<'static, str>>) -> Self {
+        Self(CspSourceInner::Host(host.into()))
+    }
+
+    pub fn scheme(scheme: impl Into<Cow<'static, str>>) -> Self {
+        Self(CspSourceInner::Scheme(scheme.into()))
+    }
+
     fn serialize(&self) -> Cow<'static, str> {
-        match self {
-            CspSource::None => "'none'".into(),
-            CspSource::Self_ => "'self'".into(),
-            CspSource::UnsafeInline => "'unsafe-inline'".into(),
-            CspSource::UnsafeEval => "'unsafe-eval'".into(),
-            CspSource::StrictDynamic => "'strict-dynamic'".into(),
-            CspSource::Host(h) => h.clone(),
-            CspSource::Scheme(s) => s.clone(),
+        match &self.0 {
+            CspSourceInner::None => "'none'".into(),
+            CspSourceInner::Self_ => "'self'".into(),
+            CspSourceInner::UnsafeInline => "'unsafe-inline'".into(),
+            CspSourceInner::UnsafeEval => "'unsafe-eval'".into(),
+            CspSourceInner::StrictDynamic => "'strict-dynamic'".into(),
+            CspSourceInner::Host(h) => h.clone(),
+            CspSourceInner::Scheme(s) => s.clone(),
         }
     }
 }
@@ -167,7 +183,7 @@ mod csp_tests {
     #[test]
     fn default_src_none() {
         let csp = ContentSecurityPolicy::builder()
-            .default_src(CspSource::None)
+            .default_src(CspSource::NONE)
             .build();
         assert_eq!(csp.header_value, "default-src 'none'");
     }
@@ -175,10 +191,7 @@ mod csp_tests {
     #[test]
     fn multiple_sources() {
         let csp = ContentSecurityPolicy::builder()
-            .default_src([
-                CspSource::Self_,
-                CspSource::Host("https://example.com".into()),
-            ])
+            .default_src([CspSource::SELF, CspSource::host("https://example.com")])
             .build();
         assert_eq!(csp.header_value, "default-src 'self' https://example.com");
     }
@@ -186,11 +199,8 @@ mod csp_tests {
     #[test]
     fn multiple_directives() {
         let csp = ContentSecurityPolicy::builder()
-            .default_src(CspSource::Self_)
-            .script_src([
-                CspSource::Self_,
-                CspSource::Host("https://cdn.example.com".into()),
-            ])
+            .default_src(CspSource::SELF)
+            .script_src([CspSource::SELF, CspSource::host("https://cdn.example.com")])
             .build();
         assert_eq!(
             csp.header_value,
@@ -201,7 +211,7 @@ mod csp_tests {
     #[test]
     fn upgrade_insecure_requests() {
         let csp = ContentSecurityPolicy::builder()
-            .default_src(CspSource::Self_)
+            .default_src(CspSource::SELF)
             .upgrade_insecure_requests()
             .build();
         assert_eq!(
@@ -213,7 +223,7 @@ mod csp_tests {
     #[test]
     fn into_security_header() {
         let csp = ContentSecurityPolicy::builder()
-            .default_src(CspSource::Self_)
+            .default_src(CspSource::SELF)
             .build();
         let headers = SecurityHeaders::new().add(csp);
         let header = headers.headers.get(&CONTENT_SECURITY_POLICY).unwrap();
@@ -223,8 +233,8 @@ mod csp_tests {
     #[tokio::test]
     async fn layer() {
         let csp = ContentSecurityPolicy::builder()
-            .default_src(CspSource::None)
-            .script_src(CspSource::Self_)
+            .default_src(CspSource::NONE)
+            .script_src(CspSource::SELF)
             .build();
 
         let router = Router::<()>::new().layer(csp);
