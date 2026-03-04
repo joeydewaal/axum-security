@@ -5,6 +5,8 @@ rate limit
 csp: nonce support
 oidc logout support
 
+eager/lazy
+
 more tests
 
 ci

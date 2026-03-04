@@ -128,21 +128,24 @@ impl CspBuilder {
     }
 
     pub fn build(self) -> ContentSecurityPolicy {
-        let mut parts = Vec::with_capacity(self.directives.len());
+        let mut buff = String::new();
 
-        for (name, sources) in &self.directives {
-            if sources.is_empty() {
-                parts.push(name.to_string());
-            } else {
-                let sources_str: Vec<Cow<'static, str>> =
-                    sources.iter().map(|s| s.serialize()).collect();
-                parts.push(format!("{} {}", name, sources_str.join(" ")));
+        for (i, (name, sources)) in self.directives.iter().enumerate() {
+            if i != 0 {
+                buff.push_str("; ");
+            }
+            buff.push_str(name);
+
+            if !sources.is_empty() {
+                for s in sources {
+                    buff.push(' ');
+                    buff.push_str(&s.serialize());
+                }
             }
         }
 
-        let value = parts.join("; ");
         let header_value =
-            HeaderValue::from_str(&value).expect("CSP header does not contain invalid bytes");
+            HeaderValue::from_str(&buff).expect("CSP header does not contain invalid bytes");
 
         ContentSecurityPolicy { header_value }
     }

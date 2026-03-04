@@ -1,4 +1,5 @@
 use std::{
+    borrow::Cow,
     pin::Pin,
     sync::Arc,
     task::{Context, Poll, ready},
@@ -55,12 +56,12 @@ impl<S> CsrfService<S> {
         received_sig.ct_eq(&expected_sig[..]).into()
     }
 
-    fn extract_submitted_token(&self, req: &Request) -> Option<String> {
+    fn extract_submitted_token<'a>(&self, req: &'a Request) -> Option<Cow<'a, str>> {
         // Check header first
         if let Some(val) = req.headers().get(&self.config.header_name)
             && let Ok(s) = val.to_str()
         {
-            return Some(s.to_owned());
+            return Some(Cow::Borrowed(s));
         }
 
         // Check query string for form field fallback (url-encoded form via query is uncommon,
@@ -68,7 +69,7 @@ impl<S> CsrfService<S> {
         if let Some(query) = req.uri().query() {
             for (key, value) in form_urlencoded::parse(query.as_bytes()) {
                 if key == self.config.form_field.as_ref() {
-                    return Some(value.into_owned());
+                    return Some(value);
                 }
             }
         }
@@ -150,12 +151,7 @@ where
             .insert(CsrfToken(Arc::from(token.as_str())));
 
         // Build the Set-Cookie
-        let cookie = self
-            .config
-            .cookie_builder
-            .clone()
-            .value(token.clone())
-            .build();
+        let cookie = self.config.cookie_builder.clone().value(token).build();
 
         CsrfFuture::Inner {
             future: self.inner.call(req),
