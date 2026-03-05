@@ -144,7 +144,6 @@ impl OidcContextBuilder {
 
     pub fn scopes(mut self, scopes: &[&str]) -> Self {
         self.scopes = scopes.iter().map(|s| Scope::new(s.to_string())).collect();
-
         self
     }
 

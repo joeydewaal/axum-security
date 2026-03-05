@@ -73,9 +73,7 @@ pub struct OidcClaims<'a> {
     pub subject: &'a str,
 
     // Datetime claims (private)
-    #[serde(rename = "exp")]
     exp: UtcTimestamp,
-    #[serde(rename = "iat")]
     iat: UtcTimestamp,
     auth_time: Option<UtcTimestamp>,
     updated_at: Option<UtcTimestamp>,
@@ -119,8 +117,23 @@ pub struct OidcClaims<'a> {
 }
 
 impl OidcClaims<'_> {
-    pub fn expiration(&self) -> &UtcTimestamp {
-        &self.exp
+    pub fn expiration_secs(&self) -> i64 {
+        self.exp.as_secs()
+    }
+
+    #[cfg(feature = "jiff")]
+    pub fn expiration_jiff(&self) -> jiff::Timestamp {
+        self.exp.to_jiff()
+    }
+
+    #[cfg(feature = "chrono")]
+    pub fn expiration_chrono(&self) -> chrono::DateTime<chrono::Utc> {
+        self.exp.to_chrono()
+    }
+
+    #[cfg(feature = "time")]
+    pub fn expiration_time(&self) -> time::OffsetDateTime {
+        self.exp.to_time()
     }
 
     pub fn issued_at(&self) -> &UtcTimestamp {
@@ -148,7 +161,7 @@ impl OidcClaims<'_> {
     pub(crate) fn from_decoded_payload<'a>(
         jwt: &'a [u8],
     ) -> Result<OidcClaims<'a>, JwtPayloadError> {
-        serde_json::from_slice(jwt).map_err(move |_| JwtPayloadError::Json)
+        serde_json::from_slice(jwt).map_err(|_| JwtPayloadError::Json)
     }
 }
 

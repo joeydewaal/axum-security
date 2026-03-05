@@ -1,6 +1,7 @@
 use std::{convert::Infallible, future::Future, marker::PhantomData, pin::Pin};
 
 use axum::{
+    Router,
     extract::Request,
     http::StatusCode,
     response::{IntoResponse, Response},
@@ -268,6 +269,19 @@ pub trait PolicyRouterExt {
 }
 
 impl<S: Clone + 'static> PolicyRouterExt for MethodRouter<S, Infallible> {
+    fn with_policy<P, U>(self, policy: P) -> Self
+    where
+        P: Policy<U> + 'static,
+        U: Clone + Send + Sync + 'static,
+    {
+        self.layer(PolicyLayer {
+            policy,
+            _marker: PhantomData,
+        })
+    }
+}
+
+impl<S: Clone + Send + Sync + 'static> PolicyRouterExt for Router<S> {
     fn with_policy<P, U>(self, policy: P) -> Self
     where
         P: Policy<U> + 'static,

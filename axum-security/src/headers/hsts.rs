@@ -17,7 +17,7 @@ pub struct StrictTransportSecurity {
 impl StrictTransportSecurity {
     pub fn builder() -> HstsBuilder {
         HstsBuilder {
-            max_age: None,
+            max_age_secs: None,
             include_subdomains: false,
             preload: false,
         }
@@ -26,19 +26,19 @@ impl StrictTransportSecurity {
 
 pub struct HstsBuilder {
     /// Max age in seconds.
-    max_age: Option<u64>,
+    max_age_secs: Option<u64>,
     include_subdomains: bool,
     preload: bool,
 }
 
 impl HstsBuilder {
     pub fn max_age(mut self, duration: Duration) -> Self {
-        self.max_age = Some(duration.as_secs());
+        self.max_age_secs = Some(duration.as_secs());
         self
     }
 
     pub fn max_age_seconds(mut self, max_age: u64) -> Self {
-        self.max_age = Some(max_age);
+        self.max_age_secs = Some(max_age);
         self
     }
 
@@ -63,7 +63,7 @@ impl HstsBuilder {
     }
 
     pub fn try_build(self) -> Result<StrictTransportSecurity, StrictTransportSecurityBuilderError> {
-        let Some(max_age) = self.max_age else {
+        let Some(max_age) = self.max_age_secs else {
             return Err(StrictTransportSecurityBuilderError::NoMaxAge);
         };
 

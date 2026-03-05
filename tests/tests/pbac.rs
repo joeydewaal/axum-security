@@ -4,7 +4,7 @@ use axum::{
     Router,
     body::Body,
     http::{Request, StatusCode},
-    routing::get as route_get,
+    routing::get,
 };
 use axum_security::{
     cookie::{CookieSession, SessionId},
@@ -125,7 +125,7 @@ async fn closure_policy_passes() {
     let router = Router::new()
         .route(
             "/test",
-            route_get(|| async { StatusCode::OK }).with_policy(is_admin),
+            get(|| async { StatusCode::OK }).with_policy(is_admin),
         )
         .layer(SeedLayer(Some(default_user())));
 
@@ -137,7 +137,7 @@ async fn closure_policy_fails_returns_403() {
     let router = Router::new()
         .route(
             "/test",
-            route_get(|| async { StatusCode::OK }).with_policy(is_admin),
+            get(|| async { StatusCode::OK }).with_policy(is_admin),
         )
         .layer(SeedLayer(Some(make_user(false, false))));
 
@@ -149,7 +149,7 @@ async fn no_session_returns_401() {
     let router = Router::new()
         .route(
             "/test",
-            route_get(|| async { StatusCode::OK }).with_policy(is_admin),
+            get(|| async { StatusCode::OK }).with_policy(is_admin),
         )
         .layer(SeedLayer(None));
 
@@ -162,7 +162,7 @@ async fn all_of_combinator_both_pass() {
     let router = Router::new()
         .route(
             "/test",
-            route_get(|| async { StatusCode::OK }).with_policy(policy),
+            get(|| async { StatusCode::OK }).with_policy(policy),
         )
         .layer(SeedLayer(Some(make_user(true, false))));
 
@@ -175,7 +175,7 @@ async fn all_of_combinator_one_fails() {
     let router = Router::new()
         .route(
             "/test",
-            route_get(|| async { StatusCode::OK }).with_policy(policy),
+            get(|| async { StatusCode::OK }).with_policy(policy),
         )
         .layer(SeedLayer(Some(UserData {
             admin: true,
@@ -193,7 +193,7 @@ async fn any_of_combinator_one_passes() {
     let router = Router::new()
         .route(
             "/test",
-            route_get(|| async { StatusCode::OK }).with_policy(policy),
+            get(|| async { StatusCode::OK }).with_policy(policy),
         )
         .layer(SeedLayer(Some(UserData {
             admin: true,
@@ -211,7 +211,7 @@ async fn not_combinator() {
     let router = Router::new()
         .route(
             "/test",
-            route_get(|| async { StatusCode::OK }).with_policy(policy),
+            get(|| async { StatusCode::OK }).with_policy(policy),
         )
         .layer(SeedLayer(Some(default_user())));
 
@@ -223,7 +223,7 @@ async fn allow_always_passes() {
     let router = Router::new()
         .route(
             "/test",
-            route_get(|| async { StatusCode::OK }).with_policy::<_, UserData>(Allow),
+            get(|| async { StatusCode::OK }).with_policy::<_, UserData>(Allow),
         )
         .layer(SeedLayer(Some(make_user(false, true))));
 
@@ -235,7 +235,7 @@ async fn deny_always_fails() {
     let router = Router::new()
         .route(
             "/test",
-            route_get(|| async { StatusCode::OK }).with_policy::<_, UserData>(Deny),
+            get(|| async { StatusCode::OK }).with_policy::<_, UserData>(Deny),
         )
         .layer(SeedLayer(Some(default_user())));
 
@@ -247,7 +247,7 @@ async fn session_extractable_after_policy_layer() {
     let router = Router::new()
         .route(
             "/test",
-            route_get(|session: Session<UserData>| async move {
+            get(|session: Session<UserData>| async move {
                 if session.admin {
                     StatusCode::OK
                 } else {
@@ -270,7 +270,7 @@ async fn has_role_bridge() {
     let router = Router::new()
         .route(
             "/test",
-            route_get(|| async { StatusCode::OK }).with_policy(policy),
+            get(|| async { StatusCode::OK }).with_policy(policy),
         )
         .layer(SeedLayer(Some(default_user())));
 
@@ -286,9 +286,39 @@ async fn has_role_bridge_fails() {
     let router = Router::new()
         .route(
             "/test",
-            route_get(|| async { StatusCode::OK }).with_policy(policy),
+            get(|| async { StatusCode::OK }).with_policy(policy),
         )
         .layer(SeedLayer(Some(default_user())));
 
     assert_eq!(call(router, "/test").await, StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn closure_policy_passes_router() {
+    let router = Router::new()
+        .route("/test", get(|| async { StatusCode::OK }))
+        .with_policy(is_admin)
+        .layer(SeedLayer(Some(default_user())));
+
+    assert_eq!(call(router, "/test").await, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn closure_policy_fails_returns_403_router() {
+    let router = Router::new()
+        .route("/test", get(|| async { StatusCode::OK }))
+        .with_policy(is_admin)
+        .layer(SeedLayer(Some(make_user(false, false))));
+
+    assert_eq!(call(router, "/test").await, StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn no_session_returns_401_router() {
+    let router = Router::new()
+        .route("/test", get(|| async { StatusCode::OK }))
+        .with_policy(is_admin)
+        .layer(SeedLayer(None));
+
+    assert_eq!(call(router, "/test").await, StatusCode::UNAUTHORIZED);
 }

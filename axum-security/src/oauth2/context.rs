@@ -158,9 +158,6 @@ impl<H: OAuth2Handler> OAuth2Context<H> {
 
         // Create authorize url, with csrf token
         req = req.add_scopes(self.0.scopes.clone());
-        // let (redirect_url, csrf_token) = req.add_scopes(self.0.scopes.clone());
-        // .set_pkce_challenge(pkce_challenge)
-        // .url();
 
         let pkce_verifier = if matches!(self.0.flow_type, FlowType::AuthorizationCodeFlowPkce) {
             let (pkce_challenge, pkce_verifier) = PkceCodeChallenge::new_random_sha256();

@@ -622,10 +622,10 @@ async fn claims_timestamps_convert_to_jiff() {
     let jwt = server.take_id_token();
     let payload = decode_jwt_payload(&jwt);
     let claims: OidcClaims = serde_json::from_slice(&payload).unwrap();
-    let exp = claims.expiration().to_jiff();
+    let exp = claims.expiration_jiff();
     let iat = claims.issued_at().to_jiff();
 
-    assert_eq!(exp.as_second(), claims.expiration().as_secs());
+    assert_eq!(exp.as_second(), claims.expiration_secs());
     assert_eq!(iat.as_second(), claims.issued_at().as_secs());
 }
 
@@ -640,10 +640,10 @@ async fn claims_timestamps_convert_to_chrono() {
     let jwt = server.take_id_token();
     let payload = decode_jwt_payload(&jwt);
     let claims: OidcClaims = serde_json::from_slice(&payload).unwrap();
-    let exp = claims.expiration().to_chrono();
+    let exp = claims.expiration_chrono();
     let iat = claims.issued_at().to_chrono();
 
-    assert_eq!(exp.timestamp(), claims.expiration().as_secs());
+    assert_eq!(exp.timestamp(), claims.expiration_secs());
     assert_eq!(iat.timestamp(), claims.issued_at().as_secs());
 }
 
@@ -658,10 +658,10 @@ async fn claims_timestamps_convert_to_time() {
     let jwt = server.take_id_token();
     let payload = decode_jwt_payload(&jwt);
     let claims: OidcClaims = serde_json::from_slice(&payload).unwrap();
-    let exp = claims.expiration().to_time();
+    let exp = claims.expiration_time();
     let iat = claims.issued_at().to_time();
 
-    assert_eq!(exp.unix_timestamp(), claims.expiration().as_secs());
+    assert_eq!(exp.unix_timestamp(), claims.expiration_secs());
     assert_eq!(iat.unix_timestamp(), claims.issued_at().as_secs());
 }
 

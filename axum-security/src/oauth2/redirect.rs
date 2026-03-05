@@ -1,8 +1,14 @@
-use std::{convert::Infallible, future::Future, pin::Pin};
+use std::{
+    convert::Infallible,
+    future::Future,
+    pin::Pin,
+    task::{Context, Poll},
+};
 
 use axum::{
     body::Body,
     extract::{FromRequestParts, Query},
+    http::Request,
     response::{IntoResponse, Response},
 };
 use cookie_monster::CookieJar;
@@ -38,19 +44,16 @@ impl<H> OAuth2RedirectService<H> {
     }
 }
 
-impl<H: OAuth2Handler> Service<axum::http::Request<Body>> for OAuth2RedirectService<H> {
+impl<H: OAuth2Handler> Service<Request<Body>> for OAuth2RedirectService<H> {
     type Response = Response;
     type Error = Infallible;
     type Future = BoxFuture<Result<Response, Infallible>>;
 
-    fn poll_ready(
-        &mut self,
-        _cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Result<(), Self::Error>> {
-        std::task::Poll::Ready(Ok(()))
+    fn poll_ready(&mut self, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        Poll::Ready(Ok(()))
     }
 
-    fn call(&mut self, req: axum::http::Request<Body>) -> Self::Future {
+    fn call(&mut self, req: Request<Body>) -> Self::Future {
         let context = self.context.clone();
         Box::pin(async move {
             let (mut parts, _body) = req.into_parts();
@@ -88,19 +91,16 @@ impl<H> OAuth2LoginService<H> {
     }
 }
 
-impl<H: OAuth2Handler> Service<axum::http::Request<Body>> for OAuth2LoginService<H> {
+impl<H: OAuth2Handler> Service<Request<Body>> for OAuth2LoginService<H> {
     type Response = Response;
     type Error = Infallible;
     type Future = BoxFuture<Result<Response, Infallible>>;
 
-    fn poll_ready(
-        &mut self,
-        _cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Result<(), Self::Error>> {
-        std::task::Poll::Ready(Ok(()))
+    fn poll_ready(&mut self, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        Poll::Ready(Ok(()))
     }
 
-    fn call(&mut self, _req: axum::http::Request<Body>) -> Self::Future {
+    fn call(&mut self, _req: Request<Body>) -> Self::Future {
         let context = self.context.clone();
         Box::pin(async move { Ok(context.start_challenge().await) })
     }

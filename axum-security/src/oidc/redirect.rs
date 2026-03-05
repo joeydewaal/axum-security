@@ -1,8 +1,14 @@
-use std::{convert::Infallible, future::Future, pin::Pin};
+use std::{
+    convert::Infallible,
+    future::Future,
+    pin::Pin,
+    task::{Context, Poll},
+};
 
 use axum::{
     body::Body,
     extract::{FromRequestParts, Query},
+    http::Request,
     response::{IntoResponse, Response},
 };
 use cookie_monster::CookieJar;
@@ -38,7 +44,7 @@ impl<H: OidcHandler> OidcRedirectService<H> {
     }
 }
 
-impl<H: OidcHandler> Service<axum::http::Request<Body>> for OidcRedirectService<H> {
+impl<H: OidcHandler> Service<Request<Body>> for OidcRedirectService<H> {
     type Response = Response;
     type Error = Infallible;
     type Future = BoxFuture<Result<Response, Infallible>>;
@@ -88,19 +94,16 @@ impl<H: OidcHandler> OidcLogoutService<H> {
     }
 }
 
-impl<H: OidcHandler> Service<axum::http::Request<Body>> for OidcLogoutService<H> {
+impl<H: OidcHandler> Service<Request<Body>> for OidcLogoutService<H> {
     type Response = Response;
     type Error = Infallible;
     type Future = BoxFuture<Result<Response, Infallible>>;
 
-    fn poll_ready(
-        &mut self,
-        _cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Result<(), Self::Error>> {
-        std::task::Poll::Ready(Ok(()))
+    fn poll_ready(&mut self, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        Poll::Ready(Ok(()))
     }
 
-    fn call(&mut self, _req: axum::http::Request<Body>) -> Self::Future {
+    fn call(&mut self, _req: Request<Body>) -> Self::Future {
         let context = self.context.clone();
         Box::pin(async move {
             let (parts, _) = _req.into_parts();
@@ -133,19 +136,16 @@ impl<H: OidcHandler> OidcLoginService<H> {
     }
 }
 
-impl<H: OidcHandler> Service<axum::http::Request<Body>> for OidcLoginService<H> {
+impl<H: OidcHandler> Service<Request<Body>> for OidcLoginService<H> {
     type Response = Response;
     type Error = Infallible;
     type Future = BoxFuture<Result<Response, Infallible>>;
 
-    fn poll_ready(
-        &mut self,
-        _cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Result<(), Self::Error>> {
-        std::task::Poll::Ready(Ok(()))
+    fn poll_ready(&mut self, _cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        Poll::Ready(Ok(()))
     }
 
-    fn call(&mut self, _req: axum::http::Request<Body>) -> Self::Future {
+    fn call(&mut self, _req: Request<Body>) -> Self::Future {
         let context = self.context.clone();
         Box::pin(async move { Ok(context.start_challenge().await) })
     }

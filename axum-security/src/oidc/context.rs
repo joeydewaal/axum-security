@@ -79,11 +79,6 @@ impl OidcContext<()> {
         let issuer_url = format!("{}/realms/{}", base_url.trim_end_matches('/'), realm);
         Self::discover("keycloak", &issuer_url).await
     }
-
-    pub async fn auth0(domain: &str) -> Result<OidcContextBuilder, OidcBuilderError> {
-        let issuer_url = format!("https://{}/", domain.trim_end_matches('/'));
-        Self::discover("auth0", &issuer_url).await
-    }
 }
 
 impl<H: OidcHandler> OidcContext<H> {
@@ -236,7 +231,7 @@ impl<H: OidcHandler> OidcContext<H> {
             post_logout_redirect_url: self.0.post_logout_redirect_url.clone(),
             id_token_hint: None,
             logout_hint: None,
-            client_id: Some(self.0.client.client_id().clone().to_string()),
+            client_id: Some(self.0.client.client_id().to_string()),
             state: None,
         }
     }
