@@ -7,6 +7,10 @@ use crate::cookie::{
 };
 pub(crate) use crate::cookie_options::CookieOptionsBuilder;
 
+/// Builder for [`CookieContext`](super::CookieContext).
+///
+/// Configure the session store, cookie options, and expiry, then call
+/// [`build`](CookieSessionBuilder::build) to create the context.
 pub struct CookieSessionBuilder<S> {
     store: S,
     pub(crate) cookie_opts: CookieOptionsBuilder,

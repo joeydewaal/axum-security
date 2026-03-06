@@ -13,7 +13,7 @@
 //!
 //! # Example
 //!
-//! ```rust,no_run
+//! ```rust
 //! use axum::{Router, response::Html, routing::{get, post}};
 //! use axum_security::csrf::{CsrfLayer, CsrfToken};
 //!
@@ -34,7 +34,7 @@
 //!     .secret("change-me-to-a-real-secret")
 //!     .build();
 //!
-//! let app = Router::new()
+//! let app = Router::<()>::new()
 //!     .route("/", get(form))
 //!     .route("/submit", post(submit))
 //!     .layer(csrf);

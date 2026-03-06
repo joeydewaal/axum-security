@@ -5,7 +5,9 @@ use crate::oauth2::{
     redirect::{OAuth2LoginService, OAuth2RedirectService},
 };
 
+/// Extension trait on [`Router`] to register OAuth 2.0 login and callback routes.
 pub trait OAuth2Ext {
+    /// Add the login redirect and callback routes for the given [`OAuth2Context`].
     fn with_oauth2<H: OAuth2Handler>(self, context: OAuth2Context<H>) -> Self;
 }
 

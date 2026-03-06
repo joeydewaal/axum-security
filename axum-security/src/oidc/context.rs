@@ -34,6 +34,14 @@ pub(crate) type OidcClient = CoreClient<
     EndpointMaybeSet,
 >;
 
+/// OIDC context that manages the login/logout flow.
+///
+/// Construct with [`OidcContext::discover`] (auto-discovery) or
+/// [`OidcContext::builder`] (manual endpoints). Provider shortcuts:
+/// [`google`](OidcContext::google), [`microsoft`](OidcContext::microsoft),
+/// [`apple`](OidcContext::apple), [`keycloak`](OidcContext::keycloak).
+///
+/// Register routes with [`OidcExt::with_oidc`](super::OidcExt::with_oidc).
 pub struct OidcContext<H>(pub(super) Arc<OidcContextInner<H>>);
 
 pub(super) struct OidcContextInner<H> {
@@ -237,6 +245,12 @@ impl<H: OidcHandler> OidcContext<H> {
     }
 }
 
+/// Context passed to [`OidcHandler::logout`](super::OidcHandler::logout).
+///
+/// Provides access to request extensions and methods to customize the
+/// logout redirect (ID token hint, logout hint, post-logout redirect URI).
+/// Call [`default_redirect`](LogoutContext::default_redirect) to build the
+/// redirect response using the configured end-session endpoint.
 pub struct LogoutContext {
     extensions: Extensions,
     end_session_url: Option<EndSessionUrl>,

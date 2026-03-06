@@ -1,3 +1,32 @@
+//! Role-based access control (RBAC).
+//!
+//! Define a role enum, implement [`RBAC`] to extract roles from your user type,
+//! then protect routes using the [`RBACExt`] trait on [`MethodRouter`].
+//!
+//! Requires an active session (from the `jwt`, `cookie`, or `basic-auth` feature).
+//! Returns `401` if no session is present, `403` if the user lacks the required roles.
+//!
+//! # Example
+//!
+//! ```rust,ignore
+//! use axum::{Router, routing::get};
+//! use axum_security::rbac::{RBAC, RBACExt};
+//!
+//! #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+//! enum Role { Admin, User }
+//!
+//! impl RBAC for Role {
+//!     type Resource = MyUser;
+//!     fn extract_roles(user: &MyUser) -> impl IntoIterator<Item = &Role> {
+//!         &user.roles
+//!     }
+//! }
+//!
+//! let app = Router::new()
+//!     .route("/admin", get(admin_handler).requires(Role::Admin))
+//!     .route("/any", get(handler).requires_any([Role::Admin, Role::User]));
+//! ```
+
 use std::{convert::Infallible, fmt::Debug, future::Future, marker::PhantomData, pin::Pin};
 
 use axum::{
@@ -11,6 +40,9 @@ use tower::{Layer, Service};
 #[cfg(any(feature = "jwt", feature = "cookie", feature = "basic-auth"))]
 use crate::session::Session;
 
+/// Tower [`Layer`] that enforces role requirements on a route.
+///
+/// Prefer using the [`RBACExt`] trait methods instead of constructing this directly.
 pub struct RbacLayer<R: RBAC> {
     required: AuthType<R>,
 }
@@ -34,6 +66,7 @@ impl<R: RBAC, S> Layer<S> for RbacLayer<R> {
     }
 }
 
+/// The [`Service`] created by [`RbacLayer`]. You don't need to construct this directly.
 pub struct RbacService<R: RBAC, S> {
     required: AuthType<R>,
     inner: S,
@@ -94,9 +127,13 @@ where
     }
 }
 
+/// Trait for role types. Implement this on your role enum to define how roles
+/// are extracted from a user (the `Resource` type).
 pub trait RBAC: Send + Sync + 'static + Clone + Eq + Copy + Debug {
+    /// The user type that holds roles.
     type Resource: Clone + Send + Sync + 'static;
 
+    /// Return the roles that `resource` has.
     fn extract_roles(resource: &Self::Resource) -> impl IntoIterator<Item = &Self>;
 }
 
@@ -106,9 +143,13 @@ enum AuthType<T: RBAC> {
     RequiresAny(Vec<T>),
 }
 
+/// Extension trait on [`MethodRouter`] for adding role requirements.
 pub trait RBACExt {
+    /// Require the user to have this single role.
     fn requires<T: RBAC>(self, role: T) -> Self;
+    /// Require the user to have **all** of the given roles.
     fn requires_all<T: RBAC>(self, roles: impl Into<Vec<T>>) -> Self;
+    /// Require the user to have **any** of the given roles.
     fn requires_any<T: RBAC>(self, roles: impl Into<Vec<T>>) -> Self;
 }
 
@@ -132,6 +173,8 @@ impl<S: Clone + 'static> RBACExt for MethodRouter<S, Infallible> {
     }
 }
 
+/// Extractor that provides the user's roles. Used internally by the `requires` macros.
+#[doc(hidden)]
 pub struct RolesExtractor<T: RBAC> {
     pub roles: Vec<T>,
     _p: PhantomData<T>,

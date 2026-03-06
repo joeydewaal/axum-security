@@ -1,3 +1,33 @@
+//! Server-side cookie session management.
+//!
+//! This module provides [`CookieContext`], which manages sessions backed by a
+//! pluggable [`CookieStore`]. Sessions are identified by a cookie containing
+//! a unique [`SessionId`]. The session state lives server-side in your store.
+//!
+//! Use [`CookieContext`] as a Tower [`Layer`](tower::Layer) to automatically
+//! load sessions from incoming requests. Then extract [`CookieSession<S>`] in
+//! handlers to access the session data.
+//!
+//! # Example
+//!
+//! ```rust,ignore
+//! use axum::{Router, routing::get};
+//! use axum_security::cookie::{CookieContext, CookieSession, MemStore};
+//!
+//! #[derive(Clone)]
+//! struct User { name: String }
+//!
+//! let cookie_ctx = CookieContext::builder()
+//!     .store(MemStore::new())
+//!     .build::<User>();
+//!
+//! let app = Router::new()
+//!     .route("/", get(|session: CookieSession<User>| async move {
+//!         format!("Hello, {}!", session.state.name)
+//!     }))
+//!     .layer(cookie_ctx);
+//! ```
+
 mod builder;
 mod expiry;
 mod id;
@@ -23,6 +53,13 @@ use tokio::task::JoinHandle;
 
 use crate::{cookie::store::ErasedStore, utils::utc_now};
 
+/// Manages server-side sessions identified by a cookie.
+///
+/// Construct with [`CookieContext::builder`]. Use as a Tower [`Layer`](tower::Layer)
+/// to load sessions from incoming requests, then extract [`CookieSession<S>`] in handlers.
+///
+/// Also implements [`FromRequestParts`] (via [`FromRef`]) so you can extract it
+/// in handlers to create or remove sessions.
 pub struct CookieContext<S>(Arc<CookieContextInner<S>>);
 
 struct CookieContextInner<S> {
@@ -32,16 +69,19 @@ struct CookieContextInner<S> {
 }
 
 impl CookieContext<()> {
+    /// Create a [`CookieSessionBuilder`] to configure the session store and cookie options.
     pub fn builder() -> CookieSessionBuilder<()> {
         CookieSessionBuilder::new()
     }
 }
 
 impl<S: 'static> CookieContext<S> {
+    /// Build a cookie for the given session ID using the configured cookie options.
     pub fn get_cookie(&self, session_id: SessionId) -> Cookie {
         self.0.cookie_opts.clone().value(session_id).build()
     }
 
+    /// Create a new session, store it, and return a `Set-Cookie` cookie.
     pub async fn create_session(&self, state: S) -> Result<Cookie, Response> {
         let session_id = SessionId::new();
         crate::debug!("Storing {session_id:?} in cookie store");
@@ -52,6 +92,7 @@ impl<S: 'static> CookieContext<S> {
         Ok(self.get_cookie(session_id))
     }
 
+    /// Remove the session identified by the cookie in the given jar.
     pub async fn remove_session_jar(
         &self,
         jar: &CookieJar,
@@ -63,6 +104,7 @@ impl<S: 'static> CookieContext<S> {
         self.0.store.remove_session(&session_id).await
     }
 
+    /// Remove the session identified by the given cookie.
     pub async fn remove_session_cookie(
         &self,
         cookie: &Cookie,
@@ -71,6 +113,7 @@ impl<S: 'static> CookieContext<S> {
         self.remove_session(&session_id).await
     }
 
+    /// Remove the session with the given ID from the store.
     pub async fn remove_session(
         &self,
         session_id: &SessionId,
@@ -78,14 +121,17 @@ impl<S: 'static> CookieContext<S> {
         self.0.store.remove_session(session_id).await
     }
 
+    /// Create a cookie builder with the configured options and a custom name.
     pub fn build_cookie(&self, name: impl Into<Cow<'static, str>>) -> CookieBuilder {
         self.0.cookie_opts.clone().name(name)
     }
 
+    /// Return a reference to the underlying cookie builder.
     pub fn cookie_builder(&self) -> &CookieBuilder {
         &self.0.cookie_opts
     }
 
+    /// Remove all sessions created before `deadline` (Unix timestamp in seconds).
     pub async fn remove_before(&self, deadline: u64) -> Result<(), Response> {
         self.0.store.remove_before(deadline).await
     }
@@ -116,6 +162,7 @@ impl<S: 'static> CookieContext<S> {
         Some(SessionId::from_cookie(cookie))
     }
 
+    /// Load a session from the store using a cookie's value as the session ID.
     pub async fn load_from_cookie(
         &self,
         cookie: &Cookie,

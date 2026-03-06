@@ -5,7 +5,9 @@ use super::{
     redirect::{OidcLoginService, OidcLogoutService, OidcRedirectService},
 };
 
+/// Extension trait on [`Router`] to register OIDC login, callback, and logout routes.
 pub trait OidcExt {
+    /// Add the OIDC login, callback, and (optionally) logout routes for the given [`OidcContext`].
     fn with_oidc<H: OidcHandler>(self, context: OidcContext<H>) -> Self;
 }
 

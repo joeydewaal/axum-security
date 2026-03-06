@@ -12,6 +12,7 @@ use tower::Service;
 
 use super::{KeyExtractor, store::Store};
 
+/// The [`Service`] created by [`RateLimitLayer`](super::RateLimitLayer). You don't need to construct this directly.
 #[derive(Clone)]
 pub struct RateLimitService<K: KeyExtractor, S> {
     pub(crate) inner: S,

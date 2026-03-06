@@ -15,6 +15,14 @@ use crate::{
 static PREFIX_BEARER: &str = "Bearer ";
 static PREFIX_NONE: &str = "";
 
+/// Builder for [`JwtContext`](super::JwtContext).
+///
+/// At minimum, provide signing keys via [`jwt_secret`](JwtContextBuilder::jwt_secret)
+/// or separate [`encoding_key`](JwtContextBuilder::encoding_key) /
+/// [`decoding_key`](JwtContextBuilder::decoding_key) calls.
+///
+/// By default, tokens are extracted from the `Authorization: Bearer <token>` header.
+/// Call [`extract_cookie`](JwtContextBuilder::extract_cookie) to extract from a cookie instead.
 pub struct JwtContextBuilder {
     encoding_key: Option<EncodingKey>,
     decoding_key: Option<DecodingKey>,
@@ -151,9 +159,12 @@ impl JwtContextBuilder {
     }
 }
 
+/// Error returned by [`JwtContextBuilder::try_build`].
 #[derive(Debug)]
 pub enum JwtBuilderError {
+    /// No encoding key was provided.
     EncodingKeyMissing,
+    /// No decoding key was provided.
     DecodingKeyMissing,
 }
 

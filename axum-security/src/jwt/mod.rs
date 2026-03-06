@@ -1,3 +1,31 @@
+//! JWT (JSON Web Token) authentication middleware and extractor.
+//!
+//! This module provides [`JwtContext`], a Tower [`Layer`](tower::Layer) that
+//! decodes JWTs from the `Authorization` header (or a cookie) and inserts
+//! the decoded claims into request extensions. Extract them in handlers
+//! with [`Jwt<T>`].
+//!
+//! # Example
+//!
+//! ```rust,ignore
+//! use axum::{Router, routing::get};
+//! use axum_security::jwt::{Jwt, JwtContext};
+//! use serde::{Serialize, Deserialize};
+//!
+//! #[derive(Serialize, Deserialize, Clone)]
+//! struct Claims { sub: String, exp: u64 }
+//!
+//! let jwt_ctx = JwtContext::builder()
+//!     .jwt_secret("my-secret")
+//!     .build::<Claims>();
+//!
+//! let app = Router::new()
+//!     .route("/", get(|Jwt(claims): Jwt<Claims>| async move {
+//!         format!("Hello, {}!", claims.sub)
+//!     }))
+//!     .layer(jwt_ctx);
+//! ```
+
 mod builder;
 mod service;
 mod session;
@@ -19,6 +47,10 @@ pub use jsonwebtoken::{
     get_current_timestamp,
 };
 
+/// JWT authentication context. Implements Tower [`Layer`](tower::Layer) (decodes
+/// tokens from requests) and [`FromRequestParts`] (via [`FromRef`]) for use in handlers.
+///
+/// Construct with [`JwtContext::builder`].
 pub struct JwtContext<T>(Arc<JwtContextInner<T>>);
 
 struct JwtContextInner<T> {
@@ -39,17 +71,21 @@ pub(crate) enum ExtractFrom {
     },
 }
 impl JwtContext<()> {
+    /// Create a [`JwtContextBuilder`] to configure keys, extraction method, and validation.
     pub fn builder() -> JwtContextBuilder {
         JwtContextBuilder::new()
     }
 }
 
 impl<T: Serialize> JwtContext<T> {
+    /// Encode claims into a signed JWT string.
     pub fn encode_token(&self, data: &T) -> jsonwebtoken::errors::Result<String> {
         encode(&self.0.jwt_header, data, &self.0.encoding_key)
     }
 
     #[cfg(feature = "cookie")]
+    /// Encode claims into a signed JWT and wrap it in a `Set-Cookie` cookie.
+    /// Only works when the context is configured to extract from a cookie.
     pub fn encode_token_to_cookie(&self, data: &T) -> jsonwebtoken::errors::Result<Cookie> {
         let token = encode(&self.0.jwt_header, data, &self.0.encoding_key)?;
         match &self.0.extract {
@@ -59,6 +95,7 @@ impl<T: Serialize> JwtContext<T> {
     }
 
     #[cfg(feature = "cookie")]
+    /// Return an expired cookie that clears the JWT cookie on the client.
     pub fn logout_cookie(&self) -> Cookie {
         match &self.0.extract {
             ExtractFrom::Cookie(cookie_builder) => {
@@ -77,6 +114,7 @@ impl<T: Serialize> JwtContext<T> {
 }
 
 impl<T: DeserializeOwned> JwtContext<T> {
+    /// Decode and validate a JWT string, returning the header and claims.
     pub fn decode(&self, jwt: impl AsRef<[u8]>) -> Result<TokenData<T>, JwtError> {
         decode(jwt.as_ref(), &self.0.decoding_key, &self.0.validation)
     }

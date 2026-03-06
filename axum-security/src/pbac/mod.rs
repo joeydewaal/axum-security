@@ -1,3 +1,25 @@
+//! Policy-based access control (PBAC).
+//!
+//! Define access policies as functions, closures, or custom types that implement
+//! [`Policy<U>`]. Combine them with [`and`](PolicyExt::and), [`or`](PolicyExt::or),
+//! and [`not`](PolicyExt::not). Apply them to routes with [`PolicyRouterExt::with_policy`].
+//!
+//! Requires an active session (from the `jwt`, `cookie`, or `basic-auth` feature).
+//! Returns `401` if no session is present, `403` if the policy denies access.
+//!
+//! # Example
+//!
+//! ```rust,ignore
+//! use axum::{Router, routing::get};
+//! use axum_security::pbac::{PolicyExt, PolicyRouterExt};
+//!
+//! fn is_admin(user: &MyUser) -> bool { user.admin }
+//! fn is_active(user: &MyUser) -> bool { !user.banned }
+//!
+//! let app = Router::new()
+//!     .route("/admin", get(handler).with_policy(is_admin.and(is_active)));
+//! ```
+
 use std::{convert::Infallible, future::Future, marker::PhantomData, pin::Pin};
 
 use axum::{
@@ -11,9 +33,15 @@ use tower::{Layer, Service};
 
 use crate::session::Session;
 
+/// A policy that decides whether a user is allowed access.
+///
+/// Return `Ok(true)` to allow, `Ok(false)` to deny (→ 403), or `Err(e)` for a custom
+/// error response. Closures `Fn(&U) -> bool` implement this trait automatically.
 pub trait Policy<U>: Send + Sync + 'static + Clone {
+    /// The error type returned when the policy evaluation itself fails.
     type Error: IntoResponse + Send;
 
+    /// Evaluate the policy for the given user.
     fn evaluate(&self, user: &U) -> impl Future<Output = Result<bool, Self::Error>> + Send;
 }
 
@@ -29,6 +57,7 @@ where
     }
 }
 
+/// Combinator: both policies must allow. Created by [`PolicyExt::and`].
 #[derive(Clone)]
 pub struct AllOf<P1, P2>(pub P1, pub P2);
 
@@ -56,6 +85,7 @@ where
     }
 }
 
+/// Combinator: at least one policy must allow. Created by [`PolicyExt::or`].
 #[derive(Clone)]
 pub struct AnyOf<P1, P2>(pub P1, pub P2);
 
@@ -83,6 +113,7 @@ where
     }
 }
 
+/// Combinator: inverts the policy. Created by [`PolicyExt::not`].
 #[derive(Clone)]
 pub struct Not<P>(pub P);
 
@@ -98,15 +129,21 @@ where
     }
 }
 
+/// Provides [`and`](PolicyExt::and), [`or`](PolicyExt::or), and [`not`](PolicyExt::not) combinators.
+///
+/// Automatically implemented for all [`Policy`] types.
 pub trait PolicyExt<U>: Policy<U> + Sized {
+    /// Require both `self` and `other` to allow access.
     fn and<P: Policy<U>>(self, other: P) -> AllOf<Self, P> {
         AllOf(self, other)
     }
 
+    /// Allow access if either `self` or `other` allows.
     fn or<P: Policy<U>>(self, other: P) -> AnyOf<Self, P> {
         AnyOf(self, other)
     }
 
+    /// Invert this policy (allow becomes deny and vice versa).
     fn not(self) -> Not<Self> {
         Not(self)
     }
@@ -114,6 +151,7 @@ pub trait PolicyExt<U>: Policy<U> + Sized {
 
 impl<U, P: Policy<U>> PolicyExt<U> for P {}
 
+/// A policy that always allows access.
 #[derive(Clone, Copy)]
 pub struct Allow;
 
@@ -125,6 +163,7 @@ impl<U: Send + Sync + 'static> Policy<U> for Allow {
     }
 }
 
+/// A policy that always denies access.
 #[derive(Clone, Copy)]
 pub struct Deny;
 
@@ -136,6 +175,9 @@ impl<U: Send + Sync + 'static> Policy<U> for Deny {
     }
 }
 
+/// Bridge from RBAC: a policy that checks if the user has a specific role.
+///
+/// Requires the `rbac` feature.
 #[cfg(feature = "rbac")]
 pub struct HasRole<R: crate::rbac::RBAC> {
     role: R,
@@ -193,6 +235,7 @@ where
     }
 }
 
+/// The [`Service`] created by `PolicyLayer`. You don't need to construct this directly.
 pub struct PolicyService<P, S, U> {
     policy: P,
     inner: S,
@@ -261,7 +304,9 @@ where
     }
 }
 
+/// Extension trait for applying a [`Policy`] to a [`MethodRouter`] or [`Router`].
 pub trait PolicyRouterExt {
+    /// Apply a policy to this route. Denies with `403` if the policy returns `false`.
     fn with_policy<P, U>(self, policy: P) -> Self
     where
         P: Policy<U> + 'static,

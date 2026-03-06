@@ -5,6 +5,10 @@ use axum::{
     http::{Extensions, StatusCode, request::Parts},
 };
 
+/// Decoded JWT claims extracted from request extensions.
+///
+/// Use as a handler parameter to require a valid JWT (returns `401` if missing).
+/// Use `Option<Jwt<T>>` for optional extraction.
 #[derive(Clone, Debug)]
 pub struct Jwt<T>(pub T);
 

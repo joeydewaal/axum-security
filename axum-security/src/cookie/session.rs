@@ -7,10 +7,17 @@ use axum::{
 
 use crate::cookie::SessionId;
 
+/// A server-side session loaded from the cookie store.
+///
+/// Use as a handler extractor to require an active session (returns `401`
+/// if missing). Use `Option<CookieSession<S>>` for optional extraction.
 #[derive(Clone, Debug)]
 pub struct CookieSession<S> {
+    /// The unique session identifier (matches the cookie value).
     pub session_id: SessionId,
+    /// Unix timestamp (seconds) when the session was created.
     pub created_at: u64,
+    /// The application-defined session state.
     pub state: S,
 }
 

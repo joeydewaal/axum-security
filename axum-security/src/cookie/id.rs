@@ -3,6 +3,9 @@ use std::borrow::Cow;
 use cookie_monster::Cookie;
 use uuid::Uuid;
 
+/// Unique identifier for a cookie session, stored as the cookie value.
+///
+/// Generated as a UUID v7 by default.
 #[derive(Debug, Hash, Clone, PartialEq, Eq)]
 pub struct SessionId(Box<str>);
 

@@ -17,6 +17,11 @@ use crate::oauth2::{
     cookie::OAuth2Cookie,
 };
 
+/// OAuth 2.0 context that manages the login flow.
+///
+/// Construct with [`OAuth2Context::builder`] or a provider shortcut
+/// ([`github`](OAuth2Context::github), [`discord`](OAuth2Context::discord), etc.).
+/// Register routes with [`OAuth2Ext::with_oauth2`](super::OAuth2Ext::with_oauth2).
 pub struct OAuth2Context<H>(pub(super) Arc<OAuth2ContextInner<H>>);
 
 pub(super) struct OAuth2ContextInner<H> {

@@ -1,8 +1,28 @@
+//! Unified session type across authentication methods.
+//!
+//! [`Session<U>`] is an enum that wraps the user type from whichever
+//! authentication layer ran: JWT, cookie, or basic auth. It implements
+//! [`Deref`](std::ops::Deref) to `U`, so you can access the inner user
+//! directly.
+//!
+//! This type is used internally by the [`rbac`](crate::rbac),
+//! [`pbac`](crate::pbac), and [`rate_limit`](crate::rate_limit) modules
+//! to work with any authentication method.
+//!
+//! You can also use it as a handler extractor when you support multiple
+//! auth methods and don't care which one was used.
+
 use axum::{
     extract::FromRequestParts,
     http::{Extensions, StatusCode, request::Parts},
 };
 
+/// A session extracted from request extensions, wrapping the authenticated user.
+///
+/// Variants are gated behind their respective features (`jwt`, `cookie`, `basic-auth`).
+/// Implements `Deref<Target = U>` for direct access to the inner user type.
+///
+/// Returns `401 Unauthorized` when used as a handler extractor if no session is present.
 #[derive(Clone)]
 pub enum Session<U> {
     #[cfg(feature = "jwt")]
@@ -14,6 +34,7 @@ pub enum Session<U> {
 }
 
 impl<U: Clone + Send + Sync + 'static> Session<U> {
+    /// Extract a session from request extensions, trying each enabled auth method.
     pub fn from_extensions(extensions: &mut Extensions) -> Option<Session<U>> {
         #[cfg(feature = "jwt")]
         if let Some(jwt) = extensions.remove::<crate::jwt::Jwt<U>>() {
@@ -33,6 +54,7 @@ impl<U: Clone + Send + Sync + 'static> Session<U> {
         None
     }
 
+    /// Re-insert this session into request extensions (restores the original variant).
     pub fn insert_into(self, extensions: &mut Extensions) {
         match self {
             #[cfg(feature = "jwt")]

@@ -7,7 +7,7 @@
 //!
 //! # Example
 //!
-//! ```rust,no_run
+//! ```rust
 //! use axum::{Router, http::StatusCode, routing::get};
 //! use axum_security::basic_auth::{BasicAuth, BasicAuthLayer, BasicAuthenticator};
 //!
@@ -39,7 +39,7 @@
 //!     format!("Hello, {}!", user.username)
 //! }
 //!
-//! let app = Router::new()
+//! let app = Router::<()>::new()
 //!     .route("/hello", get(hello))
 //!     .layer(BasicAuthLayer::new(MyAuth));
 //! ```
