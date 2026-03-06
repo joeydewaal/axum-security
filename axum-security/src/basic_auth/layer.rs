@@ -17,11 +17,19 @@ use super::{BasicAuth, BasicAuthenticator};
 
 type BoxFuture<T> = Pin<Box<dyn Future<Output = T> + Send + 'static>>;
 
+/// Tower [`Layer`] that performs HTTP Basic Authentication.
+///
+/// Decodes the `Authorization: Basic ...` header, passes the credentials to your
+/// [`BasicAuthenticator`], and inserts [`BasicAuth<U>`](super::BasicAuth) into
+/// request extensions on success. Unauthenticated requests pass through without
+/// a user in extensions — use [`BasicAuth<U>`](super::BasicAuth) in your handler
+/// to enforce a 401 response, or `Option<BasicAuth<U>>` for optional auth.
 pub struct BasicAuthLayer<A> {
     authenticator: Arc<A>,
 }
 
 impl<A> BasicAuthLayer<A> {
+    /// Create a new `BasicAuthLayer` with the given authenticator.
     pub fn new(authenticator: A) -> Self {
         Self {
             authenticator: Arc::new(authenticator),
@@ -40,6 +48,7 @@ impl<A: 'static, S> Layer<S> for BasicAuthLayer<A> {
     }
 }
 
+/// The [`Service`] created by [`BasicAuthLayer`]. You don't need to construct this directly.
 pub struct BasicAuthService<A, S> {
     authenticator: Arc<A>,
     inner: S,

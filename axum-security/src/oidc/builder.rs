@@ -11,16 +11,9 @@ use openidconnect::{
     reqwest::Client as HttpClient,
 };
 
-use crate::utils::get_env;
+use crate::{http::default_reqwest_client, utils::get_env};
 
 use super::{OidcContext, OidcHandler, context::OidcContextInner, cookie::OidcCookieBuilder};
-
-fn default_oidc_http_client() -> HttpClient {
-    openidconnect::reqwest::Client::builder()
-        .redirect(openidconnect::reqwest::redirect::Policy::none())
-        .build()
-        .unwrap()
-}
 
 pub struct OidcContextBuilder {
     cookie_builder: OidcCookieBuilder,
@@ -70,7 +63,7 @@ impl OidcContextBuilder {
         let issuer =
             IssuerUrl::new(issuer_url.to_string()).map_err(OidcBuilderError::InvalidIssuerUrl)?;
 
-        let http_client = default_oidc_http_client();
+        let http_client = default_reqwest_client();
 
         let metadata = ProviderMetadataWithLogout::discover_async(issuer, &http_client)
             .await
@@ -309,7 +302,7 @@ impl OidcContextBuilder {
             logout_path: self.logout_path,
             end_session_url,
             post_logout_redirect_url,
-            http_client: self.http_client.unwrap_or_else(default_oidc_http_client),
+            http_client: self.http_client.unwrap_or_else(default_reqwest_client),
             scopes: self.scopes,
         })))
     }

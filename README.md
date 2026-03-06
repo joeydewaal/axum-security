@@ -18,6 +18,7 @@ A security toolbox for the Axum library.
 ### Features
 * `cookie`, adds support for cookie sessions.
 * `jwt`, adds support for jwt sessions.
+* `basic-auth`, adds support for HTTP basic authentication.
 * `oauth2`, adds support for oauth2.
 * `jiff`, adds support for the [jiff](https://docs.rs/jiff/latest/jiff/) crate.
 * `chrono`, adds support for the [chrono](https://docs.rs/chrono/latest/chrono/) crate.
@@ -185,6 +186,57 @@ let router = Router::new()
     .route("/me", get(authorized))
     .layer(cookie_service)
     .with_oauth2(oauth2_service);
+```
+
+## Basic auth
+### Config
+```rust
+#[derive(Clone)]
+struct User {
+    username: String,
+}
+
+struct MyAuth;
+
+impl BasicAuthenticator for MyAuth {
+    type User = User;
+    type Error = StatusCode;
+
+    async fn authenticate(
+        &self,
+        username: &str,
+        password: &str,
+    ) -> Result<Option<User>, StatusCode> {
+        // Replace this with a real database lookup.
+        if username == "admin" && password == "secret" {
+            Ok(Some(User {
+                username: username.to_owned(),
+            }))
+        } else {
+            Ok(None)
+        }
+    }
+}
+
+let router = Router::new()
+    .route("/", get(greet))
+    .route("/hello", get(hello))
+    .layer(BasicAuthLayer::new(MyAuth));
+```
+
+### Extractors
+```rust
+async fn hello(BasicAuth(user): BasicAuth<User>) -> String {
+    format!("Hello, {}!", user.username)
+}
+
+async fn greet(auth: Option<BasicAuth<User>>) -> String {
+    if let Some(BasicAuth(user)) = auth {
+        format!("Welcome back, {}!", user.username)
+    } else {
+        "Welcome, guest!".to_owned()
+    }
+}
 ```
 
 ## Role-base access control

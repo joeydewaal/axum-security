@@ -109,7 +109,7 @@ mod headers_service {
     }
 
     #[tokio::test]
-    async fn test_muliple() -> Result<(), Box<dyn Error>> {
+    async fn test_multiple() -> Result<(), Box<dyn Error>> {
         let headers = SecurityHeaders::new()
             .add(XssProtection::ZERO)
             .add(CrossOriginOpenerPolicy::SAME_ORIGIN);
