@@ -82,4 +82,4 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@v2
-      - run: cd examples && cargo check
+      - run: cargo check --config examples/Cargo.toml
