@@ -360,8 +360,6 @@ See the [`examples/`](examples/) directory for complete, runnable examples of ea
 - CSP nonce support
 - OIDC logout support
 - Eager/lazy session loading
-- More tests
-- CI
 
 ## License
 

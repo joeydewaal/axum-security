@@ -50,6 +50,23 @@ struct SqlxStore {
     pool: SqlitePool,
 }
 
+struct StoreError {
+    err: sqlx::Error,
+}
+
+impl From<sqlx::Error> for StoreError {
+    fn from(value: sqlx::Error) -> Self {
+        Self { err: value }
+    }
+}
+
+impl IntoResponse for StoreError {
+    fn into_response(self) -> axum::response::Response {
+        eprintln!("{}", self.err);
+        StatusCode::INTERNAL_SERVER_ERROR.into_response()
+    }
+}
+
 #[derive(FromRow)]
 struct UserWithSession {
     #[sqlx(flatten)]
@@ -84,12 +101,12 @@ async fn load_user(
 
 impl CookieStore for SqlxStore {
     type State = User;
-    type Error = sqlx::Error;
+    type Error = StoreError;
 
     async fn load_session(
         &self,
         id: &SessionId,
-    ) -> sqlx::Result<Option<CookieSession<Self::State>>> {
+    ) -> Result<Option<CookieSession<Self::State>>, Self::Error> {
         let user = load_user(id, &self.pool).await?;
 
         let Some(user) = user else {
@@ -103,7 +120,7 @@ impl CookieStore for SqlxStore {
         )))
     }
 
-    async fn store_session(&self, session: CookieSession<User>) -> sqlx::Result<()> {
+    async fn store_session(&self, session: CookieSession<User>) -> Result<(), Self::Error> {
         sqlx::query(
             "
         INSERT INTO user_sessions(
@@ -123,7 +140,10 @@ impl CookieStore for SqlxStore {
         Ok(())
     }
 
-    async fn remove_session(&self, id: &SessionId) -> sqlx::Result<Option<CookieSession<User>>> {
+    async fn remove_session(
+        &self,
+        id: &SessionId,
+    ) -> sqlx::Result<Option<CookieSession<User>>, Self::Error> {
         let mut tx = self.pool.begin().await?;
 
         let user = load_user(id, &mut *tx).await?;
@@ -139,7 +159,7 @@ impl CookieStore for SqlxStore {
         Ok(user.map(|u| CookieSession::new(u.session_id, u.created_at, u.user)))
     }
 
-    async fn remove_before(&self, deadline: u64) -> sqlx::Result<()> {
+    async fn remove_before(&self, deadline: u64) -> Result<(), Self::Error> {
         sqlx::query("DELETE FROM user_sessions WHERE created_at < $1")
             .bind(deadline as i64)
             .execute(&self.pool)

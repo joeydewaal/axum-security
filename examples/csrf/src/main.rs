@@ -5,7 +5,7 @@ use axum::{
     response::Html,
     routing::{get, post},
 };
-use axum_security::csrf::{Csrf, CsrfToken};
+use axum_security::csrf::{CsrfLayer, CsrfToken};
 use tokio::net::TcpListener;
 
 async fn form(csrf: CsrfToken) -> Html<String> {
@@ -45,7 +45,7 @@ async fn submit() -> &'static str {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    let csrf = Csrf::builder()
+    let csrf = CsrfLayer::builder()
         .secret("change-me-to-a-real-secret")
         .use_dev_cookie(cfg!(debug_assertions))
         .build();
