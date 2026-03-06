@@ -216,7 +216,7 @@ async fn session_extractable_after_rbac_layer() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-#[cfg(feature = "rbac-macros")]
+#[cfg(feature = "macros")]
 mod macro_tests {
     use super::*;
 

@@ -10,7 +10,7 @@ cookie = ["axum-security/cookie"]
 oauth2 = ["axum-security/oauth2"]
 basic-auth = ["axum-security/basic-auth"]
 rbac = ["axum-security/rbac", "axum-security/cookie"]
-rbac-macros = ["rbac", "axum-security/rbac-macros"]
+macros = ["rbac", "axum-security/macros"]
 pbac = ["axum-security/pbac", "axum-security/cookie"]
 oidc = ["axum-security/oidc"]
 csrf = ["axum-security/csrf"]
@@ -23,7 +23,7 @@ time = ["axum-security/time"]
 
 [dev-dependencies]
 trybuild = { version = "1", features = ["diff"] }
-axum-security = { path = "../axum-security", features = ["rbac-macros", "cookie"] }
+axum-security = { path = "../axum-security", features = ["macros", "rbac", "cookie"] }
 axum = { workspace = true, features = ["query", "http1"] }
 tower.workspace = true
 serde.workspace = true

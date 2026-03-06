@@ -18,7 +18,7 @@
 //! | `csrf` | [`csrf`] | CSRF protection (double-submit cookie) |
 //! | `rate-limit` | [`rate_limit`] | Rate limiting (fixed window / token bucket) |
 //!
-//! Additional features: `rbac-macros`, `rate-limit-macros`, `tracing`.
+//! Additional features: `macros`, `tracing`.
 //!
 //! # Session types
 //!

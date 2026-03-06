@@ -42,13 +42,13 @@ use algorithm::Algorithm;
 pub use service::RateLimitService;
 use store::Store;
 
-#[cfg(feature = "rate-limit-macros")]
+#[cfg(feature = "macros")]
 pub use axum_security_macros::RateLimitKey;
 
 /// Trait for user types that can produce a rate-limit key.
 ///
 /// Used by [`SessionKeyExtractor`] to key rate limits per user. Derive with
-/// `#[derive(RateLimitKey)]` (requires the `rate-limit-macros` feature) and
+/// `#[derive(RateLimitKey)]` (requires the `macros` feature) and
 /// mark the key field with `#[key]`.
 pub trait RateLimitKey {
     /// The key type used to identify this client in the rate-limit store.

@@ -19,7 +19,7 @@ A security toolkit for Axum.
 | `csrf` | CSRF protection (double-submit cookie) |
 | `rate-limit` | Rate limiting (fixed window / token bucket) |
 
-Additional features: `rbac-macros`, `rate-limit-macros`, `tracing`.
+Additional features: `macros`, `tracing`.
 
 Time crate integration: `jiff`, `chrono`, `time`.
 
@@ -237,7 +237,7 @@ impl RBAC for Role {
 }
 ```
 
-Protect routes with the `#[requires]` macro (needs the `rbac-macros` feature):
+Protect routes with the `#[requires]` macro (needs the `macros` feature):
 
 ```rust
 #[axum_security::rbac::requires(Role::Admin)]

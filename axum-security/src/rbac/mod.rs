@@ -223,7 +223,7 @@ pub fn __requires_any<T: RBAC>(resource: RolesExtractor<T>, roles: &[T]) -> Opti
     }
 }
 
-#[cfg(feature = "rbac-macros")]
+#[cfg(feature = "macros")]
 pub use axum_security_macros::{requires, requires_any};
 
 #[doc(hidden)]

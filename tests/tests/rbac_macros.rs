@@ -1,4 +1,4 @@
-#[cfg(feature = "rbac-macros")]
+#[cfg(feature = "macros")]
 #[test]
 fn rbac_macro_ui() {
     let t = trybuild::TestCases::new();
