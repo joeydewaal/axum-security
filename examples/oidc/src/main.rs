@@ -29,13 +29,13 @@ struct LoginHandler {
 impl OidcHandler for LoginHandler {
     async fn after_login(
         &self,
-        token_res: OidcTokenResponse,
+        token_res: OidcTokenResponse<'_>,
         cookies: &mut AfterLoginCookies<'_>,
     ) -> impl IntoResponse {
         let user = User {
-            subject: token_res.claims.subject,
-            email: token_res.claims.email,
-            name: token_res.claims.name,
+            subject: token_res.claims.subject.to_string(),
+            email: token_res.claims.email.map(ToString::to_string),
+            name: token_res.claims.name.map(ToString::to_string),
             id_token: "".into(),
         };
 
