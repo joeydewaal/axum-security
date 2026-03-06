@@ -82,18 +82,4 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@v2
-      - run: >-
-          cargo check
-          -p basic-auth
-          -p headers
-          -p jwt
-          -p rate-limit
-          -p cookie
-          -p oauth2
-          -p oauth2-redirect
-          -p oidc
-          -p csrf
-          -p rbac
-          -p policy
-          -p store
-          -p jwt-cookie
+      - run: cd examples && cargo check
