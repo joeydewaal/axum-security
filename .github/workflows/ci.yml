@@ -1,0 +1,99 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  fmt:
+    name: Format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup component add rustfmt
+      - run: cargo fmt --all -- --check
+
+  typos:
+    name: Typos
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: crate-ci/typos@v1.31.1
+
+  clippy:
+    name: Clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup component add clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo install cargo-hack --locked
+      - name: Clippy axum-security (each feature)
+        run: >-
+          cargo hack clippy -p axum-security
+          --each-feature
+          --exclude-features oidc,jiff,chrono,time
+          -- -D warnings
+      - name: Clippy axum-security (oidc)
+        run: cargo clippy -p axum-security --features oidc,oauth2 -- -D warnings
+      - name: Clippy axum-security-macros
+        run: cargo clippy -p axum-security-macros -- -D warnings
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo install cargo-hack --locked
+      - name: Unit tests
+        run: cargo test -p axum-security --features jwt,basic-auth,cookie,rbac,macros,pbac,headers,rate-limit,tracing,oauth2,oidc,csrf
+      - name: Macro tests
+        run: cargo test -p axum-security-macros
+      - name: Integration tests (each feature)
+        run: >-
+          cargo hack test -p tests
+          --each-feature
+          --exclude-features oidc,jiff,chrono,time
+      - name: Integration tests (oidc)
+        run: cargo test -p tests --features oidc,oauth2
+
+  doc:
+    name: Documentation
+    runs-on: ubuntu-latest
+    env:
+      RUSTDOCFLAGS: "-D warnings"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+      - name: Doc axum-security
+        run: cargo doc --no-deps -p axum-security --features jwt,basic-auth,cookie,rbac,macros,pbac,headers,rate-limit,tracing,oauth2,oidc,csrf
+      - name: Doc axum-security-macros
+        run: cargo doc --no-deps -p axum-security-macros
+
+  examples:
+    name: Examples
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+      - run: >-
+          cargo check
+          -p basic-auth
+          -p headers
+          -p jwt
+          -p rate-limit
+          -p cookie
+          -p oauth2
+          -p oauth2-redirect
+          -p oidc
+          -p csrf
+          -p rbac
+          -p policy
+          -p store
+          -p jwt-cookie
