@@ -7,12 +7,30 @@ use crate::{headers::IntoSecurityHeader, utils::headers::InsertHeadersService};
 
 const CONTENT_SECURITY_POLICY: HeaderName = HeaderName::from_static("content-security-policy");
 
+/// `Content-Security-Policy` header.
+///
+/// Build one with [`ContentSecurityPolicy::builder`]. The result implements
+/// [`Layer`] (for standalone use) and [`IntoSecurityHeader`](super::IntoSecurityHeader)
+/// (for use with [`SecurityHeaders`](super::SecurityHeaders)).
+///
+/// # Example
+///
+/// ```rust
+/// use axum_security::headers::{ContentSecurityPolicy, CspSource};
+///
+/// let csp = ContentSecurityPolicy::builder()
+///     .default_src(CspSource::SELF)
+///     .script_src([CspSource::SELF, CspSource::host("https://cdn.example.com")])
+///     .upgrade_insecure_requests()
+///     .build();
+/// ```
 #[derive(Clone)]
 pub struct ContentSecurityPolicy {
     header_value: HeaderValue,
 }
 
 impl ContentSecurityPolicy {
+    /// Create a [`CspBuilder`] to construct a Content-Security-Policy header.
     pub fn builder() -> CspBuilder {
         CspBuilder {
             directives: Vec::new(),
@@ -20,10 +38,29 @@ impl ContentSecurityPolicy {
     }
 }
 
+/// Builder for [`ContentSecurityPolicy`].
+///
+/// Add directives with methods like [`default_src`](CspBuilder::default_src),
+/// [`script_src`](CspBuilder::script_src), etc., then call [`build`](CspBuilder::build).
 pub struct CspBuilder {
     directives: Vec<(Cow<'static, str>, Vec<CspSource>)>,
 }
 
+/// A CSP source expression.
+///
+/// Use the provided constants ([`SELF`](CspSource::SELF), [`NONE`](CspSource::NONE), etc.)
+/// or construct one with [`host`](CspSource::host) / [`scheme`](CspSource::scheme).
+///
+/// Pass a single source directly or wrap multiple sources in an array:
+///
+/// ```rust
+/// use axum_security::headers::{ContentSecurityPolicy, CspSource};
+///
+/// let csp = ContentSecurityPolicy::builder()
+///     .default_src(CspSource::NONE) // single source
+///     .script_src([CspSource::SELF, CspSource::host("https://cdn.example.com")]) // multiple
+///     .build();
+/// ```
 pub struct CspSource(CspSourceInner);
 
 #[derive(Clone)]

@@ -23,6 +23,7 @@ impl<S> Layer<S> for SecurityHeaders {
     }
 }
 
+/// The [`Service`] created by [`SecurityHeaders`]. You don't need to construct this directly.
 #[derive(Clone)]
 pub struct SecurityHeadersLayer<S> {
     inner: S,

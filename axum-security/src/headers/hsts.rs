@@ -9,12 +9,29 @@ use crate::{headers::IntoSecurityHeader, utils::headers::InsertHeadersService};
 // in seconds
 const PRELOAD_MIN_MAX_AGE: u64 = 365 * 24 * 60 * 60;
 
+/// `Strict-Transport-Security` header.
+///
+/// Build one with [`StrictTransportSecurity::builder`]. The result implements
+/// [`Layer`] and [`IntoSecurityHeader`](super::IntoSecurityHeader).
+///
+/// # Example
+///
+/// ```rust
+/// use axum_security::headers::StrictTransportSecurity;
+///
+/// let hsts = StrictTransportSecurity::builder()
+///     .max_age_years(1)
+///     .include_subdomains()
+///     .preload()
+///     .build();
+/// ```
 #[derive(Clone)]
 pub struct StrictTransportSecurity {
     header_value: HeaderValue,
 }
 
 impl StrictTransportSecurity {
+    /// Create a builder for this header.
     pub fn builder() -> HstsBuilder {
         HstsBuilder {
             max_age_secs: None,
@@ -24,6 +41,11 @@ impl StrictTransportSecurity {
     }
 }
 
+/// Builder for [`StrictTransportSecurity`].
+///
+/// Set a max-age with one of the `max_age_*` methods, then call
+/// [`build`](HstsBuilder::build) (panics if no max-age is set) or
+/// [`try_build`](HstsBuilder::try_build).
 pub struct HstsBuilder {
     /// Max age in seconds.
     max_age_secs: Option<u64>,
@@ -94,10 +116,14 @@ impl HstsBuilder {
     }
 }
 
+/// Error returned when building a [`StrictTransportSecurity`] header with invalid options.
 #[derive(Debug)]
 pub enum StrictTransportSecurityBuilderError {
+    /// No max-age was set.
     NoMaxAge,
+    /// `preload` requires a max-age of at least 1 year.
     InvalidMaxAge,
+    /// `preload` requires `include_subdomains`.
     IncludeSubdomainsRequired,
 }
 

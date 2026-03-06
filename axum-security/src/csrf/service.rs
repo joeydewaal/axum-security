@@ -18,6 +18,7 @@ use super::{CsrfConfig, CsrfToken, TOKEN_BYTE_LEN};
 
 const HMAC_LEN: usize = 32;
 
+/// The [`Service`] created by [`CsrfLayer`](super::CsrfLayer). You don't need to construct this directly.
 #[derive(Clone)]
 pub struct CsrfService<S> {
     pub(crate) inner: S,

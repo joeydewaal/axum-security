@@ -1,3 +1,65 @@
+//! Security headers middleware.
+//!
+//! This module provides Tower layers that add security-related HTTP response headers.
+//! Headers can be applied individually as layers or combined with [`SecurityHeaders`].
+//!
+//! # Available headers
+//!
+//! | Type | Header |
+//! |------|--------|
+//! | [`ContentSecurityPolicy`] | `Content-Security-Policy` |
+//! | [`StrictTransportSecurity`] | `Strict-Transport-Security` |
+//! | [`CrossOriginEmbedderPolicy`] | `Cross-Origin-Embedder-Policy` |
+//! | [`CrossOriginOpenerPolicy`] | `Cross-Origin-Opener-Policy` |
+//! | [`CrossOriginResourcePolicy`] | `Cross-Origin-Resource-Policy` |
+//! | [`OriginAgentCluster`] | `Origin-Agent-Cluster` |
+//! | [`ReferrerPolicy`] | `Referrer-Policy` |
+//! | [`ContentTypeOptions`] | `X-Content-Type-Options` |
+//! | [`DnsPrefetchControl`] | `X-DNS-Prefetch-Control` |
+//! | [`FrameOptions`] | `X-Frame-Options` |
+//! | [`XssProtection`] | `X-XSS-Protection` |
+//!
+//! Each header type implements [`Layer`](tower::Layer), so it can be applied directly
+//! to a router. It also implements [`IntoSecurityHeader`], so it can be added to a
+//! [`SecurityHeaders`] bundle.
+//!
+//! # Examples
+//!
+//! Apply a single header as a layer:
+//!
+//! ```rust
+//! use axum::Router;
+//! use axum_security::headers::CrossOriginOpenerPolicy;
+//!
+//! let app = Router::<()>::new()
+//!     .layer(CrossOriginOpenerPolicy::SAME_ORIGIN);
+//! ```
+//!
+//! Bundle multiple headers with [`SecurityHeaders`]:
+//!
+//! ```rust
+//! use axum::Router;
+//! use axum_security::headers::SecurityHeaders;
+//!
+//! let app = Router::<()>::new()
+//!     .layer(SecurityHeaders::recommended());
+//! ```
+//!
+//! Build a Content-Security-Policy:
+//!
+//! ```rust
+//! use axum::Router;
+//! use axum_security::headers::{ContentSecurityPolicy, CspSource};
+//!
+//! let csp = ContentSecurityPolicy::builder()
+//!     .default_src(CspSource::SELF)
+//!     .script_src([CspSource::SELF, CspSource::host("https://cdn.example.com")])
+//!     .upgrade_insecure_requests()
+//!     .build();
+//!
+//! let app = Router::<()>::new().layer(csp);
+//! ```
+
 mod csp;
 mod hsts;
 mod service;
@@ -118,6 +180,10 @@ struct SecurityHeader {
     value: HeaderValue,
 }
 
+/// Converts a header type into a `(HeaderName, HeaderValue)` pair.
+///
+/// All header types in this module implement this trait, allowing them to be
+/// passed to [`SecurityHeaders::add`] and [`SecurityHeaders::try_add`].
 pub trait IntoSecurityHeader {
     fn into_header(self) -> (HeaderName, HeaderValue);
 }
@@ -149,6 +215,25 @@ impl From<(HeaderName, HeaderValue)> for SecurityHeader {
     }
 }
 
+/// A bundle of security headers applied as a single Tower [`Layer`](tower::Layer).
+///
+/// Use [`SecurityHeaders::recommended`] for a sensible default set, or build a
+/// custom set with [`SecurityHeaders::new`] and [`add`](SecurityHeaders::add).
+///
+/// Call [`use_dev_headers(true)`](SecurityHeaders::use_dev_headers) in development
+/// to skip all headers (e.g. HSTS) that interfere with `localhost` workflows.
+///
+/// # Example
+///
+/// ```rust
+/// use axum::Router;
+/// use axum_security::headers::{SecurityHeaders, XssProtection};
+///
+/// let headers = SecurityHeaders::recommended()
+///     .add(XssProtection::ZERO);
+///
+/// let app = Router::<()>::new().layer(headers);
+/// ```
 #[derive(Clone)]
 pub struct SecurityHeaders {
     headers: Arc<HashSet<SecurityHeader>>,
@@ -162,6 +247,7 @@ impl Default for SecurityHeaders {
 }
 
 impl SecurityHeaders {
+    /// Create an empty `SecurityHeaders` set.
     pub fn new() -> Self {
         Self {
             headers: HashSet::new().into(),
@@ -169,6 +255,12 @@ impl SecurityHeaders {
         }
     }
 
+    /// Create a `SecurityHeaders` set with sensible defaults.
+    ///
+    /// Includes: `Cross-Origin-Opener-Policy: same-origin`,
+    /// `Cross-Origin-Resource-Policy: same-origin`, `Origin-Agent-Cluster: ?1`,
+    /// `Referrer-Policy: no-referrer`, `Strict-Transport-Security: max-age=31536000; includeSubDomains`,
+    /// `X-Content-Type-Options: nosniff`, `X-Frame-Options: SAMEORIGIN`, `X-XSS-Protection: 0`.
     pub fn recommended() -> Self {
         Self::new()
             .add(CrossOriginOpenerPolicy::SAME_ORIGIN)
@@ -185,13 +277,17 @@ impl SecurityHeaders {
             .add(XssProtection::ZERO)
     }
 
+    /// When `true`, clears all headers so nothing is added to responses.
+    ///
+    /// Use this in development to avoid HSTS and other headers that interfere
+    /// with `localhost` or plain HTTP.
     pub fn use_dev_headers(mut self, dev_headers: bool) -> Self {
         self.dev = dev_headers;
         Arc::make_mut(&mut self.headers).clear();
         self
     }
 
-    /// Also overrides
+    /// Add a header, replacing any existing header with the same name.
     #[allow(clippy::should_implement_trait)]
     pub fn add(mut self, header: impl IntoSecurityHeader) -> Self {
         if !self.dev {
@@ -200,7 +296,7 @@ impl SecurityHeaders {
         self
     }
 
-    /// Does not override existing
+    /// Add a header only if no header with that name exists yet.
     pub fn try_add(mut self, header: impl IntoSecurityHeader) -> Self {
         if !self.dev {
             Arc::make_mut(&mut self.headers).insert(header.into_header().into());
