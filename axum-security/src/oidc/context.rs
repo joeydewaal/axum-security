@@ -8,11 +8,11 @@ use axum::{
 
 use cookie_monster::{CookieBuilder, CookieJar};
 use http::Extensions;
-use oauth2::ClientId;
 use openidconnect::{
-    AuthenticationFlow, AuthorizationCode, CsrfToken, EmptyAdditionalClaims, EndSessionUrl,
-    EndpointMaybeSet, EndpointNotSet, EndpointSet, IdToken, LogoutHint, LogoutRequest, Nonce,
-    OAuth2TokenResponse, PkceCodeChallenge, PostLogoutRedirectUrl, Scope, TokenResponse as _,
+    AuthenticationFlow, AuthorizationCode, ClientId, CsrfToken, EmptyAdditionalClaims,
+    EndSessionUrl, EndpointMaybeSet, EndpointNotSet, EndpointSet, IdToken, LogoutHint,
+    LogoutRequest, Nonce, OAuth2TokenResponse, PkceCodeChallenge, PostLogoutRedirectUrl, Scope,
+    TokenResponse as _,
     core::{
         CoreClient, CoreGenderClaim, CoreJweContentEncryptionAlgorithm, CoreJwsSigningAlgorithm,
     },

@@ -7,12 +7,18 @@ use oauth2::{
 };
 
 use crate::{
-    http::default_reqwest_client,
     oauth2::{
         OAuth2Context, OAuth2Handler, context::OAuth2ContextInner, cookie::OAuthCookieBuilder,
     },
     utils::get_env,
 };
+
+fn default_reqwest_client() -> oauth2::reqwest::Client {
+    oauth2::reqwest::Client::builder()
+        .redirect(oauth2::reqwest::redirect::Policy::none())
+        .build()
+        .unwrap()
+}
 
 pub struct OAuth2ContextBuilder {
     cookie_builder: OAuthCookieBuilder,

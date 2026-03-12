@@ -11,9 +11,16 @@ use openidconnect::{
     reqwest::Client as HttpClient,
 };
 
-use crate::{http::default_reqwest_client, utils::get_env};
+use crate::utils::get_env;
 
 use super::{OidcContext, OidcHandler, context::OidcContextInner, cookie::OidcCookieBuilder};
+
+fn default_reqwest_client() -> openidconnect::reqwest::Client {
+    openidconnect::reqwest::Client::builder()
+        .redirect(openidconnect::reqwest::redirect::Policy::none())
+        .build()
+        .unwrap()
+}
 
 pub struct OidcContextBuilder {
     cookie_builder: OidcCookieBuilder,
