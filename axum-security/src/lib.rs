@@ -42,9 +42,6 @@ pub mod oidc;
 #[cfg(feature = "cookie")]
 pub mod cookie;
 
-#[cfg(any(feature = "oauth2", feature = "oidc"))]
-pub mod http;
-
 #[cfg(feature = "jwt")]
 pub mod jwt;
 
