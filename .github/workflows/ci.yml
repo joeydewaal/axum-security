@@ -37,7 +37,7 @@ jobs:
         run: >-
           cargo hack clippy -p axum-security
           --each-feature
-          --exclude-features oidc,jiff,chrono,time
+          --exclude-features oidc,jiff,chrono,time,csp-nonce
           -- -D warnings
       - name: Clippy axum-security (oidc)
         run: cargo clippy -p axum-security --features oidc,oauth2 -- -D warnings
@@ -52,14 +52,14 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo install cargo-hack --locked
       - name: Unit tests
-        run: cargo test -p axum-security --features jwt,basic-auth,cookie,rbac,macros,pbac,headers,rate-limit,tracing,oauth2,oidc,csrf
+        run: cargo test -p axum-security --features jwt,basic-auth,cookie,rbac,macros,pbac,headers,rate-limit,tracing,oauth2,oidc,csrf,csp-nonce
       - name: Macro tests
         run: cargo test -p axum-security-macros
       - name: Integration tests (each feature)
         run: >-
           cargo hack test -p tests
           --each-feature
-          --exclude-features oidc,jiff,chrono,time
+          --exclude-features oidc,jiff,chrono,time,csp-nonce
       - name: Integration tests (oidc)
         run: cargo test -p tests --features oidc,oauth2
 
@@ -72,7 +72,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@v2
       - name: Doc axum-security
-        run: cargo doc --no-deps -p axum-security --features jwt,basic-auth,cookie,rbac,macros,pbac,headers,rate-limit,tracing,oauth2,oidc,csrf
+        run: cargo doc --no-deps -p axum-security --features jwt,basic-auth,cookie,rbac,macros,pbac,headers,rate-limit,tracing,oauth2,oidc,csrf,csp-nonce
       - name: Doc axum-security-macros
         run: cargo doc --no-deps -p axum-security-macros
 

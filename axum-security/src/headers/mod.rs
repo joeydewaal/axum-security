@@ -62,6 +62,8 @@
 
 mod csp;
 mod hsts;
+#[cfg(feature = "csp-nonce")]
+mod nonce;
 mod service;
 
 use std::{borrow::Borrow, collections::HashSet, hash::Hash, sync::Arc};
@@ -69,6 +71,8 @@ use std::{borrow::Borrow, collections::HashSet, hash::Hash, sync::Arc};
 pub use csp::{ContentSecurityPolicy, CspBuilder, CspSource};
 pub use hsts::{StrictTransportSecurity, StrictTransportSecurityBuilderError};
 use http::{HeaderName, HeaderValue};
+#[cfg(feature = "csp-nonce")]
+pub use nonce::CspNonce;
 
 #[macro_export]
 macro_rules! define_header {

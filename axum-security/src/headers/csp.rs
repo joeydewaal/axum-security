@@ -1,11 +1,19 @@
 use std::borrow::Cow;
+#[cfg(feature = "csp-nonce")]
+use std::sync::Arc;
 
 use http::{HeaderName, HeaderValue};
 use tower::Layer;
 
+#[cfg(feature = "csp-nonce")]
+use super::nonce::{CspTemplate, NonceCspService};
 use crate::{headers::IntoSecurityHeader, utils::headers::InsertHeadersService};
 
 const CONTENT_SECURITY_POLICY: HeaderName = HeaderName::from_static("content-security-policy");
+
+/// Sentinel used in nonce templates, replaced at request time.
+#[cfg(feature = "csp-nonce")]
+pub(crate) const NONCE_SENTINEL: &str = "\x00NONCE\x00";
 
 /// `Content-Security-Policy` header.
 ///
@@ -26,7 +34,14 @@ const CONTENT_SECURITY_POLICY: HeaderName = HeaderName::from_static("content-sec
 /// ```
 #[derive(Clone)]
 pub struct ContentSecurityPolicy {
-    header_value: HeaderValue,
+    inner: CspInner,
+}
+
+#[derive(Clone)]
+enum CspInner {
+    Static(HeaderValue),
+    #[cfg(feature = "csp-nonce")]
+    Nonce(Arc<CspTemplate>),
 }
 
 impl ContentSecurityPolicy {
@@ -70,6 +85,8 @@ enum CspSourceInner {
     UnsafeInline,
     UnsafeEval,
     StrictDynamic,
+    #[cfg(feature = "csp-nonce")]
+    Nonce,
     Host(Cow<'static, str>),
     Scheme(Cow<'static, str>),
 }
@@ -80,6 +97,9 @@ impl CspSource {
     pub const UNSAFE_INLINE: CspSource = CspSource(CspSourceInner::UnsafeInline);
     pub const UNSAFE_EVAL: CspSource = CspSource(CspSourceInner::UnsafeEval);
     pub const STRICT_DYNAMIC: CspSource = CspSource(CspSourceInner::StrictDynamic);
+
+    #[cfg(feature = "csp-nonce")]
+    pub const NONCE: CspSource = CspSource(CspSourceInner::Nonce);
 
     pub fn host(host: impl Into<Cow<'static, str>>) -> Self {
         Self(CspSourceInner::Host(host.into()))
@@ -96,6 +116,8 @@ impl CspSource {
             CspSourceInner::UnsafeInline => "'unsafe-inline'".into(),
             CspSourceInner::UnsafeEval => "'unsafe-eval'".into(),
             CspSourceInner::StrictDynamic => "'strict-dynamic'".into(),
+            #[cfg(feature = "csp-nonce")]
+            CspSourceInner::Nonce => NONCE_SENTINEL.into(),
             CspSourceInner::Host(h) => h.clone(),
             CspSourceInner::Scheme(s) => s.clone(),
         }
@@ -164,7 +186,7 @@ impl CspBuilder {
         self
     }
 
-    pub fn build(self) -> ContentSecurityPolicy {
+    fn serialize_directives(&self) -> String {
         let mut buff = String::new();
 
         for (i, (name, sources)) in self.directives.iter().enumerate() {
@@ -181,28 +203,97 @@ impl CspBuilder {
             }
         }
 
+        buff
+    }
+
+    #[cfg(feature = "csp-nonce")]
+    fn has_nonce(&self) -> bool {
+        self.directives
+            .iter()
+            .any(|(_, sources)| sources.iter().any(|s| matches!(s.0, CspSourceInner::Nonce)))
+    }
+
+    pub fn build(self) -> ContentSecurityPolicy {
+        #[cfg(feature = "csp-nonce")]
+        assert!(
+            !self.has_nonce(),
+            "CspSource::NONCE requires `.build_nonce()` instead of `.build()`"
+        );
+
+        let buff = self.serialize_directives();
         let header_value =
             HeaderValue::from_str(&buff).expect("CSP header does not contain invalid bytes");
 
-        ContentSecurityPolicy { header_value }
+        ContentSecurityPolicy {
+            inner: CspInner::Static(header_value),
+        }
+    }
+
+    /// Build a `ContentSecurityPolicy` that generates a fresh nonce per request.
+    ///
+    /// Every occurrence of [`CspSource::NONCE`] is replaced with a random
+    /// `'nonce-<base64>'` value. The nonce is also available to handlers via
+    /// the [`CspNonce`](super::CspNonce) extractor.
+    ///
+    /// # Panics
+    ///
+    /// Panics if no directive contains `CspSource::NONCE`.
+    #[cfg(feature = "csp-nonce")]
+    pub fn build_nonce(self) -> ContentSecurityPolicy {
+        assert!(
+            self.has_nonce(),
+            "build_nonce() called but no directive uses CspSource::NONCE"
+        );
+
+        let template = self.serialize_directives();
+        ContentSecurityPolicy {
+            inner: CspInner::Nonce(Arc::new(CspTemplate::new(template))),
+        }
     }
 }
 
 impl<S> Layer<S> for ContentSecurityPolicy {
+    #[cfg(not(feature = "csp-nonce"))]
     type Service = InsertHeadersService<S>;
 
+    #[cfg(feature = "csp-nonce")]
+    type Service = CspService<S>;
+
     fn layer(&self, inner: S) -> Self::Service {
-        InsertHeadersService {
-            inner,
-            header_name: CONTENT_SECURITY_POLICY,
-            header_value: self.header_value.clone(),
+        match &self.inner {
+            CspInner::Static(hv) => {
+                let svc = InsertHeadersService {
+                    inner,
+                    header_name: CONTENT_SECURITY_POLICY,
+                    header_value: hv.clone(),
+                };
+                #[cfg(not(feature = "csp-nonce"))]
+                {
+                    svc
+                }
+                #[cfg(feature = "csp-nonce")]
+                {
+                    CspService::Static(svc)
+                }
+            }
+            #[cfg(feature = "csp-nonce")]
+            CspInner::Nonce(template) => CspService::Nonce(NonceCspService {
+                inner,
+                template: template.clone(),
+            }),
         }
     }
 }
 
 impl IntoSecurityHeader for ContentSecurityPolicy {
     fn into_header(self) -> (HeaderName, HeaderValue) {
-        (CONTENT_SECURITY_POLICY, self.header_value)
+        match self.inner {
+            CspInner::Static(hv) => (CONTENT_SECURITY_POLICY, hv),
+            #[cfg(feature = "csp-nonce")]
+            CspInner::Nonce(_) => {
+                panic!("nonce CSP cannot be used with SecurityHeaders; apply it as a layer instead")
+            }
+        }
     }
 }
 
@@ -212,8 +303,110 @@ impl IntoSecurityHeader for CspBuilder {
     }
 }
 
+#[cfg(feature = "csp-nonce")]
+mod csp_service {
+    use std::{
+        pin::Pin,
+        task::{Context, Poll, ready},
+    };
+
+    use axum::extract::Request;
+    use http::Response;
+    use pin_project_lite::pin_project;
+    use tower::Service;
+
+    use crate::utils::headers::{InsertHeader, InsertHeadersService};
+
+    use crate::headers::nonce::NonceCspService;
+
+    /// Wrapper service that dispatches to either static or nonce CSP handling.
+    #[derive(Clone)]
+    pub enum CspService<S> {
+        Static(InsertHeadersService<S>),
+        Nonce(NonceCspService<S>),
+    }
+
+    impl<S, IB, OB> Service<Request<IB>> for CspService<S>
+    where
+        S: Service<Request<IB>, Response = Response<OB>>,
+    {
+        type Response = Response<OB>;
+        type Error = S::Error;
+        type Future = CspFuture<S::Future>;
+
+        fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+            match self {
+                CspService::Static(s) => s.poll_ready(cx),
+                CspService::Nonce(s) => s.poll_ready(cx),
+            }
+        }
+
+        fn call(&mut self, req: Request<IB>) -> Self::Future {
+            match self {
+                CspService::Static(s) => CspFuture::Static { inner: s.call(req) },
+                CspService::Nonce(s) => {
+                    let (future, header_value) = s.call_parts(req);
+                    CspFuture::Nonce {
+                        future,
+                        header_value: Some(header_value),
+                    }
+                }
+            }
+        }
+    }
+
+    pin_project! {
+        #[project = CspFutureProj]
+        pub enum CspFuture<F> {
+            Static {
+                #[pin]
+                inner: InsertHeader<F>,
+            },
+            Nonce {
+                #[pin]
+                future: F,
+                header_value: Option<http::HeaderValue>,
+            },
+        }
+    }
+
+    impl<F, B, E> Future for CspFuture<F>
+    where
+        F: Future<Output = Result<Response<B>, E>>,
+    {
+        type Output = Result<Response<B>, E>;
+
+        fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+            match self.project() {
+                CspFutureProj::Static { inner } => inner.poll(cx),
+                CspFutureProj::Nonce {
+                    future,
+                    header_value,
+                } => {
+                    let res = ready!(future.poll(cx));
+                    let hv = header_value.take().expect("polled after completion");
+                    Poll::Ready(res.map(|mut res| {
+                        res.headers_mut().insert(super::CONTENT_SECURITY_POLICY, hv);
+                        res
+                    }))
+                }
+            }
+        }
+    }
+}
+
+#[cfg(feature = "csp-nonce")]
+pub use csp_service::CspService;
+
 #[cfg(test)]
 mod csp_tests {
+    fn static_header_value(csp: &super::ContentSecurityPolicy) -> &http::HeaderValue {
+        match &csp.inner {
+            super::CspInner::Static(hv) => hv,
+            #[cfg(feature = "csp-nonce")]
+            super::CspInner::Nonce(_) => panic!("expected static CSP"),
+        }
+    }
     use axum::{Router, body::Body, extract::Request};
     use tower::ServiceExt;
 
@@ -225,7 +418,7 @@ mod csp_tests {
         let csp = ContentSecurityPolicy::builder()
             .default_src(CspSource::NONE)
             .build();
-        assert_eq!(csp.header_value, "default-src 'none'");
+        assert_eq!(static_header_value(&csp), "default-src 'none'");
     }
 
     #[test]
@@ -233,7 +426,10 @@ mod csp_tests {
         let csp = ContentSecurityPolicy::builder()
             .default_src([CspSource::SELF, CspSource::host("https://example.com")])
             .build();
-        assert_eq!(csp.header_value, "default-src 'self' https://example.com");
+        assert_eq!(
+            static_header_value(&csp),
+            "default-src 'self' https://example.com"
+        );
     }
 
     #[test]
@@ -243,7 +439,7 @@ mod csp_tests {
             .script_src([CspSource::SELF, CspSource::host("https://cdn.example.com")])
             .build();
         assert_eq!(
-            csp.header_value,
+            static_header_value(&csp),
             "default-src 'self'; script-src 'self' https://cdn.example.com"
         );
     }
@@ -255,7 +451,7 @@ mod csp_tests {
             .upgrade_insecure_requests()
             .build();
         assert_eq!(
-            csp.header_value,
+            static_header_value(&csp),
             "default-src 'self'; upgrade-insecure-requests"
         );
     }
@@ -288,5 +484,25 @@ mod csp_tests {
             res.headers()["content-security-policy"],
             "default-src 'none'; script-src 'self'"
         );
+    }
+
+    #[cfg(feature = "csp-nonce")]
+    #[test]
+    fn build_nonce_template() {
+        let csp = ContentSecurityPolicy::builder()
+            .default_src(CspSource::SELF)
+            .script_src([CspSource::SELF, CspSource::NONCE])
+            .build_nonce();
+
+        assert!(matches!(csp.inner, CspInner::Nonce(_)));
+    }
+
+    #[cfg(feature = "csp-nonce")]
+    #[test]
+    #[should_panic(expected = ".build_nonce()")]
+    fn build_panics_with_nonce() {
+        ContentSecurityPolicy::builder()
+            .script_src(CspSource::NONCE)
+            .build();
     }
 }
