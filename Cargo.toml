@@ -14,7 +14,7 @@ jsonwebtoken = { version = "10.2.0", default-features = false }
 uuid = { version = "1.20", features = ["std"], default-features = false }
 
 oauth2 = { version = "5.0.0", default-features = false }
-openidconnect = { version = "4.0", default-features = false, features = ["reqwest", "rustls-tls"] }
+openidconnect = { version = "4.0.1", default-features = false, features = ["reqwest", "rustls-tls"] }
 
 serde = { version = "1.0.228", features = ["derive"] }
 wincode = { version = "0.4.4", features = ["derive"] }
