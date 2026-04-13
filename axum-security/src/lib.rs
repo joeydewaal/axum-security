@@ -16,7 +16,6 @@
 //! | `pbac` | [`pbac`] | Policy-based access control |
 //! | `headers` | [`headers`] | Security response headers (CSP, HSTS, etc.) |
 //! | `csrf` | [`csrf`] | CSRF protection (double-submit cookie) |
-//! | `rate-limit` | [`rate_limit`] | Rate limiting (fixed window / token bucket) |
 //!
 //! Additional features: `macros`, `tracing`.
 //!
@@ -75,6 +74,3 @@ pub mod headers;
 
 #[cfg(feature = "csrf")]
 pub mod csrf;
-
-#[cfg(feature = "rate-limit")]
-pub mod rate_limit;
