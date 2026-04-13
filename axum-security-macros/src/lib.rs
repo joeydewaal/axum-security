@@ -23,12 +23,9 @@ fn expand_inner<T: ToTokens>(attr: TokenStream, item: TokenStream, auth_func: T)
 
     // At least one argument required
     if role_exprs.is_empty() {
-        return syn::Error::new_spanned(
-            &input_fn.sig.ident,
-            "requires at least one role argument, e.g. #[requires(Role::Admin)]",
-        )
-        .to_compile_error()
-        .into();
+        return syn::Error::new_spanned(&input_fn.sig.ident, "requires at least one role argument")
+            .to_compile_error()
+            .into();
     }
 
     // Extract RBAC type from the first role expression

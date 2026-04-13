@@ -49,7 +49,7 @@ use axum::{
     http::{HeaderName, StatusCode, request::Parts},
 };
 use cookie_monster::{Cookie, CookieBuilder, SameSite};
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit};
 use sha2::Sha256;
 
 use crate::cookie_options::CookieOptionsBuilder;
