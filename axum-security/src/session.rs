@@ -6,8 +6,7 @@
 //! directly.
 //!
 //! This type is used internally by the [`rbac`](crate::rbac),
-//! [`pbac`](crate::pbac), and [`rate_limit`](crate::rate_limit) modules
-//! to work with any authentication method.
+//! [`pbac`](crate::pbac) module to work with any authentication method.
 //!
 //! You can also use it as a handler extractor when you support multiple
 //! auth methods and don't care which one was used.
