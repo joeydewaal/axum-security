@@ -17,7 +17,6 @@ A security toolkit for Axum.
 | `pbac` | Policy-based access control |
 | `headers` | Security response headers (CSP, HSTS, etc.) |
 | `csrf` | CSRF protection (double-submit cookie) |
-| `rate-limit` | Rate limiting (fixed window / token bucket) |
 
 Additional features: `macros`, `tracing`.
 
@@ -322,34 +321,6 @@ async fn form(csrf: CsrfToken) -> Html<String> {
 ```
 
 Tokens are validated automatically on non-safe HTTP methods (POST, PUT, DELETE, PATCH). Submit via the `_csrf` form field or the `x-csrf-token` header.
-
-## Rate limiting
-
-The `rate-limit` feature adds rate limiting with two algorithms: fixed window (default) and token bucket. Keys are extracted per-request (by IP, session, or a custom extractor).
-
-```rust
-use axum_security::rate_limit::RateLimitLayer;
-
-// Fixed window: 100 requests per 60 seconds
-let global_limiter = RateLimitLayer::builder()
-    .max_requests(100)
-    .window_secs(60)
-    .for_smart_ip()
-    .build();
-
-// Token bucket: burst of 10, refill 2 tokens/sec
-let api_limiter = RateLimitLayer::builder()
-    .token_bucket(10, 2.0)
-    .for_smart_ip()
-    .build();
-
-let router = Router::new()
-    .route("/", get(index))
-    .route("/api", get(api).layer(api_limiter))
-    .layer(global_limiter);
-```
-
-Returns 429 Too Many Requests with `Retry-After` when the limit is exceeded. Allowed responses include standard `RateLimit` headers.
 
 ## Examples
 
