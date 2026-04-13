@@ -2,7 +2,7 @@ use std::borrow::Cow;
 
 use base64::{Engine, prelude::BASE64_STANDARD};
 use cookie_monster::{Cookie, CookieBuilder, CookieJar, SameSite};
-use hmac::{Hmac, Mac};
+use hmac::{Hmac, KeyInit, Mac};
 use rand::Rng;
 use sha2::Sha256;
 use subtle::ConstantTimeEq;
