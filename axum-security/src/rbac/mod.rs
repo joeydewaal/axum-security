@@ -184,6 +184,7 @@ pub struct RolesExtractor<T: RBAC> {
 fn extract_roles__<R: RBAC + Copy>(parts: &mut Parts) -> Option<Vec<R>> {
     let session = Session::<R::Resource>::from_extensions(&mut parts.extensions)?;
     let roles: Vec<R> = R::extract_roles(&session).into_iter().copied().collect();
+    session.insert_into(&mut parts.extensions);
     Some(roles)
 }
 
