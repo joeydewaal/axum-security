@@ -22,7 +22,7 @@ time = ["axum-security/time"]
 
 [dev-dependencies]
 trybuild = { version = "1", features = ["diff"] }
-axum-security = { path = "../axum-security", features = ["macros", "rbac", "cookie"] }
+axum-security = { path = "../axum-security", features = ["macros", "rbac", "cookie", "jwt"] }
 axum = { workspace = true, features = ["query", "http1"] }
 tower.workspace = true
 serde.workspace = true

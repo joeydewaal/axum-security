@@ -10,6 +10,7 @@ use axum::{
 };
 use axum_security::{
     cookie::{CookieSession, SessionId},
+    jwt::Jwt,
     rbac::{RBAC, RBACExt},
     session::Session,
 };
@@ -77,6 +78,55 @@ where
         if let Some(user) = &self.user {
             let session = CookieSession::new(SessionId::new(), 0, user.clone());
             req.extensions_mut().insert(session);
+        }
+        let fut = self.inner.call(req);
+        Box::pin(fut)
+    }
+}
+
+/// Like [`SeedLayer`] but injects a `Jwt<UserData>` session instead of a cookie
+/// session, so we can exercise the RBAC macros against the JWT auth path.
+#[derive(Clone)]
+struct JwtSeedLayer(Option<UserData>);
+
+impl<S> Layer<S> for JwtSeedLayer {
+    type Service = JwtSeedService<S>;
+    fn layer(&self, inner: S) -> JwtSeedService<S> {
+        JwtSeedService {
+            user: self.0.clone(),
+            inner,
+        }
+    }
+}
+
+#[derive(Clone)]
+struct JwtSeedService<S> {
+    user: Option<UserData>,
+    inner: S,
+}
+
+impl<S> Service<Request<Body>> for JwtSeedService<S>
+where
+    S: Service<Request<Body>, Response = axum::response::Response> + Clone + Send + 'static,
+    S::Error: Send,
+    S::Future: Send,
+{
+    type Response = axum::response::Response;
+    type Error = S::Error;
+    type Future = std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<Self::Response, Self::Error>> + Send>,
+    >;
+
+    fn poll_ready(
+        &mut self,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Result<(), Self::Error>> {
+        self.inner.poll_ready(cx)
+    }
+
+    fn call(&mut self, mut req: Request<Body>) -> Self::Future {
+        if let Some(user) = &self.user {
+            req.extensions_mut().insert(Jwt(user.clone()));
         }
         let fut = self.inner.call(req);
         Box::pin(fut)
@@ -233,6 +283,82 @@ mod macro_tests {
     #[axum_security::rbac::requires(Role::Admin, Role::Mod)]
     async fn admin_and_mod() -> StatusCode {
         StatusCode::OK
+    }
+
+    // Handler that uses the `requires` macro *and* extracts the JWT session in
+    // the same handler. The macro injects a `RolesExtractor` argument ahead of
+    // the user's arguments; `RolesExtractor` removes the session from the
+    // request extensions to read the roles. Unless it puts the session back, the
+    // following `Jwt<UserData>` extractor finds nothing and rejects with 401.
+    #[axum_security::rbac::requires(Role::Admin)]
+    async fn admin_with_jwt(Jwt(user): Jwt<UserData>) -> StatusCode {
+        // Touch the user data to be sure we actually got the session back.
+        assert!(user.roles.contains(&Role::Admin));
+        StatusCode::OK
+    }
+
+    // Same scenario but through the unified `Session<UserData>` extractor on the
+    // cookie auth path, guarding against the regression for every auth method.
+    #[axum_security::rbac::requires(Role::Admin)]
+    async fn admin_with_session(session: Session<UserData>) -> StatusCode {
+        assert!(session.roles.contains(&Role::Admin));
+        StatusCode::OK
+    }
+
+    fn make_jwt_router(user: Option<UserData>) -> Router {
+        Router::new()
+            .route("/admin-jwt", route_get(admin_with_jwt))
+            .layer(JwtSeedLayer(user))
+    }
+
+    fn make_session_router(user: Option<UserData>) -> Router {
+        Router::new()
+            .route("/admin-session", route_get(admin_with_session))
+            .layer(SeedLayer(user))
+    }
+
+    #[tokio::test]
+    async fn macro_then_jwt_extractor_passes() {
+        // Regression: `requires` macro + `Jwt<...>` extractor in one handler.
+        let user = UserData {
+            roles: vec![Role::Admin],
+        };
+        assert_eq!(
+            call(make_jwt_router(Some(user)), "/admin-jwt").await,
+            StatusCode::OK,
+        );
+    }
+
+    #[tokio::test]
+    async fn macro_then_jwt_extractor_forbidden_when_lacking_role() {
+        // The role check still rejects before the handler runs.
+        let user = UserData {
+            roles: vec![Role::User],
+        };
+        assert_eq!(
+            call(make_jwt_router(Some(user)), "/admin-jwt").await,
+            StatusCode::FORBIDDEN,
+        );
+    }
+
+    #[tokio::test]
+    async fn macro_then_jwt_extractor_unauthorized_without_session() {
+        assert_eq!(
+            call(make_jwt_router(None), "/admin-jwt").await,
+            StatusCode::UNAUTHORIZED,
+        );
+    }
+
+    #[tokio::test]
+    async fn macro_then_session_extractor_passes() {
+        // Regression: `requires` macro + `Session<...>` extractor in one handler.
+        let user = UserData {
+            roles: vec![Role::Admin],
+        };
+        assert_eq!(
+            call(make_session_router(Some(user)), "/admin-session").await,
+            StatusCode::OK,
+        );
     }
 
     fn make_macro_router(user: Option<UserData>) -> Router {
