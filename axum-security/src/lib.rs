@@ -15,7 +15,6 @@
 //! | `rbac` | [`rbac`] | Role-based access control |
 //! | `pbac` | [`pbac`] | Policy-based access control |
 //! | `headers` | [`headers`] | Security response headers (CSP, HSTS, etc.) |
-//! | `csrf` | [`csrf`] | CSRF protection (double-submit cookie) |
 //!
 //! Additional features: `macros`, `tracing`.
 //!
@@ -62,7 +61,7 @@ pub mod rbac;
 ))]
 pub mod pbac;
 
-#[cfg(any(feature = "cookie", feature = "csrf"))]
+#[cfg(feature = "cookie")]
 pub(crate) mod cookie_options;
 
 pub(crate) mod utils;
@@ -71,6 +70,3 @@ pub(crate) use utils::{debug, error};
 
 #[cfg(feature = "headers")]
 pub mod headers;
-
-#[cfg(feature = "csrf")]
-pub mod csrf;

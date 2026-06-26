@@ -16,7 +16,6 @@ A security toolkit for Axum.
 | `rbac` | Role-based access control |
 | `pbac` | Policy-based access control |
 | `headers` | Security response headers (CSP, HSTS, etc.) |
-| `csrf` | CSRF protection (double-submit cookie) |
 
 Additional features: `macros`, `tracing`.
 
@@ -290,37 +289,6 @@ let router = Router::new()
     .layer(security_layer)
     .layer(coop_layer);
 ```
-
-## CSRF protection
-
-The `csrf` feature provides double-submit cookie CSRF protection. Extract a `CsrfToken` in your handler and include it as a hidden form field or request header.
-
-```rust
-use axum_security::csrf::{Csrf, CsrfToken};
-
-let csrf = Csrf::builder()
-    .secret("my-csrf-secret")
-    .use_dev_cookie(cfg!(debug_assertions))
-    .build();
-
-let router = Router::new()
-    .route("/", get(form))
-    .route("/submit", post(submit))
-    .layer(csrf);
-```
-
-```rust
-async fn form(csrf: CsrfToken) -> Html<String> {
-    Html(format!(
-        r#"<form method="POST" action="/submit">
-            <input type="hidden" name="_csrf" value="{csrf}" />
-            <button type="submit">Submit</button>
-        </form>"#,
-    ))
-}
-```
-
-Tokens are validated automatically on non-safe HTTP methods (POST, PUT, DELETE, PATCH). Submit via the `_csrf` form field or the `x-csrf-token` header.
 
 ## Examples
 
