@@ -130,7 +130,6 @@ dependencies = [
  "chrono",
  "cookie-monster",
  "dashmap",
- "form_urlencoded",
  "hmac 0.13.0",
  "http",
  "jiff",
