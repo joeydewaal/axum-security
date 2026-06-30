@@ -244,7 +244,7 @@ async fn admin_only(cookie: CookieSession<User>) -> String {
 }
 ```
 
-Or use the `RBACExt` methods on routes: `.requires()`, `.requires_all()`, `.requires_any()`.
+Or use the `RBACExt` methods on routes: `.requires()`, `.requires_all()`, `.allows()`.
 
 ## PBAC
 

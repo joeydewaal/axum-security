@@ -11,8 +11,8 @@ pub fn requires(attr: TokenStream, item: TokenStream) -> TokenStream {
 }
 
 #[proc_macro_attribute]
-pub fn requires_any(attr: TokenStream, item: TokenStream) -> TokenStream {
-    let req = quote! { ::axum_security::rbac::__private::__requires_any };
+pub fn allows(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let req = quote! { ::axum_security::rbac::__private::__allows };
     expand_inner(attr, item, req)
 }
 
