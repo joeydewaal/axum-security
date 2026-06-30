@@ -229,8 +229,8 @@ pub use axum_security_macros::{allows, requires};
 
 #[doc(hidden)]
 pub mod __private {
-    pub use super::__requires;
     pub use super::__allows;
+    pub use super::__requires;
     pub use super::RolesExtractor;
 }
 
