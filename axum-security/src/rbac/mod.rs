@@ -24,7 +24,7 @@
 //!
 //! let app = Router::new()
 //!     .route("/admin", get(admin_handler).requires(Role::Admin))
-//!     .route("/any", get(handler).requires_any([Role::Admin, Role::User]));
+//!     .route("/any", get(handler).allows([Role::Admin, Role::User]));
 //! ```
 
 use std::{convert::Infallible, fmt::Debug, future::Future, marker::PhantomData, pin::Pin};
@@ -114,7 +114,7 @@ where
 
             let ok = match &required {
                 AuthType::RequiresAll(roles) => roles.iter().all(|r| user_roles.contains(r)),
-                AuthType::RequiresAny(roles) => user_roles.iter().any(|r| roles.contains(r)),
+                AuthType::Allows(roles) => user_roles.iter().any(|r| roles.contains(r)),
             };
 
             if !ok {
@@ -140,7 +140,7 @@ pub trait RBAC: Send + Sync + 'static + Clone + Eq + Copy + Debug {
 #[derive(Clone)]
 enum AuthType<T: RBAC> {
     RequiresAll(Vec<T>),
-    RequiresAny(Vec<T>),
+    Allows(Vec<T>),
 }
 
 /// Extension trait on [`MethodRouter`] for adding role requirements.
@@ -150,7 +150,7 @@ pub trait RBACExt {
     /// Require the user to have **all** of the given roles.
     fn requires_all<T: RBAC>(self, roles: impl Into<Vec<T>>) -> Self;
     /// Require the user to have **any** of the given roles.
-    fn requires_any<T: RBAC>(self, roles: impl Into<Vec<T>>) -> Self;
+    fn allows<T: RBAC>(self, roles: impl Into<Vec<T>>) -> Self;
 }
 
 impl<S: Clone + 'static> RBACExt for MethodRouter<S, Infallible> {
@@ -166,9 +166,9 @@ impl<S: Clone + 'static> RBACExt for MethodRouter<S, Infallible> {
         })
     }
 
-    fn requires_any<T: RBAC>(self, roles: impl Into<Vec<T>>) -> Self {
+    fn allows<T: RBAC>(self, roles: impl Into<Vec<T>>) -> Self {
         self.layer(RbacLayer {
-            required: AuthType::RequiresAny(roles.into()),
+            required: AuthType::Allows(roles.into()),
         })
     }
 }
@@ -216,7 +216,7 @@ pub fn __requires<T: RBAC>(resource: RolesExtractor<T>, roles: &[T]) -> Option<R
     }
 }
 
-pub fn __requires_any<T: RBAC>(resource: RolesExtractor<T>, roles: &[T]) -> Option<Response> {
+pub fn __allows<T: RBAC>(resource: RolesExtractor<T>, roles: &[T]) -> Option<Response> {
     if resource.roles.iter().any(|r| roles.contains(r)) {
         None
     } else {
@@ -225,12 +225,12 @@ pub fn __requires_any<T: RBAC>(resource: RolesExtractor<T>, roles: &[T]) -> Opti
 }
 
 #[cfg(feature = "macros")]
-pub use axum_security_macros::{requires, requires_any};
+pub use axum_security_macros::{allows, requires};
 
 #[doc(hidden)]
 pub mod __private {
     pub use super::__requires;
-    pub use super::__requires_any;
+    pub use super::__allows;
     pub use super::RolesExtractor;
 }
 
@@ -293,19 +293,19 @@ mod tests {
     }
 
     #[test]
-    fn requires_any_match() {
+    fn allows_match() {
         let ext = make_extractor(vec![Role::Mod]);
         assert!(
-            __requires_any(ext, &[Role::Admin, Role::Mod]).is_none(),
+            __allows(ext, &[Role::Admin, Role::Mod]).is_none(),
             "Mod with any=[Admin, Mod] should pass"
         );
     }
 
     #[test]
-    fn requires_any_no_match() {
+    fn allows_no_match() {
         let ext = make_extractor(vec![Role::User]);
         assert!(
-            __requires_any(ext, &[Role::Admin, Role::Mod]).is_some(),
+            __allows(ext, &[Role::Admin, Role::Mod]).is_some(),
             "User with any=[Admin, Mod] should fail"
         );
     }

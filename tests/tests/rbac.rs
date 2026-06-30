@@ -141,7 +141,7 @@ fn make_router(user: Option<UserData>) -> Router {
         )
         .route(
             "/admin-or-mod",
-            route_get(|| async { StatusCode::OK }).requires_any([Role::Admin, Role::Mod]),
+            route_get(|| async { StatusCode::OK }).allows([Role::Admin, Role::Mod]),
         )
         .route(
             "/admin-and-mod",
@@ -231,7 +231,7 @@ async fn requires_all_with_only_admin_fails() -> Result<(), Box<dyn Error>> {
 }
 
 #[tokio::test]
-async fn requires_any_with_mod_passes() -> Result<(), Box<dyn Error>> {
+async fn allows_with_mod_passes() -> Result<(), Box<dyn Error>> {
     let user = UserData {
         roles: vec![Role::User, Role::Mod],
     };
@@ -243,7 +243,7 @@ async fn requires_any_with_mod_passes() -> Result<(), Box<dyn Error>> {
 }
 
 #[tokio::test]
-async fn requires_any_with_only_user_fails() -> Result<(), Box<dyn Error>> {
+async fn allows_with_only_user_fails() -> Result<(), Box<dyn Error>> {
     let user = UserData {
         roles: vec![Role::User],
     };
@@ -275,7 +275,7 @@ mod macro_tests {
         StatusCode::OK
     }
 
-    #[axum_security::rbac::requires_any(Role::Admin, Role::Mod)]
+    #[axum_security::rbac::allows(Role::Admin, Role::Mod)]
     async fn admin_or_mod() -> StatusCode {
         StatusCode::OK
     }
@@ -392,7 +392,7 @@ mod macro_tests {
     }
 
     #[tokio::test]
-    async fn macro_requires_any_mod_passes() {
+    async fn macro_allows_mod_passes() {
         let user = UserData {
             roles: vec![Role::Mod],
         };
@@ -403,7 +403,7 @@ mod macro_tests {
     }
 
     #[tokio::test]
-    async fn macro_requires_any_user_fails() {
+    async fn macro_allows_user_fails() {
         let user = UserData {
             roles: vec![Role::User],
         };
