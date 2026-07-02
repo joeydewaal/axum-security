@@ -86,9 +86,11 @@ impl LazyVerification {
                 self.issuer_url.clone(),
                 keys,
             ),
-            None => {
-                CoreIdTokenVerifier::new_public_client(self.client_id.clone(), self.issuer_url.clone(), keys)
-            }
+            None => CoreIdTokenVerifier::new_public_client(
+                self.client_id.clone(),
+                self.issuer_url.clone(),
+                keys,
+            ),
         }
     }
 }
