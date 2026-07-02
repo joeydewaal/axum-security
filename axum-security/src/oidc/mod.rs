@@ -22,6 +22,7 @@ mod claims;
 mod context;
 mod cookie;
 mod handler;
+mod jwks;
 pub mod providers;
 mod redirect;
 mod router;

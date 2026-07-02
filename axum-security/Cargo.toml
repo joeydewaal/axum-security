@@ -35,7 +35,7 @@ time = ["dep:time", "cookie-monster?/time"]
 [dependencies]
 axum = { workspace = true, features = ["query"] }
 http.workspace = true
-tokio.workspace = true
+tokio = { workspace = true, features = ["sync"] }
 tower.workspace = true
 
 tracing = { workspace = true, optional = true }

@@ -4,7 +4,11 @@ use std::{
     collections::HashMap,
     error::Error,
     net::SocketAddr,
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicUsize, Ordering},
+    },
+    time::Duration,
 };
 
 use axum::{Router, http::StatusCode};
@@ -194,6 +198,18 @@ async fn install_mock_oidc_server() -> (MockServer, String) {
         .mount(&mock_server)
         .await;
 
+    mount_authorize_and_token(&mock_server, &issuer_url).await;
+
+    (mock_server, issuer_url)
+}
+
+/// Mount the `/authorize` and `/token` endpoints, which together simulate the
+/// provider's redirect-with-code and code-for-tokens exchange (issuing a signed
+/// ID token). Shared by the discovery-style and rotating-JWKS mock servers.
+async fn mount_authorize_and_token(mock_server: &MockServer, issuer_url: &str) {
+    let auth_path = "/authorize";
+    let token_path = "/token";
+
     // Authorization endpoint — simulates redirect back with code + state
     let challenge_store: ChallengeStore = Arc::new(Mutex::new(HashMap::new()));
     let challenge_store_auth = challenge_store.clone();
@@ -238,11 +254,11 @@ async fn install_mock_oidc_server() -> (MockServer, String) {
 
             ResponseTemplate::new(302).insert_header("Location", redirect_url)
         })
-        .mount(&mock_server)
+        .mount(mock_server)
         .await;
 
     // Token endpoint — exchanges code for tokens (including signed ID token)
-    let issuer_for_token = issuer_url.clone();
+    let issuer_for_token = issuer_url.to_string();
     Mock::given(method("POST"))
         .and(path(token_path))
         .respond_with(move |req: &WireRequest| {
@@ -332,10 +348,8 @@ async fn install_mock_oidc_server() -> (MockServer, String) {
                 id_token: id_token_str,
             })
         })
-        .mount(&mock_server)
+        .mount(mock_server)
         .await;
-
-    (mock_server, issuer_url)
 }
 
 struct TestServer {
@@ -607,6 +621,206 @@ async fn replay_code_is_rejected() -> Result<(), Box<dyn Error>> {
     assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
 
     Ok(())
+}
+
+// ── Manual builder path (hard-coded endpoints, lazy JWKS) ──────────────
+
+impl TestServer {
+    /// Build a server using the manual builder with hard-coded endpoints
+    /// instead of `discover`, so the JWKS must be fetched lazily at verify time.
+    async fn new_manual() -> Self {
+        Self::manual(install_mock_oidc_server().await, Duration::from_secs(60)).await
+    }
+
+    /// Like [`new_manual`], but the JWKS endpoint returns an empty key set on the
+    /// first fetch and the real keys afterwards, and refetches are not
+    /// rate-limited — exercising the refetch-on-signature-failure (rotation) path.
+    async fn new_manual_rotating() -> Self {
+        Self::manual(
+            install_mock_oidc_server_rotating_jwks().await,
+            Duration::ZERO,
+        )
+        .await
+    }
+
+    async fn manual(mock_and_url: (MockServer, String), min_refetch: Duration) -> Self {
+        let (mock, issuer_url) = mock_and_url;
+        let socket = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = socket.local_addr().unwrap();
+        let redirect_url = format!("http://{addr}{REDIRECT_PATH}");
+
+        let oidc_context = OidcContext::builder("test-oidc")
+            .client_id(CLIENT_ID)
+            .client_secret(CLIENT_SECRET)
+            .issuer_url(issuer_url.clone())
+            .auth_url(format!("{issuer_url}/authorize"))
+            .token_url(format!("{issuer_url}/token"))
+            .jwks_url(format!("{issuer_url}/.well-known/jwks.json"))
+            .redirect_url(redirect_url)
+            .login_path(LOGIN_PATH)
+            .scopes(&["openid", "email", "profile"])
+            .jwks_min_refetch_interval(min_refetch)
+            .use_dev_cookies(true)
+            .build(TestHandler);
+
+        let router = Router::<()>::new().with_oidc(oidc_context);
+        tokio::spawn(async { axum::serve(socket, router).await });
+
+        TestServer { _mock: mock, addr }
+    }
+}
+
+/// A mock provider whose JWKS endpoint returns an empty key set on the first
+/// request and the real signing key on every request after — simulating a stale
+/// cache that must be refetched once the token's signing key is unknown.
+async fn install_mock_oidc_server_rotating_jwks() -> (MockServer, String) {
+    let mock_server = MockServer::start().await;
+    let issuer_url = mock_server.uri();
+
+    let key = signing_key();
+    let real_jwks = CoreJsonWebKeySet::new(vec![key.as_verification_key()]);
+    let call_count = Arc::new(AtomicUsize::new(0));
+
+    Mock::given(method("GET"))
+        .and(path("/.well-known/jwks.json"))
+        .respond_with(move |_req: &WireRequest| {
+            let n = call_count.fetch_add(1, Ordering::SeqCst);
+            let body = if n == 0 {
+                CoreJsonWebKeySet::new(vec![])
+            } else {
+                real_jwks.clone()
+            };
+            ResponseTemplate::new(200)
+                .set_body_json(&body)
+                .insert_header("Content-Type", "application/json")
+        })
+        .mount(&mock_server)
+        .await;
+
+    mount_authorize_and_token(&mock_server, &issuer_url).await;
+
+    (mock_server, issuer_url)
+}
+
+/// A mock provider whose JWKS endpoint returns an empty key set on the first
+/// request and an error on every request after — its tokens can never be
+/// verified, so every login exercises the refetch-on-signature-failure path.
+async fn install_mock_oidc_server_failing_jwks() -> (MockServer, String) {
+    let mock_server = MockServer::start().await;
+    let issuer_url = mock_server.uri();
+
+    let call_count = Arc::new(AtomicUsize::new(0));
+
+    Mock::given(method("GET"))
+        .and(path("/.well-known/jwks.json"))
+        .respond_with(move |_req: &WireRequest| {
+            let n = call_count.fetch_add(1, Ordering::SeqCst);
+            if n == 0 {
+                ResponseTemplate::new(200)
+                    .set_body_json(CoreJsonWebKeySet::new(vec![]))
+                    .insert_header("Content-Type", "application/json")
+            } else {
+                ResponseTemplate::new(500)
+            }
+        })
+        .mount(&mock_server)
+        .await;
+
+    mount_authorize_and_token(&mock_server, &issuer_url).await;
+
+    (mock_server, issuer_url)
+}
+
+#[tokio::test]
+async fn jwks_refetch_failures_are_rate_limited() -> Result<(), Box<dyn Error>> {
+    let _ = tracing_subscriber::fmt::try_init();
+    const INTERVAL: Duration = Duration::from_secs(1);
+
+    let server = TestServer::manual(install_mock_oidc_server_failing_jwks().await, INTERVAL).await;
+    let client = server.cookie_client();
+
+    // Login 1: the cold fetch caches the empty key set (request 1); the
+    // signature check fails, and the rotation refetch is rate-limited by the
+    // fetch that just happened.
+    let res = server.complete_login(&client).await;
+    assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(jwks_request_count(&server._mock).await, 1);
+
+    // Wait out the interval so the next signature failure may refetch.
+    tokio::time::sleep(INTERVAL + Duration::from_millis(300)).await;
+
+    // Login 2: the refetch is attempted and fails with a 500 (request 2).
+    let res = server.complete_login(&client).await;
+    assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(jwks_request_count(&server._mock).await, 2);
+
+    // Login 3, immediately after: the refetch that just *failed* must also
+    // count against the rate limit — no third request.
+    let res = server.complete_login(&client).await;
+    assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(
+        jwks_request_count(&server._mock).await,
+        2,
+        "a failed refetch must count against the rate limit"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn manual_builder_completes_login_with_lazy_jwks() -> Result<(), Box<dyn Error>> {
+    let _ = tracing_subscriber::fmt::try_init();
+    let server = TestServer::new_manual().await;
+    let client = server.cookie_client();
+
+    let res = server.complete_login(&client).await;
+    assert_eq!(res.status(), StatusCode::CREATED);
+    Ok(())
+}
+
+#[tokio::test]
+async fn manual_builder_refetches_jwks_when_signing_key_unknown() -> Result<(), Box<dyn Error>> {
+    let _ = tracing_subscriber::fmt::try_init();
+    let server = TestServer::new_manual_rotating().await;
+    let client = server.cookie_client();
+
+    // The cold fetch returns an empty key set, so the first verification fails;
+    // the manual path must refetch the (now populated) JWKS and succeed.
+    let res = server.complete_login(&client).await;
+    assert_eq!(res.status(), StatusCode::CREATED);
+    Ok(())
+}
+
+#[tokio::test]
+async fn manual_builder_does_not_fetch_jwks_at_build() -> Result<(), Box<dyn Error>> {
+    let _ = tracing_subscriber::fmt::try_init();
+    let server = TestServer::new_manual().await;
+
+    // Nothing has hit the login flow yet: the JWKS endpoint must be untouched
+    // (hard-coded config means zero startup network).
+    assert_eq!(
+        jwks_request_count(&server._mock).await,
+        0,
+        "JWKS must not be fetched at build time"
+    );
+
+    let client = server.cookie_client();
+    let res = server.complete_login(&client).await;
+    assert_eq!(res.status(), StatusCode::CREATED);
+
+    assert!(
+        jwks_request_count(&server._mock).await >= 1,
+        "JWKS should be fetched lazily during verification"
+    );
+    Ok(())
+}
+
+async fn jwks_request_count(mock: &MockServer) -> usize {
+    mock.received_requests()
+        .await
+        .unwrap_or_default()
+        .iter()
+        .filter(|r| r.url.path() == "/.well-known/jwks.json")
+        .count()
 }
 
 // ── Wiremock happy-path: timestamp conversion ──────────────────────────

@@ -14,7 +14,8 @@ use openidconnect::{
     LogoutRequest, Nonce, OAuth2TokenResponse, PkceCodeChallenge, PostLogoutRedirectUrl, Scope,
     TokenResponse as _,
     core::{
-        CoreClient, CoreGenderClaim, CoreJweContentEncryptionAlgorithm, CoreJwsSigningAlgorithm,
+        CoreClient, CoreGenderClaim, CoreIdToken, CoreJweContentEncryptionAlgorithm,
+        CoreJwsSigningAlgorithm,
     },
 };
 
@@ -23,7 +24,7 @@ use crate::{
     oidc::{OidcBuilderError, OidcClaims, builder::OidcContextBuilder},
 };
 
-use super::{OidcHandler, OidcTokenResponse, cookie::OidcCookie};
+use super::{OidcHandler, OidcTokenResponse, cookie::OidcCookie, jwks::LazyVerifier};
 
 pub(crate) type OidcClient = CoreClient<
     EndpointSet,
@@ -48,12 +49,23 @@ pub(super) struct OidcContextInner<H> {
     pub(super) handler: H,
     pub(super) session: OidcCookie,
     pub(super) client: OidcClient,
+    pub(super) id_token_verification: IdTokenVerification,
     pub(super) login_path: Option<Cow<'static, str>>,
     pub(super) logout_path: Option<Cow<'static, str>>,
     pub(super) end_session_url: Option<EndSessionUrl>,
     pub(super) post_logout_redirect_url: Option<PostLogoutRedirectUrl>,
     pub(super) scopes: Vec<Scope>,
     pub(super) http_client: openidconnect::reqwest::Client,
+}
+
+/// How ID token signatures are verified.
+pub(super) enum IdTokenVerification {
+    /// Discovery path: the JWKS was fetched at build time and baked into the
+    /// client, so verification uses [`CoreClient::id_token_verifier`].
+    Baked,
+    /// Manual (hard-coded endpoint) path: the JWKS is fetched lazily and
+    /// cached as a ready-made verifier.
+    Lazy(Box<LazyVerifier>),
 }
 
 impl OidcContext<()> {
@@ -177,8 +189,7 @@ impl<H: OidcHandler> OidcContext<H> {
         };
 
         // Verify the token (signature, nonce, audience, expiration)
-        if let Err(_e) = id_token.claims(&self.0.client.id_token_verifier(), &nonce) {
-            crate::debug!("id_token verification failed: {_e}");
+        if !self.verify_id_token(id_token, &nonce).await {
             return StatusCode::UNAUTHORIZED.into_response();
         }
 
@@ -222,6 +233,19 @@ impl<H: OidcHandler> OidcContext<H> {
             .into_response();
 
         (context.cookie_jar, res).into_response()
+    }
+
+    /// Verify an ID token's signature, nonce, audience, and expiration.
+    async fn verify_id_token(&self, id_token: &CoreIdToken, nonce: &Nonce) -> bool {
+        match &self.0.id_token_verification {
+            IdTokenVerification::Baked => id_token
+                .claims(&self.0.client.id_token_verifier(), nonce)
+                .inspect_err(|_e| crate::debug!("id_token verification failed: {_e}"))
+                .is_ok(),
+            IdTokenVerification::Lazy(lazy) => {
+                lazy.verify(id_token, nonce, &self.0.http_client).await
+            }
+        }
     }
 
     pub fn cookie(&self, name: impl Into<Cow<'static, str>>) -> CookieBuilder {
