@@ -13,7 +13,12 @@ use openidconnect::{
 
 use crate::utils::get_env;
 
-use super::{OidcContext, OidcHandler, context::OidcContextInner, cookie::OidcCookieBuilder};
+use super::{
+    OidcContext, OidcHandler,
+    context::{IdTokenVerification, LazyVerification, OidcContextInner},
+    cookie::OidcCookieBuilder,
+    jwks::{DEFAULT_MIN_REFETCH_INTERVAL, JwksCache},
+};
 
 fn default_reqwest_client() -> openidconnect::reqwest::Client {
     openidconnect::reqwest::Client::builder()
@@ -32,6 +37,7 @@ pub struct OidcContextBuilder {
     client_secret: Option<String>,
     scopes: Vec<Scope>,
     http_client: Option<HttpClient>,
+    jwks_min_refetch_interval: Option<Duration>,
 
     // Provider metadata (filled by discover, or set manually)
     issuer_url: Option<String>,
@@ -54,6 +60,7 @@ impl OidcContextBuilder {
             client_secret: None,
             scopes: Vec::new(),
             http_client: None,
+            jwks_min_refetch_interval: None,
             issuer_url: None,
             auth_url: None,
             token_url: None,
@@ -86,6 +93,7 @@ impl OidcContextBuilder {
             client_secret: None,
             scopes: Vec::new(),
             http_client: Some(http_client),
+            jwks_min_refetch_interval: None,
             issuer_url: None,
             auth_url: None,
             token_url: None,
@@ -187,6 +195,19 @@ impl OidcContextBuilder {
         self
     }
 
+    /// Minimum interval between JWKS refetches on the manual (hard-coded
+    /// endpoint) path.
+    ///
+    /// When an ID token presents a signing key that isn't cached (a key
+    /// rotation), the JWKS is refetched — but no more than once per this
+    /// interval, to bound the load a stream of bogus-`kid` tokens can put on the
+    /// provider's JWKS endpoint. Defaults to 60 seconds. Has no effect on the
+    /// discovery path, which bakes the keys in at build time.
+    pub fn jwks_min_refetch_interval(mut self, interval: Duration) -> Self {
+        self.jwks_min_refetch_interval = Some(interval);
+        self
+    }
+
     pub fn cookie_secret(mut self, secret: impl AsRef<[u8]>) -> Self {
         self.cookie_builder.secret = Some(secret.as_ref().to_vec());
         self
@@ -233,7 +254,9 @@ impl OidcContextBuilder {
             .take()
             .map(|u| EndSessionUrl::new(u).expect("invalid end_session_url"));
 
-        let (client, end_session_url) = if let Some(metadata) = self.provider_metadata.take() {
+        let (client, end_session_url, id_token_verification) = if let Some(metadata) =
+            self.provider_metadata.take()
+        {
             // Discovery path — extract end_session_endpoint before consuming metadata
             let discovered_end_session =
                 metadata.additional_metadata().end_session_endpoint.clone();
@@ -244,7 +267,8 @@ impl OidcContextBuilder {
             // Explicit end_session_url takes priority over discovered one
             let end_session_url = explicit_end_session.or(discovered_end_session);
 
-            (client, end_session_url)
+            // Discovery baked the JWKS into the client at build time.
+            (client, end_session_url, IdTokenVerification::Baked)
         } else {
             // Manual path — require all endpoints
             let issuer_url = self
@@ -273,10 +297,13 @@ impl OidcContextBuilder {
             let jwks_url =
                 JsonWebKeySetUrl::new(jwks_url).map_err(OidcBuilderError::InvalidJwksUrl)?;
 
+            // The manual path builds the client with an empty key set (the client
+            // is only used for the authorize + code exchange, which need no keys).
+            // ID tokens are verified against the JWKS fetched lazily below.
             let metadata = CoreProviderMetadata::new(
-                issuer_url,
+                issuer_url.clone(),
                 auth_url,
-                jwks_url,
+                jwks_url.clone(),
                 vec![ResponseTypes::new(vec![CoreResponseType::Code])],
                 vec![CoreSubjectIdentifierType::Public],
                 vec![CoreJwsSigningAlgorithm::RsaSsaPkcs1V15Sha256],
@@ -284,10 +311,22 @@ impl OidcContextBuilder {
             )
             .set_token_endpoint(Some(token_url));
 
+            let min_refetch_interval = self
+                .jwks_min_refetch_interval
+                .take()
+                .unwrap_or(DEFAULT_MIN_REFETCH_INTERVAL);
+
+            let id_token_verification = IdTokenVerification::Lazy(Box::new(LazyVerification {
+                client_id: client_id.clone(),
+                client_secret: client_secret.clone(),
+                issuer_url,
+                jwks: JwksCache::new(jwks_url, min_refetch_interval),
+            }));
+
             let client = CoreClient::from_provider_metadata(metadata, client_id, client_secret)
                 .set_redirect_uri(redirect_url);
 
-            (client, explicit_end_session)
+            (client, explicit_end_session, id_token_verification)
         };
 
         // Ensure "openid" is always present
@@ -303,6 +342,7 @@ impl OidcContextBuilder {
 
         Ok(OidcContext(Arc::new(OidcContextInner {
             client,
+            id_token_verification,
             handler,
             session: self.cookie_builder.try_build()?,
             login_path: self.login_path,

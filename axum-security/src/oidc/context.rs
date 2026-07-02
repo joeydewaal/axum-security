@@ -9,12 +9,13 @@ use axum::{
 use cookie_monster::{CookieBuilder, CookieJar};
 use http::Extensions;
 use openidconnect::{
-    AuthenticationFlow, AuthorizationCode, ClientId, CsrfToken, EmptyAdditionalClaims,
-    EndSessionUrl, EndpointMaybeSet, EndpointNotSet, EndpointSet, IdToken, LogoutHint,
-    LogoutRequest, Nonce, OAuth2TokenResponse, PkceCodeChallenge, PostLogoutRedirectUrl, Scope,
-    TokenResponse as _,
+    AuthenticationFlow, AuthorizationCode, ClaimsVerificationError, ClientId, ClientSecret,
+    CsrfToken, EmptyAdditionalClaims, EndSessionUrl, EndpointMaybeSet, EndpointNotSet, EndpointSet,
+    IdToken, IssuerUrl, LogoutHint, LogoutRequest, Nonce, OAuth2TokenResponse, PkceCodeChallenge,
+    PostLogoutRedirectUrl, Scope, TokenResponse as _,
     core::{
-        CoreClient, CoreGenderClaim, CoreJweContentEncryptionAlgorithm, CoreJwsSigningAlgorithm,
+        CoreClient, CoreGenderClaim, CoreIdToken, CoreIdTokenVerifier, CoreJsonWebKeySet,
+        CoreJweContentEncryptionAlgorithm, CoreJwsSigningAlgorithm,
     },
 };
 
@@ -23,7 +24,7 @@ use crate::{
     oidc::{OidcBuilderError, OidcClaims, builder::OidcContextBuilder},
 };
 
-use super::{OidcHandler, OidcTokenResponse, cookie::OidcCookie};
+use super::{OidcHandler, OidcTokenResponse, cookie::OidcCookie, jwks::JwksCache};
 
 pub(crate) type OidcClient = CoreClient<
     EndpointSet,
@@ -48,12 +49,48 @@ pub(super) struct OidcContextInner<H> {
     pub(super) handler: H,
     pub(super) session: OidcCookie,
     pub(super) client: OidcClient,
+    pub(super) id_token_verification: IdTokenVerification,
     pub(super) login_path: Option<Cow<'static, str>>,
     pub(super) logout_path: Option<Cow<'static, str>>,
     pub(super) end_session_url: Option<EndSessionUrl>,
     pub(super) post_logout_redirect_url: Option<PostLogoutRedirectUrl>,
     pub(super) scopes: Vec<Scope>,
     pub(super) http_client: openidconnect::reqwest::Client,
+}
+
+/// How ID token signatures are verified.
+pub(super) enum IdTokenVerification {
+    /// Discovery path: the JWKS was fetched at build time and baked into the
+    /// client, so verification uses [`CoreClient::id_token_verifier`].
+    Baked,
+    /// Manual (hard-coded endpoint) path: the JWKS is fetched lazily and cached,
+    /// and the verifier is built on demand from the cached keys.
+    Lazy(Box<LazyVerification>),
+}
+
+pub(super) struct LazyVerification {
+    pub(super) client_id: ClientId,
+    pub(super) client_secret: Option<ClientSecret>,
+    pub(super) issuer_url: IssuerUrl,
+    pub(super) jwks: JwksCache,
+}
+
+impl LazyVerification {
+    /// Build an ID token verifier from a fetched key set, mirroring the
+    /// public/confidential selection that [`CoreClient::id_token_verifier`] makes.
+    fn verifier(&self, keys: CoreJsonWebKeySet) -> CoreIdTokenVerifier<'static> {
+        match &self.client_secret {
+            Some(secret) => CoreIdTokenVerifier::new_confidential_client(
+                self.client_id.clone(),
+                secret.clone(),
+                self.issuer_url.clone(),
+                keys,
+            ),
+            None => {
+                CoreIdTokenVerifier::new_public_client(self.client_id.clone(), self.issuer_url.clone(), keys)
+            }
+        }
+    }
 }
 
 impl OidcContext<()> {
@@ -177,8 +214,7 @@ impl<H: OidcHandler> OidcContext<H> {
         };
 
         // Verify the token (signature, nonce, audience, expiration)
-        if let Err(_e) = id_token.claims(&self.0.client.id_token_verifier(), &nonce) {
-            crate::debug!("id_token verification failed: {_e}");
+        if !self.verify_id_token(id_token, &nonce).await {
             return StatusCode::UNAUTHORIZED.into_response();
         }
 
@@ -222,6 +258,63 @@ impl<H: OidcHandler> OidcContext<H> {
             .into_response();
 
         (context.cookie_jar, res).into_response()
+    }
+
+    /// Verify an ID token's signature, nonce, audience, and expiration.
+    ///
+    /// The discovery path uses the client's baked-in verifier. The manual path
+    /// fetches the JWKS lazily (caching it), and on a signature failure — which a
+    /// key rotation looks like — refetches once and retries.
+    async fn verify_id_token(&self, id_token: &CoreIdToken, nonce: &Nonce) -> bool {
+        match &self.0.id_token_verification {
+            IdTokenVerification::Baked => {
+                match id_token.claims(&self.0.client.id_token_verifier(), nonce) {
+                    Ok(_) => true,
+                    Err(_e) => {
+                        crate::debug!("id_token verification failed: {_e}");
+                        false
+                    }
+                }
+            }
+            IdTokenVerification::Lazy(lazy) => {
+                let keys = match lazy.jwks.ensure_keys(&self.0.http_client).await {
+                    Ok(keys) => keys,
+                    Err(_e) => {
+                        crate::debug!("failed to fetch JWKS: {_e}");
+                        return false;
+                    }
+                };
+
+                match id_token.claims(&lazy.verifier(keys.as_ref().clone()), nonce) {
+                    Ok(_) => return true,
+                    Err(ClaimsVerificationError::SignatureVerification(_e)) => {
+                        crate::debug!("id_token signature check failed, refetching JWKS: {_e}");
+                    }
+                    Err(_e) => {
+                        crate::debug!("id_token verification failed: {_e}");
+                        return false;
+                    }
+                }
+
+                // Signature failure can mean the provider rotated its signing keys.
+                // Refetch once (rate-limited) and retry.
+                let keys = match lazy.jwks.refresh_keys(&self.0.http_client).await {
+                    Ok(keys) => keys,
+                    Err(_e) => {
+                        crate::debug!("failed to refetch JWKS: {_e}");
+                        return false;
+                    }
+                };
+
+                match id_token.claims(&lazy.verifier(keys.as_ref().clone()), nonce) {
+                    Ok(_) => true,
+                    Err(_e) => {
+                        crate::debug!("id_token verification failed after JWKS refetch: {_e}");
+                        false
+                    }
+                }
+            }
+        }
     }
 
     pub fn cookie(&self, name: impl Into<Cow<'static, str>>) -> CookieBuilder {
