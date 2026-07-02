@@ -15,9 +15,9 @@ use crate::utils::get_env;
 
 use super::{
     OidcContext, OidcHandler,
-    context::{IdTokenVerification, LazyVerification, OidcContextInner},
+    context::{IdTokenVerification, OidcContextInner},
     cookie::OidcCookieBuilder,
-    jwks::{DEFAULT_MIN_REFETCH_INTERVAL, JwksCache},
+    jwks::{DEFAULT_MIN_REFETCH_INTERVAL, LazyVerifier},
 };
 
 fn default_reqwest_client() -> openidconnect::reqwest::Client {
@@ -320,12 +320,13 @@ impl OidcContextBuilder {
                 .take()
                 .unwrap_or(DEFAULT_MIN_REFETCH_INTERVAL);
 
-            let id_token_verification = IdTokenVerification::Lazy(Box::new(LazyVerification {
-                client_id: client_id.clone(),
-                client_secret: client_secret.clone(),
+            let id_token_verification = IdTokenVerification::Lazy(Box::new(LazyVerifier::new(
+                client_id.clone(),
+                client_secret.clone(),
                 issuer_url,
-                jwks: JwksCache::new(jwks_url, min_refetch_interval),
-            }));
+                jwks_url,
+                min_refetch_interval,
+            )));
 
             let client = CoreClient::from_provider_metadata(metadata, client_id, client_secret)
                 .set_redirect_uri(redirect_url);
