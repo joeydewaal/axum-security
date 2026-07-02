@@ -23,9 +23,7 @@ use super::{
 fn default_reqwest_client() -> openidconnect::reqwest::Client {
     openidconnect::reqwest::Client::builder()
         .redirect(openidconnect::reqwest::redirect::Policy::none())
-        // A provider that accepts the connection but never responds must not
-        // hang the login flow — the lazy JWKS fetch holds a lock across this
-        // client's requests, so a hung fetch would block every callback.
+        // A hung provider must not stall the login flow indefinitely.
         .timeout(Duration::from_secs(10))
         .build()
         .unwrap()
@@ -199,14 +197,12 @@ impl OidcContextBuilder {
         self
     }
 
-    /// Minimum interval between JWKS refetches on the manual (hard-coded
-    /// endpoint) path.
+    /// Minimum interval between JWKS refetch attempts on the manual
+    /// (hard-coded endpoint) path.
     ///
-    /// When an ID token presents a signing key that isn't cached (a key
-    /// rotation), the JWKS is refetched — at most one attempt (successful or
-    /// not) per this interval, to bound the load a stream of bogus-`kid` tokens
-    /// can put on the provider's JWKS endpoint. Defaults to 60 seconds. Has no
-    /// effect on the discovery path, which bakes the keys in at build time.
+    /// An ID token with an unknown signing key (key rotation) triggers a JWKS
+    /// refetch, at most one attempt per this interval. Defaults to 60 seconds.
+    /// Has no effect on the discovery path, which fetches keys at build time.
     pub fn jwks_min_refetch_interval(mut self, interval: Duration) -> Self {
         self.jwks_min_refetch_interval = Some(interval);
         self
@@ -301,9 +297,8 @@ impl OidcContextBuilder {
             let jwks_url =
                 JsonWebKeySetUrl::new(jwks_url).map_err(OidcBuilderError::InvalidJwksUrl)?;
 
-            // The manual path builds the client with an empty key set (the client
-            // is only used for the authorize + code exchange, which need no keys).
-            // ID tokens are verified against the JWKS fetched lazily below.
+            // The client gets an empty key set: it only serves the authorize +
+            // code exchange; ID tokens are verified via the lazy JWKS below.
             let metadata = CoreProviderMetadata::new(
                 issuer_url.clone(),
                 auth_url,
