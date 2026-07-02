@@ -23,6 +23,10 @@ use super::{
 fn default_reqwest_client() -> openidconnect::reqwest::Client {
     openidconnect::reqwest::Client::builder()
         .redirect(openidconnect::reqwest::redirect::Policy::none())
+        // A provider that accepts the connection but never responds must not
+        // hang the login flow — the lazy JWKS fetch holds a lock across this
+        // client's requests, so a hung fetch would block every callback.
+        .timeout(Duration::from_secs(10))
         .build()
         .unwrap()
 }
@@ -199,10 +203,10 @@ impl OidcContextBuilder {
     /// endpoint) path.
     ///
     /// When an ID token presents a signing key that isn't cached (a key
-    /// rotation), the JWKS is refetched — but no more than once per this
-    /// interval, to bound the load a stream of bogus-`kid` tokens can put on the
-    /// provider's JWKS endpoint. Defaults to 60 seconds. Has no effect on the
-    /// discovery path, which bakes the keys in at build time.
+    /// rotation), the JWKS is refetched — at most one attempt (successful or
+    /// not) per this interval, to bound the load a stream of bogus-`kid` tokens
+    /// can put on the provider's JWKS endpoint. Defaults to 60 seconds. Has no
+    /// effect on the discovery path, which bakes the keys in at build time.
     pub fn jwks_min_refetch_interval(mut self, interval: Duration) -> Self {
         self.jwks_min_refetch_interval = Some(interval);
         self

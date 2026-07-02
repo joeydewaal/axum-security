@@ -76,20 +76,69 @@ pub(super) struct LazyVerification {
 }
 
 impl LazyVerification {
+    /// Verify the token against the lazily-fetched JWKS. A signature failure
+    /// can mean the provider rotated its signing keys, so the JWKS is
+    /// refetched once (rate-limited) and verification retried.
+    async fn verify(
+        &self,
+        id_token: &CoreIdToken,
+        nonce: &Nonce,
+        http_client: &openidconnect::reqwest::Client,
+    ) -> bool {
+        let keys = match self.jwks.ensure_keys(http_client).await {
+            Ok(keys) => keys,
+            Err(_e) => {
+                crate::debug!("failed to fetch JWKS: {_e}");
+                return false;
+            }
+        };
+
+        match id_token.claims(&self.verifier(&keys), nonce) {
+            Ok(_) => return true,
+            Err(ClaimsVerificationError::SignatureVerification(_e)) => {
+                crate::debug!("id_token signature check failed, refetching JWKS: {_e}");
+            }
+            Err(_e) => {
+                crate::debug!("id_token verification failed: {_e}");
+                return false;
+            }
+        }
+
+        let keys = match self.jwks.refresh_keys(http_client, &keys).await {
+            Ok(Some(keys)) => keys,
+            Ok(None) => {
+                crate::debug!("JWKS refetch rate-limited and no fresher keys; rejecting token");
+                return false;
+            }
+            Err(_e) => {
+                crate::debug!("failed to refetch JWKS: {_e}");
+                return false;
+            }
+        };
+
+        match id_token.claims(&self.verifier(&keys), nonce) {
+            Ok(_) => true,
+            Err(_e) => {
+                crate::debug!("id_token verification failed after JWKS refetch: {_e}");
+                false
+            }
+        }
+    }
+
     /// Build an ID token verifier from a fetched key set, mirroring the
     /// public/confidential selection that [`CoreClient::id_token_verifier`] makes.
-    fn verifier(&self, keys: CoreJsonWebKeySet) -> CoreIdTokenVerifier<'static> {
+    fn verifier(&self, keys: &CoreJsonWebKeySet) -> CoreIdTokenVerifier<'static> {
         match &self.client_secret {
             Some(secret) => CoreIdTokenVerifier::new_confidential_client(
                 self.client_id.clone(),
                 secret.clone(),
                 self.issuer_url.clone(),
-                keys,
+                keys.clone(),
             ),
             None => CoreIdTokenVerifier::new_public_client(
                 self.client_id.clone(),
                 self.issuer_url.clone(),
-                keys,
+                keys.clone(),
             ),
         }
     }
@@ -279,42 +328,7 @@ impl<H: OidcHandler> OidcContext<H> {
                 }
             }
             IdTokenVerification::Lazy(lazy) => {
-                let keys = match lazy.jwks.ensure_keys(&self.0.http_client).await {
-                    Ok(keys) => keys,
-                    Err(_e) => {
-                        crate::debug!("failed to fetch JWKS: {_e}");
-                        return false;
-                    }
-                };
-
-                match id_token.claims(&lazy.verifier(keys.as_ref().clone()), nonce) {
-                    Ok(_) => return true,
-                    Err(ClaimsVerificationError::SignatureVerification(_e)) => {
-                        crate::debug!("id_token signature check failed, refetching JWKS: {_e}");
-                    }
-                    Err(_e) => {
-                        crate::debug!("id_token verification failed: {_e}");
-                        return false;
-                    }
-                }
-
-                // Signature failure can mean the provider rotated its signing keys.
-                // Refetch once (rate-limited) and retry.
-                let keys = match lazy.jwks.refresh_keys(&self.0.http_client).await {
-                    Ok(keys) => keys,
-                    Err(_e) => {
-                        crate::debug!("failed to refetch JWKS: {_e}");
-                        return false;
-                    }
-                };
-
-                match id_token.claims(&lazy.verifier(keys.as_ref().clone()), nonce) {
-                    Ok(_) => true,
-                    Err(_e) => {
-                        crate::debug!("id_token verification failed after JWKS refetch: {_e}");
-                        false
-                    }
-                }
+                lazy.verify(id_token, nonce, &self.0.http_client).await
             }
         }
     }

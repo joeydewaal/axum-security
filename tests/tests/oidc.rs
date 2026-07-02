@@ -702,6 +702,70 @@ async fn install_mock_oidc_server_rotating_jwks() -> (MockServer, String) {
     (mock_server, issuer_url)
 }
 
+/// A mock provider whose JWKS endpoint returns an empty key set on the first
+/// request and an error on every request after — its tokens can never be
+/// verified, so every login exercises the refetch-on-signature-failure path.
+async fn install_mock_oidc_server_failing_jwks() -> (MockServer, String) {
+    let mock_server = MockServer::start().await;
+    let issuer_url = mock_server.uri();
+
+    let call_count = Arc::new(AtomicUsize::new(0));
+
+    Mock::given(method("GET"))
+        .and(path("/.well-known/jwks.json"))
+        .respond_with(move |_req: &WireRequest| {
+            let n = call_count.fetch_add(1, Ordering::SeqCst);
+            if n == 0 {
+                ResponseTemplate::new(200)
+                    .set_body_json(CoreJsonWebKeySet::new(vec![]))
+                    .insert_header("Content-Type", "application/json")
+            } else {
+                ResponseTemplate::new(500)
+            }
+        })
+        .mount(&mock_server)
+        .await;
+
+    mount_authorize_and_token(&mock_server, &issuer_url).await;
+
+    (mock_server, issuer_url)
+}
+
+#[tokio::test]
+async fn jwks_refetch_failures_are_rate_limited() -> Result<(), Box<dyn Error>> {
+    let _ = tracing_subscriber::fmt::try_init();
+    const INTERVAL: Duration = Duration::from_secs(1);
+
+    let server = TestServer::manual(install_mock_oidc_server_failing_jwks().await, INTERVAL).await;
+    let client = server.cookie_client();
+
+    // Login 1: the cold fetch caches the empty key set (request 1); the
+    // signature check fails, and the rotation refetch is rate-limited by the
+    // fetch that just happened.
+    let res = server.complete_login(&client).await;
+    assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(jwks_request_count(&server._mock).await, 1);
+
+    // Wait out the interval so the next signature failure may refetch.
+    tokio::time::sleep(INTERVAL + Duration::from_millis(300)).await;
+
+    // Login 2: the refetch is attempted and fails with a 500 (request 2).
+    let res = server.complete_login(&client).await;
+    assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(jwks_request_count(&server._mock).await, 2);
+
+    // Login 3, immediately after: the refetch that just *failed* must also
+    // count against the rate limit — no third request.
+    let res = server.complete_login(&client).await;
+    assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(
+        jwks_request_count(&server._mock).await,
+        2,
+        "a failed refetch must count against the rate limit"
+    );
+    Ok(())
+}
+
 #[tokio::test]
 async fn manual_builder_completes_login_with_lazy_jwks() -> Result<(), Box<dyn Error>> {
     let _ = tracing_subscriber::fmt::try_init();
