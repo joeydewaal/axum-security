@@ -169,8 +169,8 @@ in this crate.
   axum-security's `get_start_challenge_path`) since the bare name is taken.
 - Terminal `build()`; where construction can fail, `try_build() -> Result`
   with `build()` as the panicking convenience (axum-security's
-  `build`/`try_build` split) — for this crate `build()? -> Result` only;
-  the panicking convenience stays in axum-security's own builders.
+  `build`/`try_build` split) — applied here too: `try_build()` validates,
+  `build()` is `try_build().unwrap()`.
 
 ### Lifetimes
 

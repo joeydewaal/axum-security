@@ -21,7 +21,7 @@ fn client(server: &MockServer, with_secret: bool) -> OAuth2Client {
     if with_secret {
         builder = builder.client_secret(CLIENT_SECRET);
     }
-    builder.build().unwrap()
+    builder.build()
 }
 
 fn tokens_body() -> serde_json::Value {

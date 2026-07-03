@@ -98,7 +98,15 @@ impl OAuth2ClientBuilder {
     }
 
     /// Validates the configuration and builds the client.
-    pub fn build(self) -> Result<OAuth2Client, ConfigError> {
+    ///
+    /// Panics on invalid configuration; use [`try_build`](Self::try_build)
+    /// to handle the error instead.
+    pub fn build(self) -> OAuth2Client {
+        self.try_build().unwrap()
+    }
+
+    /// Validates the configuration and builds the client.
+    pub fn try_build(self) -> Result<OAuth2Client, ConfigError> {
         let client_id = self.client_id.ok_or(ConfigError::MissingClientId)?;
 
         let auth_url = self
@@ -140,7 +148,7 @@ impl OAuth2ClientBuilder {
     }
 }
 
-/// Errors from [`OAuth2ClientBuilder::build`].
+/// Errors from [`OAuth2ClientBuilder::try_build`].
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum ConfigError {

@@ -221,10 +221,7 @@ mod tests {
 
     #[test]
     fn start_login_builds_the_authorize_url() {
-        let client = base_builder()
-            .scopes(&["read:user", "user:email"])
-            .build()
-            .unwrap();
+        let client = base_builder().scopes(&["read:user", "user:email"]).build();
 
         let login = client.start_login().unwrap();
         let url = login.url();
@@ -253,7 +250,7 @@ mod tests {
 
     #[test]
     fn start_login_without_pkce() {
-        let client = base_builder().set_pkce(false).build().unwrap();
+        let client = base_builder().set_pkce(false).build();
 
         let login = client.start_login().unwrap();
         let query = query_map(login.url());
@@ -269,8 +266,7 @@ mod tests {
         let client = OAuth2Client::builder()
             .client_id("test_client_id")
             .auth_url("https://provider.example/authorize")
-            .build()
-            .unwrap();
+            .build();
 
         let login = client.start_login().unwrap();
         let query = query_map(login.url());
@@ -283,8 +279,7 @@ mod tests {
         let client = OAuth2Client::builder()
             .client_id("test_client_id")
             .auth_url("https://provider.example/authorize?audience=api")
-            .build()
-            .unwrap();
+            .build();
 
         let query = query_map(client.start_login().unwrap().url());
         assert_eq!(query["audience"], "api");
@@ -293,10 +288,7 @@ mod tests {
 
     #[test]
     fn start_login_requires_auth_url() {
-        let client = OAuth2Client::builder()
-            .client_id("test_client_id")
-            .build()
-            .unwrap();
+        let client = OAuth2Client::builder().client_id("test_client_id").build();
 
         assert!(matches!(
             client.start_login(),
@@ -308,7 +300,7 @@ mod tests {
     fn missing_client_id() {
         let result = OAuth2Client::builder()
             .auth_url("https://provider.example/authorize")
-            .build();
+            .try_build();
         assert!(matches!(result, Err(crate::ConfigError::MissingClientId)));
     }
 
@@ -319,25 +311,25 @@ mod tests {
         let result = OAuth2Client::builder()
             .client_id("id")
             .auth_url("not an url")
-            .build();
+            .try_build();
         assert!(matches!(result, Err(ConfigError::InvalidAuthUrl(_))));
 
         let result = OAuth2Client::builder()
             .client_id("id")
             .token_url("not an url")
-            .build();
+            .try_build();
         assert!(matches!(result, Err(ConfigError::InvalidTokenUrl(_))));
 
         let result = OAuth2Client::builder()
             .client_id("id")
             .redirect_url("not an url")
-            .build();
+            .try_build();
         assert!(matches!(result, Err(ConfigError::InvalidRedirectUrl(_))));
     }
 
     #[test]
     fn getters() {
-        let client = base_builder().scopes(&["a"]).build().unwrap();
+        let client = base_builder().scopes(&["a"]).build();
         assert_eq!(client.client_id(), "test_client_id");
         assert_eq!(
             client.auth_url().unwrap().as_str(),
@@ -369,7 +361,7 @@ mod tests {
 
     #[test]
     fn debug_redacts_secrets() {
-        let client = base_builder().build().unwrap();
+        let client = base_builder().build();
         let debug = format!("{client:?}");
         assert!(!debug.contains("test_client_secret"), "{debug}");
         assert!(debug.contains("test_client_id"), "{debug}");

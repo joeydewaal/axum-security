@@ -33,7 +33,7 @@
 //!     .token_url("https://github.com/login/oauth/access_token")
 //!     .redirect_url("https://my-app.example/callback")
 //!     .scopes(&["read:user"])
-//!     .build()?;
+//!     .build(); // or try_build() to handle ConfigError
 //!
 //! // Leg 1: redirect the user to `login.url()`; persist the CSRF token
 //! // and PKCE verifier (e.g. in a signed cookie) for the callback.

@@ -191,7 +191,7 @@ let client = OAuth2Client::builder()
     .scopes(&["read:user", "user:email"])   // &[&str], replaces; default empty
     .set_pkce(false)                        // default true; pkce() re-enables
     .http_client(reqwest_client)            // impl Into<HttpClient>; default under `reqwest` feature
-    .build()?;                              // -> Result<OAuth2Client, ConfigError>
+    .try_build()?;                          // -> Result<OAuth2Client, ConfigError>; build() = try_build().unwrap()
 
 #[non_exhaustive]
 pub enum ConfigError {
@@ -203,7 +203,8 @@ pub enum ConfigError {
 ```
 
 House rules applied: bare-name chainable setters, `pkce()`/`set_pkce(bool)`
-flag pair, fallible terminal `build()`. Only `client_id` is required —
+flag pair, `build()`/`try_build()` terminal pair (axum-security's split:
+`try_build()` returns `Result`, `build()` is the panicking convenience). Only `client_id` is required —
 endpoints stay optional and fail at call time (`Error::MissingEndpoint`),
 which is what lets one client type cover every endpoint combination without
 typestate. No `get_` builder getters until something needs one. Env-var
