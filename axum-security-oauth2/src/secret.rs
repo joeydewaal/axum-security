@@ -129,7 +129,7 @@ mod tests {
     fn eq_variants() {
         let token = CsrfToken::new("abc");
         assert_eq!(token, CsrfToken::new("abc"));
-        assert_ne!(token, CsrfToken::new("abd"));
+        assert_ne!(token, CsrfToken::new("abz"));
         assert_ne!(token, CsrfToken::new("abcd"));
         assert!(token == *"abc");
         assert!(token == "abc");
