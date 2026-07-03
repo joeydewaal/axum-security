@@ -90,7 +90,7 @@ Verified against vendored `oauth2-5.0.0` source. "axs" = what
 
 | Upstream capability | axs today | Our plan |
 |---|---|---|
-| Async HTTP via `AsyncHttpClient` trait | ✅ (reqwest) | `HttpClient` trait (ours, simpler), `Arc<dyn>` — **Phase 1** |
+| Async HTTP via `AsyncHttpClient` trait | ✅ (reqwest) | `HttpClient` feature-gated enum, crate-private request seam, no `Box<dyn>` — **Phase 1** |
 | reqwest backend (`reqwest`, default) | ✅ | Default feature, no-redirect + 10s-timeout default client |
 | `rustls-tls` (default) / `native-tls` | ✅ rustls | Same two features |
 | Sync HTTP: `reqwest-blocking`, `curl`, `ureq` | ❌ | **Dropped.** Async-only |
@@ -109,7 +109,7 @@ Verified against vendored `oauth2-5.0.0` source. "axs" = what
 | `url` | keep | endpoint validation at `build()`, query building. The one debatable keep — `form_urlencoded` + raw strings would be smaller; not worth losing build-time URL errors (`OAuth2BuilderError::Invalid*Url` depends on them) |
 | `rand` | → `getrandom` | we need exactly "32 random bytes from the OS CSPRNG"; `getrandom` is the bottom of that stack |
 | `chrono` (non-optional!) | **dropped** | datetime-agnostic core: `Duration` + unix `i64`; optional `jiff`/`chrono`/`time` conversion features |
-| `http` | **dropped** | our `HttpClient` trait uses two tiny domain structs instead of `http::Request`/`Response` |
+| `http` | **dropped** | the request/response seam is crate-private (the `HttpClient` enum dispatches internally); no public types to model with `http::Request`/`Response` |
 | `thiserror` | **dropped** | hand-rolled `Display`/`Error` impls (house style; axum-security and cookie-monster both do this) |
 | `serde_path_to_error` | **dropped** | dep budget |
 | — | + `subtle` | constant-time secret comparison, always on; zero-dep crate already used by axum-security |
@@ -123,7 +123,7 @@ Direct deps: **7** (`serde`, `serde_json`, `sha2`, `base64`, `getrandom`,
 
 | Feature | Default | Contents |
 |---|---|---|
-| `reqwest` | yes | `HttpClient` impl for `reqwest::Client` |
+| `reqwest` | yes | `Reqwest` variant of the `HttpClient` enum + `From<reqwest::Client>` |
 | `rustls-tls` | yes | reqwest rustls backend |
 | `native-tls` | no | reqwest native-tls backend |
 | `jiff` / `chrono` / `time` | no | timestamp conversion accessors (cookie-monster pattern) |
@@ -351,35 +351,44 @@ OAuth2 touches time in three places; none justifies a datetime dependency:
   (upstream used `chrono::Utc::now` + an injectable `time_fn`; an injectable
   clock for tests keeps that testability without the dep).
 
-## HTTP abstraction (agnostic from day one)
+## HTTP backend (agnostic, no `Box<dyn>`)
+
+A feature-gated enum, the same pattern as axum-security's `Session<U>`
+(cfg-gated variants per enabled feature):
 
 ```rust
-pub struct HttpRequest {           // domain-level, not generic HTTP
-    pub url: Url,                  // always POST, form-urlencoded
-    pub headers: Vec<(&'static str, String)>,  // Accept, Content-Type, Authorization
-    pub body: Vec<u8>,
+#[non_exhaustive]
+pub enum HttpClient {
+    #[cfg(feature = "reqwest")]
+    Reqwest(reqwest::Client),
+    // future backends = new feature + new variant (e.g. Hyper(...))
 }
 
-pub struct HttpResponse {
-    pub status: u16,
-    pub content_type: Option<String>,
-    pub body: Vec<u8>,
-}
-
-pub trait HttpClient: Send + Sync + 'static {
-    fn send(&self, req: HttpRequest)
-        -> Pin<Box<dyn Future<Output = Result<HttpResponse, BoxError>> + Send + '_>>;
-}
+impl From<reqwest::Client> for HttpClient { ... }   // builder takes impl Into<HttpClient>
 ```
 
-The protocol only ever needs "POST a form, read status + JSON" — so the
-trait is two tiny structs instead of the `http` crate's full generality
-(one less dep). Stored as `Arc<dyn HttpClient>`: swappable per the
-agnosticism requirement, and dyn dispatch keeps `OAuth2Client` free of type
-parameters. One boxed future per token exchange is nothing on a login flow.
-The reqwest impl ships behind the default `reqwest` feature; hyper/wasm/test
-impls are a page of user code. Implementations must not follow redirects
-(documented; the default client enforces it).
+Dispatch is a `match` in one crate-private `async fn post_form(...)`. The
+protocol only ever needs "POST a form, read status + JSON body", so the
+request/response representation between protocol code and the match arms is
+**crate-private** — no `http` crate dependency, and unlike a pub trait, no
+public `HttpRequest`/`HttpResponse` types to design and stabilize at all.
+
+Why the enum over an RPITIT async trait (`fn send(...) -> impl Future +
+Send`, the `pbac::Policy` style): the trait isn't dyn-compatible, so storing
+an implementor means `OAuth2Client<C: HttpClient>` — a type parameter on
+every field and signature holding a client, which is the exact disease this
+crate exists to cure. The enum keeps `OAuth2Client` concrete, keeps futures
+unboxed (each match arm awaits its backend directly), and adding a backend
+is a minor-version variant addition (`#[non_exhaustive]` makes that
+semver-safe). Trade-off, stated honestly: users cannot plug an arbitrary
+backend; they get the backends the crate ships. Backends are added on
+demand — and axum-security, the crate's actual consumer, uses reqwest.
+
+Backends must not follow redirects (documented; the default reqwest client
+enforces it). Without any backend feature enabled, `start_login()` still
+works (no I/O); token calls can't be reached because no `HttpClient` value
+can be constructed — `http` is `Option` internally and `finish_login`
+returns `Error::NoHttpClient`.
 
 ## Security invariants
 
@@ -406,10 +415,10 @@ and discovery are their own security surface). What it requires from *this*
 crate — phase-3 scope here, landing before the oidc crate starts:
 
 - `add_extra_param` on the authorize URL (nonce, prompt, login_hint, hd).
-- `id_token` retrieval via `TokenResponse::extra_field("id_token")` (the
+- `id_token` retrieval via `Tokens::extra_field("id_token")` (the
   retained-extras map itself exists from phase 1).
 - Refresh grant, `AuthType::RequestBody` (some IdPs), and the `HttpClient`
-  trait shared so both crates ride one connection pool.
+  backend enum shared so both crates ride one connection pool.
 
 Until it lands, `openidconnect` (and transitively upstream `oauth2`) stays
 in the tree when the `oidc` feature is on — compile-time cost only; the oidc
@@ -417,17 +426,25 @@ module doesn't leak upstream types.
 
 ## Migration of `axum-security`'s `oauth2` feature
 
-Mechanical — the module touches a narrow upstream slice:
+Not a drop-in swap — the API is deliberately different — but the module
+touches a narrow upstream slice, so the rewrite is contained:
 
 1. `Cargo.toml`: `oauth2 = { workspace = true, ... }` →
    `axum-security-oauth2 = { path = "../axum-security-oauth2" }`.
 2. Delete the `OAuth2ClientTyped` alias (`oauth2/mod.rs:28`); the field
    becomes `client: OAuth2Client`.
-3. `builder.rs`: `Client::new(...).set_auth_uri(...)` chain → new builder;
-   `default_reqwest_client()` deleted; existing `OAuth2BuilderError`
-   variants map 1:1 onto the new `ConfigError`.
-4. `context.rs`: drop the `TokenResponse as _` trait import (accessors are
-   inherent); `Scope` vec becomes `Vec<String>`; flow calls near-identical.
+3. `builder.rs`: `Client::new(...).set_auth_uri(...)` chain → new client
+   builder; scopes and the PKCE switch move onto the client (today they
+   live in axum-security's context and are applied per call);
+   `default_reqwest_client()` deleted (the new builder's default backend
+   replaces it); existing `OAuth2BuilderError` variants map 1:1 onto the
+   new `ConfigError`.
+4. `context.rs`: `start_challenge()`'s `authorize_url + add_scopes +
+   set_pkce_challenge` sequence collapses into one `client.start_login()`;
+   `exchange_code()`'s `exchange_code + set_pkce_verifier + request_async`
+   into one `client.finish_login(code, verifier).await`. Drop the
+   `TokenResponse as _` trait import (accessors on `Tokens` are inherent);
+   `Scope` vec becomes `Vec<String>`.
 5. `cookie.rs`/`redirect.rs`: import-path changes for `CsrfToken`,
    `PkceCodeVerifier`, `AuthorizationCode`.
 
@@ -452,7 +469,7 @@ upstream (not-a-fork applies to tests too).
 ## Phases
 
 1. **Core — exactly axum-security's current footprint.** Crate skeleton,
-   secret types, errors, builder, `HttpClient` trait + reqwest impl,
+   secret types, errors, builder, `HttpClient` enum + reqwest variant,
    authorize URL + CSRF + scopes, PKCE S256, code exchange, Basic client
    auth. Nothing more. *Exit: axum-security's `oauth2` feature compiles and
    passes its tests on this crate.*
@@ -472,6 +489,5 @@ upstream (not-a-fork applies to tests too).
 |---|---|---|
 | `url` dependency | Keep — build-time URL validation feeds existing error variants | `form_urlencoded` + opaque strings; smaller tree, worse errors |
 | Distinct secret types vs one `Secret` | Distinct names over one shared impl — prevents access/refresh mixups at zero cost | Single `Secret` type everywhere |
-| `HttpRequest`/`HttpResponse` own structs vs `http` crate types | Own structs (drops a dep; trait is domain-level) | `http` types interop better with tower/hyper middleware users |
-| Device-flow convenience polling | Ship `sleep_fn`-based `send()` + expose single-poll for manual loops | Only manual polling; smaller API, worse ergonomics |
+| Device-flow convenience polling | Ship `finish_device_login(&device, sleep)` + expose single-poll for manual loops | Only manual polling; smaller API, worse ergonomics |
 | Crate name | `axum-security-oauth2` (family branding; note: no axum dependency) | Neutral name if it should stand alone |
