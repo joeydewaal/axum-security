@@ -60,11 +60,9 @@ pub(super) struct OidcContextInner<H> {
 
 /// How ID token signatures are verified.
 pub(super) enum IdTokenVerification {
-    /// Discovery path: the JWKS was fetched at build time and baked into the
-    /// client, so verification uses [`CoreClient::id_token_verifier`].
+    /// Discovery path: the JWKS was baked into the client at build time.
     Baked,
-    /// Manual (hard-coded endpoint) path: the JWKS is fetched lazily and
-    /// cached as a ready-made verifier.
+    /// Manual (hard-coded endpoint) path: the JWKS is fetched lazily.
     Lazy(Box<LazyVerifier>),
 }
 

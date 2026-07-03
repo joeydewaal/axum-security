@@ -12,23 +12,17 @@ use openidconnect::{
 use tokio::sync::Mutex;
 
 /// Default minimum time between JWKS refetch attempts triggered by an unknown
-/// signing key. Bounds the damage from tokens carrying bogus `kid`s, which
-/// would otherwise force a refetch on every request (a DoS amplification
-/// against the provider's JWKS endpoint).
+/// signing key; bounds the JWKS load a stream of bogus-`kid` tokens can cause.
 pub(super) const DEFAULT_MIN_REFETCH_INTERVAL: Duration = Duration::from_secs(60);
 
 type SharedVerifier = Arc<CoreIdTokenVerifier<'static>>;
 
-/// ID-token verification for the manual (hard-coded endpoint) OIDC path.
+/// ID-token verification for the manual (hard-coded endpoint) OIDC path: the
+/// JWKS is fetched on first use, cached as a ready-made verifier, and
+/// refetched (rate-limited) when a token presents an unknown signing key.
 ///
-/// The JWKS is fetched on first use and cached as a ready-made verifier. When
-/// a token presents a signing key that isn't cached (key rotation), the JWKS
-/// is refetched — at most one attempt (successful or not) per
-/// `min_refetch_interval` — and verification retried.
-///
-/// The mutex is held across the fetch, so concurrent callers coalesce onto a
-/// single request (single-flight): whichever caller arrives first fetches, the
-/// rest block briefly and then find the verifier already built.
+/// The mutex is held across the fetch so concurrent callers coalesce onto a
+/// single request.
 pub(super) struct LazyVerifier {
     client_id: ClientId,
     client_secret: Option<ClientSecret>,
@@ -40,9 +34,8 @@ pub(super) struct LazyVerifier {
 
 struct State {
     verifier: Option<SharedVerifier>,
-    /// When a fetch was last *attempted*, successful or not. Failed attempts
-    /// count against the refetch rate limit too, so a broken JWKS endpoint
-    /// isn't hammered once per bad token.
+    /// Last fetch *attempt*, successful or not — failures count against the
+    /// rate limit too.
     last_attempt: Option<Instant>,
 }
 
@@ -67,8 +60,7 @@ impl LazyVerifier {
         }
     }
 
-    /// Verify an ID token's signature, nonce, audience, and expiration against
-    /// the lazily-fetched JWKS.
+    /// Verify an ID token's signature, nonce, audience, and expiration.
     pub(super) async fn verify(
         &self,
         id_token: &CoreIdToken,
@@ -93,8 +85,7 @@ impl LazyVerifier {
         let verifier = self.ensure_verifier(http_client).await?;
         let sig_err = match id_token.claims(&verifier, nonce) {
             Ok(_) => return Ok(()),
-            // A bad signature can mean the provider rotated its signing keys:
-            // refetch the JWKS once (rate-limited) and retry.
+            // May be a key rotation: refetch once (rate-limited) and retry.
             Err(err @ ClaimsVerificationError::SignatureVerification(_)) => err,
             Err(err) => return Err(err.into()),
         };
@@ -105,16 +96,10 @@ impl LazyVerifier {
                 id_token.claims(&fresh, nonce)?;
                 Ok(())
             }
-            // Rate-limited with nothing fresher: the failure stands.
             None => Err(sig_err.into()),
         }
     }
 
-    /// Return the cached verifier, fetching the JWKS once if the cache is cold.
-    ///
-    /// This is the load-bearing correctness path: it works identically whether
-    /// or not any prior request warmed the cache, so a fresh process (new
-    /// Lambda environment, new pod) fetches the keys itself on first use.
     async fn ensure_verifier(&self, http_client: &HttpClient) -> Result<SharedVerifier, JwksError> {
         let mut state = self.state.lock().await;
         if let Some(verifier) = &state.verifier {
@@ -123,12 +108,9 @@ impl LazyVerifier {
         self.fetch_into(&mut state, http_client).await
     }
 
-    /// Force a JWKS refetch after an unknown signing key (rotation), at most
-    /// one attempt per `min_refetch_interval`.
-    ///
-    /// When rate-limited, returns a verifier a concurrent caller built since
-    /// `tried` — or `None`, meaning `tried` is the freshest available and the
-    /// caller's verification failure stands.
+    /// Force a refetch, at most one attempt per `min_refetch_interval`. When
+    /// rate-limited, returns a verifier built since `tried`, or `None` if
+    /// `tried` is already the freshest available.
     async fn refresh_verifier(
         &self,
         http_client: &HttpClient,
@@ -157,9 +139,7 @@ impl LazyVerifier {
         Ok(verifier)
     }
 
-    /// Build an ID token verifier from a fetched key set, mirroring the
-    /// public/confidential selection that `CoreClient::id_token_verifier`
-    /// makes.
+    /// Mirrors the public/confidential selection of `CoreClient::id_token_verifier`.
     fn build_verifier(&self, keys: CoreJsonWebKeySet) -> CoreIdTokenVerifier<'static> {
         match &self.client_secret {
             Some(secret) => CoreIdTokenVerifier::new_confidential_client(
@@ -177,7 +157,6 @@ impl LazyVerifier {
     }
 }
 
-/// Error fetching the JWKS from the provider.
 #[derive(Debug)]
 struct JwksError(String);
 
