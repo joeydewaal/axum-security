@@ -326,7 +326,8 @@ Everything else is a std/url type.
 Survivors — the secret set, one shared implementation (macro or generic
 `Secret<Marker>` internally, distinct public names): `ClientSecret`,
 `AccessToken`, `RefreshToken`, `AuthorizationCode`, `CsrfToken`,
-`PkceCodeVerifier`, `DeviceCode`. All: `Debug` prints `[redacted]`, no
+`PkceVerifier` (upstream: `PkceCodeVerifier` — "code" adds nothing),
+`DeviceCode`. All: `Debug` prints `[redacted]`, no
 `Display`, `PartialEq` via `subtle`, access via `.secret() -> &str`,
 `Serialize` only where the wire format requires it.
 
@@ -445,8 +446,8 @@ touches a narrow upstream slice, so the rewrite is contained:
    into one `client.finish_login(code, verifier).await`. Drop the
    `TokenResponse as _` trait import (accessors on `Tokens` are inherent);
    `Scope` vec becomes `Vec<String>`.
-5. `cookie.rs`/`redirect.rs`: import-path changes for `CsrfToken`,
-   `PkceCodeVerifier`, `AuthorizationCode`.
+5. `cookie.rs`/`redirect.rs`: `CsrfToken` and `AuthorizationCode` change
+   import paths; `PkceCodeVerifier` is renamed `PkceVerifier`.
 
 No intended change to axum-security's public API — upstream types never
 leaked (`handler::TokenResponse` is already our own struct).
@@ -472,7 +473,8 @@ upstream (not-a-fork applies to tests too).
    secret types, errors, builder, `HttpClient` enum + reqwest variant,
    authorize URL + CSRF + scopes, PKCE S256, code exchange, Basic client
    auth. Nothing more. *Exit: axum-security's `oauth2` feature compiles and
-   passes its tests on this crate.*
+   passes its tests on this crate.* Full API plan:
+   [`axum-security-oauth2-phase1.md`](./axum-security-oauth2-phase1.md).
 2. **Migration** — swap the dependency in axum-security, delete glue
    (`OAuth2ClientTyped`, `default_reqwest_client()`).
 3. **oidc prerequisites** — extra auth params, refresh grant,
