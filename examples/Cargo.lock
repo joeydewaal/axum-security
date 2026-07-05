@@ -125,13 +125,13 @@ version = "0.0.1"
 dependencies = [
  "axum",
  "axum-security-macros",
+ "axum-security-oauth2",
  "base64 0.22.1",
  "cookie-monster",
  "hmac 0.13.0",
  "http",
  "jiff",
  "jsonwebtoken",
- "oauth2 5.0.0",
  "openidconnect",
  "pin-project-lite",
  "rand 0.10.1",
@@ -141,6 +141,7 @@ dependencies = [
  "subtle",
  "tokio",
  "tower",
+ "url",
  "uuid",
  "wincode",
 ]
@@ -152,6 +153,20 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
+]
+
+[[package]]
+name = "axum-security-oauth2"
+version = "0.0.1"
+dependencies = [
+ "base64 0.22.1",
+ "getrandom 0.3.4",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "subtle",
+ "url",
 ]
 
 [[package]]

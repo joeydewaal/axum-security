@@ -43,6 +43,10 @@ jobs:
         run: cargo clippy -p axum-security --features oidc,oauth2 -- -D warnings
       - name: Clippy axum-security-macros
         run: cargo clippy -p axum-security-macros -- -D warnings
+      - name: Clippy axum-security-oauth2
+        run: |
+          cargo clippy -p axum-security-oauth2 --all-targets -- -D warnings
+          cargo clippy -p axum-security-oauth2 --all-targets --no-default-features -- -D warnings
 
   test:
     name: Test
@@ -55,6 +59,10 @@ jobs:
         run: cargo test -p axum-security --features jwt,basic-auth,cookie,rbac,macros,pbac,headers,tracing,oauth2,oidc
       - name: Macro tests
         run: cargo test -p axum-security-macros
+      - name: OAuth2 crate tests
+        run: |
+          cargo test -p axum-security-oauth2
+          cargo test -p axum-security-oauth2 --no-default-features
       - name: Integration tests (each feature)
         run: >-
           cargo hack test -p tests
@@ -75,6 +83,8 @@ jobs:
         run: cargo doc --no-deps -p axum-security --features jwt,basic-auth,cookie,rbac,macros,pbac,headers,tracing,oauth2,oidc
       - name: Doc axum-security-macros
         run: cargo doc --no-deps -p axum-security-macros
+      - name: Doc axum-security-oauth2
+        run: cargo doc --no-deps -p axum-security-oauth2
 
   examples:
     name: Examples

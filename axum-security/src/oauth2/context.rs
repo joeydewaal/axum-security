@@ -6,13 +6,11 @@ use axum::{
     response::{IntoResponse, Redirect},
 };
 
+use axum_security_oauth2::OAuth2Client;
 use cookie_monster::{CookieBuilder, CookieJar};
-use oauth2::{
-    AuthorizationCode, CsrfToken, PkceCodeChallenge, PkceCodeVerifier, Scope, TokenResponse as _,
-};
 
 use crate::oauth2::{
-    AfterLoginCookies, OAuth2ClientTyped, OAuth2Handler, TokenResponse,
+    AfterLoginCookies, OAuth2Handler, TokenResponse,
     builder::{FlowType, OAuth2ContextBuilder},
     cookie::OAuth2Cookie,
 };
@@ -27,10 +25,8 @@ pub struct OAuth2Context<H>(pub(super) Arc<OAuth2ContextInner<H>>);
 pub(super) struct OAuth2ContextInner<H> {
     pub(super) inner: H,
     pub(super) session: OAuth2Cookie,
-    pub(super) client: OAuth2ClientTyped,
+    pub(super) client: OAuth2Client,
     pub(super) login_path: Option<Cow<'static, str>>,
-    pub(super) scopes: Vec<Scope>,
-    pub(super) http_client: ::oauth2::reqwest::Client,
     pub(super) flow_type: FlowType,
 }
 impl OAuth2Context<()> {
@@ -65,14 +61,15 @@ impl OAuth2Context<()> {
 
 impl<H: OAuth2Handler> OAuth2Context<H> {
     pub(crate) fn callback_url(&self) -> &str {
-        self.0.client.redirect_uri().unwrap().url().path()
+        // The builder requires a redirect_url, so it is always set.
+        self.0.client.redirect_url().unwrap().path()
     }
 
     pub(crate) async fn on_redirect(
         &self,
         mut jar: CookieJar,
-        code: AuthorizationCode,
-        state: CsrfToken,
+        code: String,
+        state: String,
     ) -> axum::response::Response {
         crate::debug!("handling redirect");
 
@@ -81,7 +78,7 @@ impl<H: OAuth2Handler> OAuth2Context<H> {
         };
 
         // verify that csrf token is equal
-        if csrf_token.secret() != state.secret() {
+        if csrf_token != state {
             // bad req
             crate::debug!("state does not match");
             return StatusCode::UNAUTHORIZED.into_response();
@@ -117,15 +114,14 @@ impl<H: OAuth2Handler> OAuth2Context<H> {
 
     pub(crate) async fn exchange_code(
         &self,
-        code: AuthorizationCode,
-        pkce_verifier: Option<PkceCodeVerifier>,
+        code: String,
+        pkce_verifier: Option<String>,
     ) -> Result<TokenResponse, String> {
-        let response = match self.0.flow_type {
+        let tokens = match self.0.flow_type {
             FlowType::AuthorizationCodeFlow => self
                 .0
                 .client
-                .exchange_code(code)
-                .request_async(&self.0.http_client)
+                .finish_login_non_pkce(&code)
                 .await
                 .map_err(|e| e.to_string())?,
             FlowType::AuthorizationCodeFlowPkce => {
@@ -135,20 +131,15 @@ impl<H: OAuth2Handler> OAuth2Context<H> {
 
                 self.0
                     .client
-                    .exchange_code(code)
-                    .set_pkce_verifier(pkce_verifier)
-                    .request_async(&self.0.http_client)
+                    .finish_login(&code, &pkce_verifier)
                     .await
                     .map_err(|e| e.to_string())?
             }
         };
 
-        let access_token = response.access_token().secret().clone();
-        let refresh_token = response.refresh_token().map(|t| t.secret().clone());
-
         Ok(TokenResponse {
-            access_token,
-            refresh_token,
+            access_token: tokens.access_token,
+            refresh_token: tokens.refresh_token,
         })
     }
 
@@ -159,25 +150,24 @@ impl<H: OAuth2Handler> OAuth2Context<H> {
     pub async fn start_challenge(&self) -> axum::response::Response {
         crate::debug!("Starting oauth2 login flow");
 
-        let mut req = self.0.client.authorize_url(CsrfToken::new_random);
-
-        // Create authorize url, with csrf token
-        req = req.add_scopes(self.0.scopes.clone());
-
-        let pkce_verifier = if matches!(self.0.flow_type, FlowType::AuthorizationCodeFlowPkce) {
-            let (pkce_challenge, pkce_verifier) = PkceCodeChallenge::new_random_sha256();
-            req = req.set_pkce_challenge(pkce_challenge);
-            Some(pkce_verifier)
-        } else {
-            None
+        let (redirect_url, cookie) = match self.0.flow_type {
+            FlowType::AuthorizationCodeFlow => {
+                let login = self.0.client.start_login_non_pkce();
+                let cookie = self
+                    .0
+                    .session
+                    .generate_cookie(login.csrf_token.as_str(), None);
+                (login.url, cookie)
+            }
+            FlowType::AuthorizationCodeFlowPkce => {
+                let login = self.0.client.start_login();
+                let cookie = self
+                    .0
+                    .session
+                    .generate_cookie(login.csrf_token.as_str(), Some(&login.pkce_verifier));
+                (login.url, cookie)
+            }
         };
-
-        let (redirect_url, csrf_token) = req.url();
-
-        let cookie = self.0.session.generate_cookie(
-            csrf_token.secret(),
-            pkce_verifier.as_ref().map(|s| s.secret().as_ref()),
-        );
 
         // Send session cookie back
         (cookie, Redirect::to(redirect_url.as_str())).into_response()

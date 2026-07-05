@@ -2,7 +2,6 @@ use std::borrow::Cow;
 
 use cookie_monster::Cookie;
 use cookie_monster::CookieJar;
-use oauth2::{CsrfToken, PkceCodeVerifier};
 use wincode::{SchemaRead, SchemaWrite};
 
 use crate::{
@@ -49,10 +48,7 @@ impl OAuth2Cookie {
         self.inner.generate_cookie(&data)
     }
 
-    pub fn verify_cookies(
-        &self,
-        jar: &mut CookieJar,
-    ) -> Option<(CsrfToken, Option<PkceCodeVerifier>)> {
+    pub fn verify_cookies(&self, jar: &mut CookieJar) -> Option<(String, Option<String>)> {
         let payload = self.inner.decode_and_verify(jar)?;
 
         let now = utc_now_secs();
@@ -67,8 +63,8 @@ impl OAuth2Cookie {
         }
 
         Some((
-            CsrfToken::new(data.csrf_token.into()),
-            data.pkce_verifier.map(|v| PkceCodeVerifier::new(v.into())),
+            data.csrf_token.to_string(),
+            data.pkce_verifier.map(String::from),
         ))
     }
 }
@@ -108,8 +104,8 @@ mod tests {
         let mut jar = make_jar(cookie);
 
         let (csrf, pkce) = handler.verify_cookies(&mut jar).unwrap();
-        assert_eq!(csrf.secret(), "csrf_token");
-        assert_eq!(pkce.unwrap().secret(), "pkce_verifier");
+        assert_eq!(csrf, "csrf_token");
+        assert_eq!(pkce.as_deref(), Some("pkce_verifier"));
     }
 
     #[test]
@@ -119,7 +115,7 @@ mod tests {
         let mut jar = make_jar(cookie);
 
         let (csrf, pkce) = handler.verify_cookies(&mut jar).unwrap();
-        assert_eq!(csrf.secret(), "csrf_token");
+        assert_eq!(csrf, "csrf_token");
         assert!(pkce.is_none());
     }
 
