@@ -19,7 +19,6 @@ pub mod providers;
 mod redirect;
 mod router;
 
-pub use axum_security_oauth2::AuthType;
 pub use builder::OAuth2BuilderError;
 pub use context::OAuth2Context;
 pub use handler::{AfterLoginCookies, OAuth2Handler, TokenResponse};

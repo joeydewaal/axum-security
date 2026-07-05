@@ -1,6 +1,6 @@
 use std::{borrow::Cow, error::Error, fmt::Display, sync::Arc, time::Duration};
 
-use axum_security_oauth2::{AuthType, ConfigError, HttpClient, OAuth2Client, OAuth2ClientBuilder};
+use axum_security_oauth2::{ConfigError, HttpClient, OAuth2Client, OAuth2ClientBuilder};
 use cookie_monster::CookieBuilder;
 
 use crate::{
@@ -88,11 +88,18 @@ impl OAuth2ContextBuilder {
         self
     }
 
-    /// How the client authenticates to the token endpoint. Defaults to
-    /// [`AuthType::BasicAuth`]; some providers only accept credentials in
-    /// the request body ([`AuthType::RequestBody`]).
-    pub fn auth_type(mut self, auth_type: AuthType) -> Self {
-        self.client_builder.set_auth_type(auth_type);
+    /// Authenticate to the token endpoint with HTTP Basic (RFC 6749
+    /// §2.3.1). This is the default; call this only to undo a prior
+    /// [`request_body`](Self::request_body).
+    pub fn basic_auth(mut self) -> Self {
+        self.client_builder = self.client_builder.basic_auth();
+        self
+    }
+
+    /// Send `client_id` and `client_secret` in the request body instead of
+    /// an HTTP Basic header, for providers that don't support Basic.
+    pub fn request_body(mut self) -> Self {
+        self.client_builder = self.client_builder.request_body();
         self
     }
 

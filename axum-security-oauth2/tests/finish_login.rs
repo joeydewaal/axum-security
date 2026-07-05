@@ -3,7 +3,7 @@
 //! bodies, Basic-auth correctness and redirects-not-followed.
 #![cfg(feature = "reqwest")]
 
-use axum_security_oauth2::{AuthType, Error, ErrorCode, OAuth2Client};
+use axum_security_oauth2::{Error, ErrorCode, OAuth2Client};
 use wiremock::{
     Mock, MockServer, ResponseTemplate,
     matchers::{body_string_contains, header, method, path},
@@ -179,7 +179,7 @@ async fn request_body_auth_sends_credentials_in_body() {
         .client_secret(CLIENT_SECRET)
         .auth_url(format!("{}/authorize", server.uri()))
         .token_url(format!("{}/token", server.uri()))
-        .auth_type(AuthType::RequestBody)
+        .request_body()
         .build();
 
     Mock::given(method("POST"))

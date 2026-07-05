@@ -279,9 +279,9 @@ let tokens: Tokens = client.finish_login_non_pkce(code).await?;
 No request-builder object, no `.send()`, no `.request_async(&http)` — leg 2
 is an ordinary `async fn`. Builders exist where there is real optional
 surface (the *client* builder); a call with one optional argument doesn't
-earn one. Per-login extras (nonce et al., phase 3) are a
-closure-configured variant in axum-security style (`.cookie(|c| c...)`):
-`client.start_login_with(|o| o.param("nonce", n))` (plus the
+earn one. Per-login extras (nonce et al., phase 3) are passed as a
+`LoginOptions` value:
+`client.start_login_with(LoginOptions::new().param("nonce", n))` (plus the
 `_non_pkce_with` twin). `LoginOptions` redacts parameter values in
 `Debug` — a nonce is a secret. Per-request *redirect* override was
 considered for phase 3 and rejected: both legs send `redirect_uri` and
@@ -444,7 +444,7 @@ and discovery are their own security surface). What it requires from *this*
 crate — phase-3 scope, **shipped**:
 
 - Extra authorize-URL params (nonce, prompt, login_hint, hd) via
-  `start_login_with(|o| o.param(...))`.
+  `start_login_with(LoginOptions::new().param(...))`.
 - `id_token` retrieval via `Tokens::extra_field("id_token")` (the
   retained-extras map itself exists from phase 1).
 - Refresh grant (`refresh_tokens`), `AuthType::RequestBody` (some IdPs),

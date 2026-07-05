@@ -149,19 +149,18 @@ impl OAuth2Client {
     ///
     /// Pure — no I/O, infallible.
     pub fn start_login(&self) -> Login {
-        self.start_login_with(|options| options)
+        self.start_login_with(LoginOptions::default())
     }
 
     /// Like [`start_login`](Self::start_login), with extra authorization
     /// parameters — e.g. an oidc `nonce`, `prompt` or `login_hint`:
     ///
     /// ```ignore
-    /// let login = client.start_login_with(|o| o.param("nonce", &nonce));
+    /// let login = client.start_login_with(LoginOptions::new().param("nonce", &nonce));
     /// ```
     ///
     /// Pure — no I/O, infallible.
-    pub fn start_login_with(&self, f: impl FnOnce(LoginOptions) -> LoginOptions) -> Login {
-        let options = f(LoginOptions::default());
+    pub fn start_login_with(&self, options: LoginOptions) -> Login {
         let csrf_token = random_b64();
         let (challenge, pkce_verifier) = pkce::generate();
 
@@ -189,7 +188,7 @@ impl OAuth2Client {
     ///
     /// Pure — no I/O, infallible.
     pub fn start_login_non_pkce(&self) -> LoginNonPkce {
-        self.start_login_non_pkce_with(|options| options)
+        self.start_login_non_pkce_with(LoginOptions::default())
     }
 
     /// Like [`start_login_non_pkce`](Self::start_login_non_pkce), with
@@ -197,11 +196,7 @@ impl OAuth2Client {
     /// [`start_login_with`](Self::start_login_with)).
     ///
     /// Pure — no I/O, infallible.
-    pub fn start_login_non_pkce_with(
-        &self,
-        f: impl FnOnce(LoginOptions) -> LoginOptions,
-    ) -> LoginNonPkce {
-        let options = f(LoginOptions::default());
+    pub fn start_login_non_pkce_with(&self, options: LoginOptions) -> LoginNonPkce {
         let csrf_token = random_b64();
         let url = self.authorize_url(&csrf_token, &options);
         LoginNonPkce {
@@ -407,8 +402,11 @@ mod tests {
     fn start_login_with_appends_extra_params() {
         let client = base_builder().build();
 
-        let login =
-            client.start_login_with(|o| o.param("nonce", "test-nonce").param("hd", "example.com"));
+        let login = client.start_login_with(
+            LoginOptions::new()
+                .param("nonce", "test-nonce")
+                .param("hd", "example.com"),
+        );
         let query = query_map(&login.url);
 
         assert_eq!(query["nonce"], "test-nonce");
@@ -418,7 +416,8 @@ mod tests {
         assert_eq!(login.csrf_token, query["state"]);
         assert!(query.contains_key("code_challenge"));
 
-        let login = client.start_login_non_pkce_with(|o| o.param("nonce", "test-nonce"));
+        let login =
+            client.start_login_non_pkce_with(LoginOptions::new().param("nonce", "test-nonce"));
         let query = query_map(&login.url);
         assert_eq!(query["nonce"], "test-nonce");
         assert!(!query.contains_key("code_challenge"));
@@ -437,7 +436,7 @@ mod tests {
         let client = base_builder().build();
         assert_eq!(client.auth_type(), AuthType::BasicAuth);
 
-        let client = base_builder().auth_type(AuthType::RequestBody).build();
+        let client = base_builder().request_body().build();
         assert_eq!(client.auth_type(), AuthType::RequestBody);
     }
 
