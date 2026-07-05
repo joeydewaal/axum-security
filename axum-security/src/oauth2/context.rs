@@ -6,7 +6,7 @@ use axum::{
     response::{IntoResponse, Redirect},
 };
 
-use axum_security_oauth2::OAuth2Client;
+use axum_security_oauth2::{CsrfToken, OAuth2Client};
 use cookie_monster::{CookieBuilder, CookieJar};
 
 use crate::oauth2::{
@@ -77,9 +77,11 @@ impl<H: OAuth2Handler> OAuth2Context<H> {
             return StatusCode::UNAUTHORIZED.into_response();
         };
 
-        // verify that csrf token is equal
+        // Wrap the cookie's token in `CsrfToken` so the comparison against
+        // the attacker-controlled `state` query param runs in constant time
+        // (its `PartialEq`), rather than `String`'s byte-by-byte short-circuit.
+        let csrf_token = CsrfToken::from(csrf_token);
         if csrf_token != state {
-            // bad req
             crate::debug!("state does not match");
             return StatusCode::UNAUTHORIZED.into_response();
         }

@@ -30,6 +30,12 @@ impl CsrfToken {
     }
 }
 
+impl From<String> for CsrfToken {
+    fn from(token: String) -> Self {
+        Self(token)
+    }
+}
+
 /// Constant-time byte comparison of two strings.
 fn ct_eq(a: &str, b: &str) -> bool {
     a.as_bytes().ct_eq(b.as_bytes()).into()
