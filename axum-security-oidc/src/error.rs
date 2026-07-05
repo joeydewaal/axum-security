@@ -107,6 +107,40 @@ impl std::error::Error for DiscoveryError {
     }
 }
 
+/// A failure in the OpenID Connect login flow
+/// ([`OidcClient::finish_login`](crate::OidcClient::finish_login)).
+#[derive(Debug)]
+#[non_exhaustive]
+pub enum OidcError {
+    /// The authorization-code exchange at the token endpoint failed.
+    Exchange(axum_security_oauth2::Error),
+    /// The token response contained no `id_token` — the provider did not treat
+    /// this as an OpenID Connect request (is `openid` in the scopes?).
+    NoIdToken,
+    /// The ID token failed verification.
+    Verify(VerifyError),
+}
+
+impl fmt::Display for OidcError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            OidcError::Exchange(e) => write!(f, "authorization code exchange failed: {e}"),
+            OidcError::NoIdToken => f.write_str("token response contained no id_token"),
+            OidcError::Verify(e) => write!(f, "ID token verification failed: {e}"),
+        }
+    }
+}
+
+impl std::error::Error for OidcError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            OidcError::Exchange(e) => Some(e),
+            OidcError::Verify(e) => Some(e),
+            OidcError::NoIdToken => None,
+        }
+    }
+}
+
 /// A failure while deserializing a verified ID token's payload into
 /// [`OidcClaims`](crate::OidcClaims).
 ///
