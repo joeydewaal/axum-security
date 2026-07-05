@@ -361,8 +361,9 @@ dependencies = [
 
 [[package]]
 name = "cookie-monster"
-version = "0.2.1"
-source = "git+https://github.com/joeydewaal/cookie-monster?rev=96b94a37a8150a235ea7e5af2e3028a84627d1d4#96b94a37a8150a235ea7e5af2e3028a84627d1d4"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "507c43ba9aba997b283753fcd7eaffd883cfba4c4b02b5d3924fc2522863537a"
 dependencies = [
  "axum-core",
  "http",

@@ -9,8 +9,8 @@ tokio = { version = "1.0", default-features = false }
 tower = "0.5"
 pin-project-lite = "0.2.16"
 
-# git until the `__Host-`/`__Secure-` prefix support (Cookie::host / Cookie::secure) is released.
-cookie-monster = { git = "https://github.com/joeydewaal/cookie-monster", rev = "96b94a37a8150a235ea7e5af2e3028a84627d1d4", features = ["axum"] }
+# 0.2.2 adds the `__Host-`/`__Secure-` prefix support (Cookie::host / Cookie::secure).
+cookie-monster = { version = "0.2.2", features = ["axum"] }
 jsonwebtoken = { version = "10.2.0", default-features = false }
 uuid = { version = "1.20", features = ["std"], default-features = false }
 
