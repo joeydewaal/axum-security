@@ -4,9 +4,10 @@
 //! document and JWKS — so the whole "discover, fetch keys, verify a token"
 //! path runs against a real HTTP round-trip.
 
+use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use axum_security_oidc::{HttpClient, JwkSet, JwksCache, ProviderMetadata, VerifyError};
+use axum_security_oidc::{HttpClient, JwksCache, ProviderMetadata, VerifyError};
 use jsonwebtoken::{Algorithm, EncodingKey, Header, encode};
 use serde_json::{Value, json};
 use url::Url;
@@ -54,10 +55,6 @@ fn jwks_json(kid: &str) -> String {
     format!(
         r#"{{"keys":[{{"kty":"RSA","use":"sig","kid":"{kid}","alg":"RS256","n":"{N}","e":"AQAB"}}]}}"#
     )
-}
-
-fn jwks_set(kid: &str) -> JwkSet {
-    serde_json::from_str(&jwks_json(kid)).unwrap()
 }
 
 fn discovery_doc(issuer: &str) -> String {
@@ -116,24 +113,6 @@ async fn discovers_then_verifies_with_lazily_fetched_keys() {
 }
 
 #[tokio::test]
-async fn seeded_keys_verify_without_fetching() {
-    let server = MockServer::start().await;
-    let issuer = server.uri();
-    // Note: /jwks is deliberately NOT mounted — a fetch would 404 and fail.
-
-    let cache = JwksCache::with_keys(
-        issuer.clone(),
-        CLIENT_ID,
-        Url::parse(&format!("{issuer}/jwks")).unwrap(),
-        HttpClient::default_reqwest(),
-        jwks_set("kid-1"),
-    );
-
-    let token = id_token(&issuer, "n", "kid-1");
-    cache.verify(&token, "n").await.unwrap();
-}
-
-#[tokio::test]
 async fn refetches_on_key_rotation() {
     let server = MockServer::start().await;
     let issuer = server.uri();
@@ -171,6 +150,41 @@ async fn refetches_on_key_rotation() {
         .verify(&id_token(&issuer, "n", "kid-2"), "n")
         .await
         .unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn concurrent_cold_verifies_fetch_jwks_once() {
+    let server = MockServer::start().await;
+    let issuer = server.uri();
+    // `expect(1)`: the lock is held across the fetch, so a burst of cold
+    // callers coalesces onto a single JWKS request. Verified when the server
+    // drops — without coalescing each caller would fetch and this would fail.
+    Mock::given(method("GET"))
+        .and(path("/jwks"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(jwks_json("kid-1")))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let cache = Arc::new(JwksCache::new(
+        issuer.clone(),
+        CLIENT_ID,
+        Url::parse(&format!("{issuer}/jwks")).unwrap(),
+        HttpClient::default_reqwest(),
+    ));
+    let token = Arc::new(id_token(&issuer, "n", "kid-1"));
+
+    let mut handles = Vec::new();
+    for _ in 0..16 {
+        let cache = cache.clone();
+        let token = token.clone();
+        handles.push(tokio::spawn(async move {
+            cache.verify(&token, "n").await.unwrap();
+        }));
+    }
+    for handle in handles {
+        handle.await.unwrap();
+    }
 }
 
 #[tokio::test]

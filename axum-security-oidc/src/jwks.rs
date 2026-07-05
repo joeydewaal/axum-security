@@ -1,10 +1,11 @@
 use std::{
-    sync::{Arc, Mutex},
+    sync::Arc,
     time::{Duration, Instant},
 };
 
 use axum_security_oauth2::HttpClient;
 use jsonwebtoken::{Algorithm, jwk::JwkSet};
+use tokio::sync::Mutex;
 use url::Url;
 
 use crate::{
@@ -19,16 +20,16 @@ pub const DEFAULT_MIN_REFETCH_INTERVAL: Duration = Duration::from_secs(60);
 /// A JWKS-backed ID-token verifier that fetches (and caches) the provider's
 /// signing keys.
 ///
-/// The keys are turned into an [`IdTokenVerifier`] on first use and cached. A
-/// token whose `kid` is absent from the cache — a sign the provider rotated
-/// keys — triggers a single refetch, rate-limited to at most one attempt per
-/// [`min_refetch_interval`](Self::min_refetch_interval) (default 60s) so a
-/// stream of bogus-`kid` tokens can't hammer the JWKS endpoint.
+/// The keys are fetched on first use, turned into an [`IdTokenVerifier`], and
+/// cached. A token whose `kid` is absent from the cache — a sign the provider
+/// rotated keys — triggers a single refetch, rate-limited to at most one
+/// attempt per [`min_refetch_interval`](Self::min_refetch_interval) (default
+/// 60s) so a stream of bogus-`kid` tokens can't hammer the JWKS endpoint.
 ///
-/// Build with [`new`](Self::new) (keys fetched lazily) or
-/// [`with_keys`](Self::with_keys) (keys already in hand, e.g. from discovery);
-/// either way a rotation still refetches. Owns its [`HttpClient`] — clone the
-/// login flow's backend in so both share one connection pool.
+/// A [`Mutex`] guards the cache and is held across the fetch, so concurrent
+/// callers coalesce onto a single request instead of stampeding the endpoint.
+/// Owns its [`HttpClient`] — clone the login flow's backend in so both share
+/// one connection pool.
 pub struct JwksCache {
     issuer: String,
     audience: String,
@@ -40,15 +41,13 @@ pub struct JwksCache {
     state: Mutex<State>,
 }
 
+#[derive(Default)]
 struct State {
-    /// The verifier built from the current key set, once one exists.
+    /// The verifier built from the current key set, once one has been fetched.
     verifier: Option<Arc<IdTokenVerifier>>,
-    /// Keys supplied up front (discovery) but not yet turned into a verifier —
-    /// so the config setters still apply. Taken on first use.
-    seed: Option<JwkSet>,
-    /// Last fetch *attempt*, successful or not — failures count against the
-    /// rate limit too.
-    last_attempt: Option<Instant>,
+    /// Last fetch *attempt* for a rotation refetch — failures count too, so a
+    /// down endpoint can't be retried faster than the rate limit.
+    last_refetch: Option<Instant>,
 }
 
 impl JwksCache {
@@ -59,28 +58,6 @@ impl JwksCache {
         jwks_url: Url,
         http: HttpClient,
     ) -> Self {
-        Self::build(issuer, audience, jwks_url, http, None)
-    }
-
-    /// A cache pre-seeded with `jwks` (e.g. keys baked in during discovery). A
-    /// later rotation still refetches from `jwks_url`.
-    pub fn with_keys(
-        issuer: impl Into<String>,
-        audience: impl Into<String>,
-        jwks_url: Url,
-        http: HttpClient,
-        jwks: JwkSet,
-    ) -> Self {
-        Self::build(issuer, audience, jwks_url, http, Some(jwks))
-    }
-
-    fn build(
-        issuer: impl Into<String>,
-        audience: impl Into<String>,
-        jwks_url: Url,
-        http: HttpClient,
-        seed: Option<JwkSet>,
-    ) -> Self {
         Self {
             issuer: issuer.into(),
             audience: audience.into(),
@@ -89,11 +66,7 @@ impl JwksCache {
             jwks_url,
             http,
             min_refetch_interval: DEFAULT_MIN_REFETCH_INTERVAL,
-            state: Mutex::new(State {
-                verifier: None,
-                seed,
-                last_attempt: None,
-            }),
+            state: Mutex::new(State::default()),
         }
     }
 
@@ -125,63 +98,57 @@ impl JwksCache {
         id_token: &str,
         nonce: &str,
     ) -> Result<VerifiedIdToken, VerifyError> {
-        let verifier = self.ensure_verifier().await?;
+        let verifier = self.current_verifier().await?;
 
         match verifier.verify(id_token, nonce) {
-            // An unknown `kid` may just mean the keys rotated: refetch and retry.
-            Err(VerifyError::UnknownKey) => match self.refresh_verifier(&verifier).await? {
-                Some(fresh) => fresh.verify(id_token, nonce),
-                None => Err(VerifyError::UnknownKey),
-            },
+            // An unknown `kid` may just mean the keys rotated: refetch and retry
+            // (once — `refetch` gives back the same verifier if rate-limited, so
+            // this can't loop).
+            Err(VerifyError::UnknownKey) => self.refetch(&verifier).await?.verify(id_token, nonce),
             result => result,
         }
     }
 
-    /// The cached verifier, building it from the seed or a fresh fetch.
-    async fn ensure_verifier(&self) -> Result<Arc<IdTokenVerifier>, VerifyError> {
-        {
-            let mut state = self.state.lock().unwrap();
-            if let Some(verifier) = &state.verifier {
-                return Ok(verifier.clone());
-            }
-            // Seeded keys (discovery) — build without any I/O.
-            if let Some(seed) = state.seed.take() {
-                let verifier = Arc::new(self.build_verifier(seed));
-                state.verifier = Some(verifier.clone());
-                return Ok(verifier);
-            }
+    /// The cached verifier, fetching the JWK set on first use. The lock is held
+    /// across the fetch so concurrent first-callers coalesce onto one request.
+    async fn current_verifier(&self) -> Result<Arc<IdTokenVerifier>, VerifyError> {
+        let mut state = self.state.lock().await;
+        if let Some(verifier) = &state.verifier {
+            return Ok(verifier.clone());
         }
-        self.fetch_and_store().await
+        let verifier = Arc::new(self.build_verifier(self.fetch_jwks().await?));
+        state.verifier = Some(verifier.clone());
+        state.last_refetch = Some(Instant::now());
+        Ok(verifier)
     }
 
-    /// Force a refetch, at most one attempt per `min_refetch_interval`. When
-    /// rate-limited, returns a verifier built since `tried`, or `None` if
-    /// `tried` is already the freshest available.
-    async fn refresh_verifier(
+    /// Refetch after an unknown key, returning the freshest verifier available.
+    ///
+    /// Returns `tried` unchanged when rate-limited (so the retry fails cleanly),
+    /// or a newer verifier a concurrent caller already fetched.
+    async fn refetch(
         &self,
         tried: &Arc<IdTokenVerifier>,
-    ) -> Result<Option<Arc<IdTokenVerifier>>, VerifyError> {
+    ) -> Result<Arc<IdTokenVerifier>, VerifyError> {
+        let mut state = self.state.lock().await;
+
+        // A concurrent caller may have refetched while we waited for the lock.
+        if let Some(current) = &state.verifier
+            && !Arc::ptr_eq(current, tried)
         {
-            let mut state = self.state.lock().unwrap();
-            if let Some(last_attempt) = state.last_attempt
-                && last_attempt.elapsed() < self.min_refetch_interval
-            {
-                return Ok(state.verifier.clone().filter(|v| !Arc::ptr_eq(v, tried)));
-            }
-            // Claim the slot before releasing the lock so concurrent callers
-            // coalesce onto this one fetch instead of stampeding the endpoint.
-            state.last_attempt = Some(Instant::now());
+            return Ok(current.clone());
         }
 
-        let verifier = Arc::new(self.build_verifier(self.fetch_jwks().await?));
-        self.state.lock().unwrap().verifier = Some(verifier.clone());
-        Ok(Some(verifier))
-    }
+        // Rate-limit; claim the slot before fetching so failures count too.
+        if let Some(last) = state.last_refetch
+            && last.elapsed() < self.min_refetch_interval
+        {
+            return Ok(tried.clone());
+        }
+        state.last_refetch = Some(Instant::now());
 
-    async fn fetch_and_store(&self) -> Result<Arc<IdTokenVerifier>, VerifyError> {
-        self.state.lock().unwrap().last_attempt = Some(Instant::now());
         let verifier = Arc::new(self.build_verifier(self.fetch_jwks().await?));
-        self.state.lock().unwrap().verifier = Some(verifier.clone());
+        state.verifier = Some(verifier.clone());
         Ok(verifier)
     }
 
@@ -196,7 +163,7 @@ impl JwksCache {
             return Err(VerifyError::JwksUnavailable);
         }
 
-        serde_json::from_slice(response.body()).map_err(|_| VerifyError::JwksUnavailable)
+        serde_json::from_slice(&response.body).map_err(|_| VerifyError::JwksUnavailable)
     }
 
     fn build_verifier(&self, jwks: JwkSet) -> IdTokenVerifier {

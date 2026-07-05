@@ -63,29 +63,16 @@ pub(crate) struct FormResponse {
 /// A non-2xx status is not an error here — the caller decides. Reach for this
 /// to fetch small JSON documents (OIDC discovery metadata, a JWK set).
 pub struct HttpResponse {
-    pub(crate) status: u16,
-    pub(crate) body: Vec<u8>,
+    /// The HTTP status code.
+    pub status: u16,
+    /// The raw response body.
+    pub body: Vec<u8>,
 }
 
 impl HttpResponse {
-    /// The HTTP status code.
-    pub fn status(&self) -> u16 {
-        self.status
-    }
-
     /// Whether the status is in the 2xx range.
     pub fn is_success(&self) -> bool {
         (200..300).contains(&self.status)
-    }
-
-    /// The raw response body.
-    pub fn body(&self) -> &[u8] {
-        &self.body
-    }
-
-    /// Consume the response, returning the owned body.
-    pub fn into_body(self) -> Vec<u8> {
-        self.body
     }
 }
 

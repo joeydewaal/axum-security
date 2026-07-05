@@ -49,11 +49,11 @@ impl ProviderMetadata {
         let response = http.get(&config_url).await.map_err(DiscoveryError::Http)?;
 
         if !response.is_success() {
-            return Err(DiscoveryError::Status(response.status()));
+            return Err(DiscoveryError::Status(response.status));
         }
 
         let metadata: ProviderMetadata =
-            serde_json::from_slice(response.body()).map_err(DiscoveryError::Parse)?;
+            serde_json::from_slice(&response.body).map_err(DiscoveryError::Parse)?;
 
         // Discovery §4.3: the issuer in the document must match the one we asked
         // for, or a hostile endpoint could point us at another provider's keys.
