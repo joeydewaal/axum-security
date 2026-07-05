@@ -12,7 +12,6 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use cookie_monster::CookieJar;
-use oauth2::{AuthorizationCode, CsrfToken};
 use serde::Deserialize;
 use tower::Service;
 
@@ -20,10 +19,11 @@ use crate::oauth2::{OAuth2Context, OAuth2Handler};
 
 type BoxFuture<T> = Pin<Box<dyn Future<Output = T> + Send>>;
 
-#[derive(Deserialize, Debug)]
+// Both parameters are secrets — no Debug derive.
+#[derive(Deserialize)]
 pub struct OAuth2Params {
-    code: AuthorizationCode,
-    state: CsrfToken,
+    code: String,
+    state: String,
 }
 
 pub(crate) struct OAuth2RedirectService<H> {

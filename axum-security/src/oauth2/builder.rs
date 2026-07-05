@@ -1,10 +1,7 @@
 use std::{borrow::Cow, error::Error, fmt::Display, sync::Arc, time::Duration};
 
+use axum_security_oauth2::{ConfigError, HttpClient, OAuth2Client};
 use cookie_monster::CookieBuilder;
-use oauth2::{
-    AuthUrl, Client, ClientId, ClientSecret, RedirectUrl, Scope, TokenUrl,
-    reqwest::Client as HttpClient, url,
-};
 
 use crate::{
     oauth2::{
@@ -13,20 +10,13 @@ use crate::{
     utils::get_env,
 };
 
-fn default_reqwest_client() -> oauth2::reqwest::Client {
-    oauth2::reqwest::Client::builder()
-        .redirect(oauth2::reqwest::redirect::Policy::none())
-        .build()
-        .unwrap()
-}
-
 pub struct OAuth2ContextBuilder {
     cookie_builder: OAuthCookieBuilder,
     login_path: Option<Cow<'static, str>>,
     redirect_url: Option<String>,
     client_id: Option<String>,
     client_secret: Option<String>,
-    scopes: Vec<Scope>,
+    scopes: Vec<String>,
     auth_url: Option<String>,
     token_url: Option<String>,
     http_client: Option<HttpClient>,
@@ -95,7 +85,7 @@ impl OAuth2ContextBuilder {
     }
 
     pub fn scopes(mut self, scopes: &[&str]) -> Self {
-        self.scopes = scopes.iter().map(|s| Scope::new(s.to_string())).collect();
+        self.scopes = scopes.iter().map(|s| s.to_string()).collect();
         self
     }
 
@@ -123,8 +113,8 @@ impl OAuth2ContextBuilder {
         self.use_dev_cookies(!prod)
     }
 
-    pub fn http_client(mut self, http_client: HttpClient) -> Self {
-        self.http_client = Some(http_client);
+    pub fn http_client(mut self, http_client: impl Into<HttpClient>) -> Self {
+        self.http_client = Some(http_client.into());
         self
     }
 
@@ -167,44 +157,54 @@ impl OAuth2ContextBuilder {
     where
         T: OAuth2Handler,
     {
-        let client_id = self
-            .client_id
-            .ok_or(OAuth2BuilderError::MissingClientId)
-            .map(ClientId::new)?;
-
+        // The protocol crate treats redirect_url as optional; here the
+        // callback route is derived from it, so it is required.
         let redirect_url = self
             .redirect_url
             .ok_or(OAuth2BuilderError::MissingRedirectUrl)?;
 
-        let redirect_url =
-            RedirectUrl::new(redirect_url).map_err(OAuth2BuilderError::InvalidRedirectUrl)?;
-
-        let auth_url = self.auth_url.ok_or(OAuth2BuilderError::MissingAuthUrl)?;
-
-        let auth_url = AuthUrl::new(auth_url).map_err(OAuth2BuilderError::InvalidAuthUrl)?;
-
-        let token_url = self.token_url.ok_or(OAuth2BuilderError::MissingTokenUrl)?;
-
-        let token_url = TokenUrl::new(token_url).map_err(OAuth2BuilderError::InvalidTokenUrl)?;
-
-        let mut basic_client = Client::new(client_id)
-            .set_redirect_uri(redirect_url)
-            .set_auth_uri(auth_url)
-            .set_token_uri(token_url);
-
-        if let Some(client_secret) = self.client_secret {
-            basic_client = basic_client.set_client_secret(ClientSecret::new(client_secret));
+        let mut client_builder = OAuth2Client::builder().redirect_url(redirect_url);
+        if let Some(client_id) = self.client_id {
+            client_builder = client_builder.client_id(client_id);
         }
+        if let Some(client_secret) = self.client_secret {
+            client_builder = client_builder.client_secret(client_secret);
+        }
+        if let Some(auth_url) = self.auth_url {
+            client_builder = client_builder.auth_url(auth_url);
+        }
+        if let Some(token_url) = self.token_url {
+            client_builder = client_builder.token_url(token_url);
+        }
+        if let Some(http_client) = self.http_client {
+            client_builder = client_builder.http_client(http_client);
+        }
+        let scopes: Vec<&str> = self.scopes.iter().map(String::as_str).collect();
+        let client = client_builder.scopes(&scopes).try_build()?;
 
         Ok(OAuth2Context(Arc::new(OAuth2ContextInner {
-            client: basic_client,
+            client,
             inner,
             session: self.cookie_builder.try_build()?,
             login_path: self.login_path,
-            http_client: self.http_client.unwrap_or_else(default_reqwest_client),
-            scopes: self.scopes,
             flow_type: self.flow_type,
         })))
+    }
+}
+
+impl From<ConfigError> for OAuth2BuilderError {
+    fn from(error: ConfigError) -> Self {
+        match error {
+            ConfigError::MissingClientId => OAuth2BuilderError::MissingClientId,
+            ConfigError::MissingAuthUrl => OAuth2BuilderError::MissingAuthUrl,
+            ConfigError::MissingTokenUrl => OAuth2BuilderError::MissingTokenUrl,
+            ConfigError::InvalidAuthUrl(e) => OAuth2BuilderError::InvalidAuthUrl(e),
+            ConfigError::InvalidTokenUrl(e) => OAuth2BuilderError::InvalidTokenUrl(e),
+            ConfigError::InvalidRedirectUrl(e) => OAuth2BuilderError::InvalidRedirectUrl(e),
+            // The reqwest backend is always enabled here, so a default
+            // HTTP client always exists; `#[non_exhaustive]` forces the arm.
+            _ => unreachable!("unexpected oauth2 config error: {error}"),
+        }
     }
 }
 

@@ -126,6 +126,7 @@ version = "0.0.1"
 dependencies = [
  "axum",
  "axum-security-macros",
+ "axum-security-oauth2",
  "base64 0.22.1",
  "chrono",
  "cookie-monster",
@@ -134,7 +135,6 @@ dependencies = [
  "http",
  "jiff",
  "jsonwebtoken",
- "oauth2",
  "openidconnect",
  "pin-project-lite",
  "rand 0.10.1",
@@ -146,6 +146,7 @@ dependencies = [
  "tokio",
  "tower",
  "tracing",
+ "url",
  "uuid",
  "wincode",
 ]
@@ -169,7 +170,6 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.11.0",
- "subtle",
  "tokio",
  "url",
  "wiremock",
