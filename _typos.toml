@@ -1,2 +1,2 @@
 [files]
-extend-exclude = ["tests/tests/oidc.rs"]
+extend-exclude = ["tests/tests/oidc.rs", "axum-security-oidc/src/testdata/"]

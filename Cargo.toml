@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["axum-security", "axum-security-macros", "axum-security-oauth2", "tests"]
+members = ["axum-security", "axum-security-macros", "axum-security-oauth2", "axum-security-oidc", "tests"]
 
 [workspace.dependencies]
 axum = { version = "0.8", features = ["tokio"],  default-features = false }
