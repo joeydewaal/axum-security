@@ -87,6 +87,25 @@ impl OAuth2Client {
             .token_url("https://id.twitch.tv/oauth2/token")
     }
 
+    /// A builder preconfigured with Microsoft's multi-tenant (`common`)
+    /// endpoints, accepting both work/school and personal accounts.
+    ///
+    /// Single-tenant apps need their tenant ID in the endpoint paths —
+    /// use [`builder()`](Self::builder) with explicit URLs for that.
+    pub fn microsoft() -> OAuth2ClientBuilder {
+        Self::builder()
+            .auth_url("https://login.microsoftonline.com/common/oauth2/v2.0/authorize")
+            .token_url("https://login.microsoftonline.com/common/oauth2/v2.0/token")
+    }
+
+    /// A builder preconfigured with gitlab.com's endpoints. Self-hosted
+    /// instances use [`builder()`](Self::builder) with their own URLs.
+    pub fn gitlab() -> OAuth2ClientBuilder {
+        Self::builder()
+            .auth_url("https://gitlab.com/oauth/authorize")
+            .token_url("https://gitlab.com/oauth/token")
+    }
+
     pub fn client_id(&self) -> &str {
         &self.client_id
     }
@@ -340,6 +359,16 @@ mod tests {
                 OAuth2Client::twitch(),
                 "https://id.twitch.tv/oauth2/authorize",
                 "https://id.twitch.tv/oauth2/token",
+            ),
+            (
+                OAuth2Client::microsoft(),
+                "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
+                "https://login.microsoftonline.com/common/oauth2/v2.0/token",
+            ),
+            (
+                OAuth2Client::gitlab(),
+                "https://gitlab.com/oauth/authorize",
+                "https://gitlab.com/oauth/token",
             ),
         ];
 

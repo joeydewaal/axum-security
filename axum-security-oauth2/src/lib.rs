@@ -31,7 +31,7 @@
 //! use axum_security_oauth2::OAuth2Client;
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-//! // Provider shortcuts (github, google, discord, spotify, twitch)
+//! // Provider shortcuts (github, google, microsoft, gitlab, discord, spotify, twitch)
 //! // preset the endpoints; OAuth2Client::builder() takes them explicitly.
 //! let client = OAuth2Client::github()
 //!     .client_id("my-client-id")
