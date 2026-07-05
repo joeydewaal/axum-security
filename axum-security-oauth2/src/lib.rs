@@ -44,7 +44,8 @@
 //! // Leg 1: redirect the user to `login.url`; persist the CSRF token
 //! // and PKCE verifier (e.g. in a signed cookie) for the callback.
 //! let login = client.start_login();
-//! let (url, csrf_token, pkce_verifier) = login.into_parts();
+//! // Fields are owned and public — move them out, no clone needed.
+//! let (url, csrf_token, pkce_verifier) = (login.url, login.csrf_token, login.pkce_verifier);
 //!
 //! // Leg 2 (on the callback route): compare `csrf_token` with the `state`
 //! // query parameter (constant-time via `==`), then exchange the code.

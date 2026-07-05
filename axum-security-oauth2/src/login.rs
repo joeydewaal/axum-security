@@ -11,6 +11,10 @@ use crate::csrf::CsrfToken;
 /// [`csrf_token`](Login::csrf_token) and
 /// [`pkce_verifier`](Login::pkce_verifier) until the callback comes in.
 /// Both are secrets; `Debug` redacts them.
+///
+/// Only [`start_login`](crate::OAuth2Client::start_login) constructs this;
+/// it is `#[non_exhaustive]` so it cannot be built outside the crate.
+#[non_exhaustive]
 pub struct Login {
     /// The authorization URL to redirect the user to.
     pub url: Url,
@@ -21,15 +25,6 @@ pub struct Login {
     pub csrf_token: CsrfToken,
     /// The PKCE verifier belonging to the challenge in the URL.
     pub pkce_verifier: String,
-}
-
-impl Login {
-    /// Splits the login into its parts — `(url, csrf_token,
-    /// pkce_verifier)` — for consumers that scatter them (secrets into a
-    /// cookie, URL into a redirect) without cloning.
-    pub fn into_parts(self) -> (Url, CsrfToken, String) {
-        (self.url, self.csrf_token, self.pkce_verifier)
-    }
 }
 
 impl fmt::Debug for Login {
@@ -50,6 +45,11 @@ impl fmt::Debug for Login {
 /// Redirect the user to [`url`](LoginNonPkce::url) and persist
 /// [`csrf_token`](LoginNonPkce::csrf_token) until the callback comes in.
 /// The token is a secret; `Debug` redacts it.
+///
+/// Only [`start_login_non_pkce`](crate::OAuth2Client::start_login_non_pkce)
+/// constructs this; it is `#[non_exhaustive]` so it cannot be built outside
+/// the crate.
+#[non_exhaustive]
 pub struct LoginNonPkce {
     /// The authorization URL to redirect the user to.
     pub url: Url,
@@ -58,15 +58,6 @@ pub struct LoginNonPkce {
     /// `==` does this in constant time, since an attacker controls one side
     /// of the comparison.
     pub csrf_token: CsrfToken,
-}
-
-impl LoginNonPkce {
-    /// Splits the login into its parts — `(url, csrf_token)` — for
-    /// consumers that scatter them (secret into a cookie, URL into a
-    /// redirect) without cloning.
-    pub fn into_parts(self) -> (Url, CsrfToken) {
-        (self.url, self.csrf_token)
-    }
 }
 
 impl fmt::Debug for LoginNonPkce {
