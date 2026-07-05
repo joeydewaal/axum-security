@@ -10,20 +10,18 @@ use serde_json::{Map, Value};
 /// [`extra_field`](Tokens::extra_field) / [`extra_fields`](Tokens::extra_fields).
 /// The tokens are secrets; `Debug` redacts them.
 pub struct Tokens {
-    access_token: String,
+    /// The access token.
+    pub access_token: String,
     token_type: String,
-    expires_in: Option<Duration>,
-    refresh_token: Option<String>,
+    /// The lifetime of the access token, if the server sent `expires_in`.
+    pub expires_in: Option<Duration>,
+    /// The refresh token, if the server sent one.
+    pub refresh_token: Option<String>,
     scopes: Option<Vec<String>>,
     extra: Map<String, Value>,
 }
 
 impl Tokens {
-    /// The access token.
-    pub fn access_token(&self) -> &str {
-        &self.access_token
-    }
-
     /// The `token_type` exactly as the server sent it.
     pub fn token_type(&self) -> &str {
         &self.token_type
@@ -32,16 +30,6 @@ impl Tokens {
     /// Whether the token type is `bearer` (case-insensitive, RFC 6749 §7.1).
     pub fn is_bearer(&self) -> bool {
         self.token_type.eq_ignore_ascii_case("bearer")
-    }
-
-    /// The lifetime of the access token, if the server sent `expires_in`.
-    pub fn expires_in(&self) -> Option<Duration> {
-        self.expires_in
-    }
-
-    /// The refresh token, if the server sent one.
-    pub fn refresh_token(&self) -> Option<&str> {
-        self.refresh_token.as_deref()
     }
 
     /// The granted scopes, if the server sent a `scope` parameter
@@ -133,11 +121,11 @@ mod tests {
                 "example_parameter": "example_value"
             }"#,
         );
-        assert_eq!(tokens.access_token(), "2YotnFZFEjr1zCsicMWpAA");
+        assert_eq!(tokens.access_token, "2YotnFZFEjr1zCsicMWpAA");
         assert_eq!(tokens.token_type(), "example");
         assert!(!tokens.is_bearer());
-        assert_eq!(tokens.expires_in(), Some(Duration::from_secs(3600)));
-        assert_eq!(tokens.refresh_token(), Some("tGzv3JOkF0XG5Qx2TlKWIA"));
+        assert_eq!(tokens.expires_in, Some(Duration::from_secs(3600)));
+        assert_eq!(tokens.refresh_token.as_deref(), Some("tGzv3JOkF0XG5Qx2TlKWIA"));
         assert_eq!(tokens.scopes(), None);
         assert_eq!(
             tokens.extra_field::<String>("example_parameter").as_deref(),
@@ -161,8 +149,8 @@ mod tests {
             tokens.scopes(),
             Some(&["repo".to_string(), "gist".to_string()][..])
         );
-        assert_eq!(tokens.refresh_token(), None);
-        assert_eq!(tokens.expires_in(), None);
+        assert_eq!(tokens.refresh_token, None);
+        assert_eq!(tokens.expires_in, None);
     }
 
     /// Google returns an `id_token` — how `axum-security-oidc` will pull
