@@ -86,14 +86,14 @@ consciously defer/drop (the rest).
 | `from_code_verifier_sha256(&verifier)` (recompute challenge) | ❌ | not public; used internally |
 | `new_random_plain()` / `from_code_verifier_plain()` | ❌ | phase 4, `pkce-plain` feature |
 | `PkceCodeChallenge::as_str()`, `.method()` | ❌ | not public in phase 1 (challenge never leaves `start_login`) |
-| newtype pattern: `T::new(String)`, `.secret()`, `.into_secret()` | ✓ (`new`, `secret`) | kept on our secret types (see §3) |
+| newtype pattern: `T::new(String)`, `.secret()`, `.into_secret()` | ✓ (`new`, `secret`) | **dropped** — secrets are plain strings; holding types redact in `Debug` (see §3, decision 12) |
 
 ### Code exchange — `exchange_code(code) -> CodeTokenRequest<'a>`
 
 | Upstream option | axs | Our phase 1 |
 |---|---|---|
 | `exchange_code(AuthorizationCode)` | ✓ | `finish_login(code, verifier)` |
-| `set_pkce_verifier(PkceCodeVerifier)` (owned) | ✓ | second arg: `&PkceVerifier`, required (borrowed — we only need the string; see decision 4) |
+| `set_pkce_verifier(PkceCodeVerifier)` (owned) | ✓ | second arg: `&str`, required (see decisions 4, 12) |
 | `add_extra_param(name, value)` | ❌ | phase 3 |
 | `set_redirect_uri(Cow<RedirectUrl>)` | ❌ | phase 3 (client-level `redirect_url` is sent automatically, as upstream does) |
 | `request(sync)` / `request_async(&http)` | ✓ (async) | gone — `finish_login` is the async call itself; the backend lives on the client |
@@ -144,10 +144,10 @@ src/
   lib.rs          // docs, re-exports
   client.rs       // OAuth2Client + start_login/finish_login
   builder.rs      // OAuth2ClientBuilder + ConfigError
-  login.rs        // Login
+  login.rs        // Login, LoginNonPkce
   tokens.rs       // Tokens
-  secret.rs       // secret newtypes (one internal impl, distinct names)
-  pkce.rs         // challenge derivation (crate-private except PkceVerifier)
+  rand.rs         // random_b64 (crate-private CSPRNG helper)
+  pkce.rs         // challenge derivation (crate-private)
   error.rs        // Error, ServerError, ErrorCode
   http/
     mod.rs        // HttpClient enum + crate-private post_form seam
@@ -157,27 +157,18 @@ src/
 `dep_reqwest.rs` follows cookie-monster's `dep_*.rs` convention; phase 4's
 `jiff`/`chrono`/`time` accessors will do the same.
 
-### Secret types
+### Secrets (revised — the newtypes are gone)
 
-Phase 1 ships five: `ClientSecret`, `AccessToken`, `RefreshToken`,
-`AuthorizationCode`, `CsrfToken`, `PkceVerifier`. (`DeviceCode` is phase 4.)
-One internal implementation (macro), identical surface:
-
-```rust
-impl CsrfToken {                       // same for all six
-    pub fn new(secret: impl Into<String>) -> Self;  // reconstruct (e.g. from a cookie)
-    pub fn secret(&self) -> &str;
-    pub fn into_secret(self) -> String;
-}
-// Debug = "CsrfToken([redacted])", no Display,
-// PartialEq via subtle (constant time) — including PartialEq<str> so
-// `login.csrf_token() == state_param` is safe by construction.
-```
-
-No public `random()` constructors — `start_login()` is the only generator
-(callers can't accidentally mint a verifier that doesn't match the
-challenge). `new` exists because axum-security round-trips these through
-its HMAC cookie as strings.
+Phase 1 originally shipped six secret newtypes (`ClientSecret`,
+`AccessToken`, `RefreshToken`, `AuthorizationCode`, `CsrfToken`,
+`PkceVerifier`); they were removed in favor of plain `String`/`&str`
+(see decision 12). Redaction moved into the hand-written `Debug` impls
+of every type that holds a secret (`OAuth2Client`, `Login`,
+`LoginNonPkce`, `Tokens`), none of which implements `Display`; the
+crate-wide redaction test pins it. `start_login()` is still the only
+generator of CSRF tokens and verifiers — there's just no wrapper around
+what it hands back, so it round-trips through axum-security's HMAC
+cookie without `::new()`/`.secret()` ceremony.
 
 ### Builder
 
@@ -241,13 +232,13 @@ pub struct Login { /* owns url, csrf_token, pkce_verifier */ }
 
 impl Login {
     pub fn url(&self) -> &Url;
-    pub fn csrf_token(&self) -> &CsrfToken;
-    pub fn pkce_verifier(&self) -> &PkceVerifier;
-    pub fn into_parts(self) -> (Url, CsrfToken, PkceVerifier);
+    pub fn csrf_token(&self) -> &str;
+    pub fn pkce_verifier(&self) -> &str;
+    pub fn into_parts(self) -> (Url, String, String); // url, csrf, verifier
 }
 
 pub struct LoginNonPkce { /* owns url, csrf_token — no verifier field */ }
-// url(), csrf_token(), into_parts() -> (Url, CsrfToken)
+// url(), csrf_token(), into_parts() -> (Url, String)
 ```
 
 Pure — no I/O, no async, infallible (configuration was validated at
@@ -267,14 +258,11 @@ across a cookie.
 ```rust
 pub async fn finish_login(
     &self,
-    code: AuthorizationCode,
-    pkce_verifier: &PkceVerifier,
+    code: &str,
+    pkce_verifier: &str,
 ) -> Result<Tokens, Error>
 
-pub async fn finish_login_non_pkce(
-    &self,
-    code: AuthorizationCode,
-) -> Result<Tokens, Error>
+pub async fn finish_login_non_pkce(&self, code: &str) -> Result<Tokens, Error>
 ```
 
 POSTs the token endpoint: `grant_type=authorization_code`, the code, the
@@ -347,9 +335,8 @@ impl From<reqwest::Client> for HttpClient {}   // cfg(feature = "reqwest")
 
 `OAuth2Client`, `OAuth2ClientBuilder`, `ConfigError`, `Login`,
 `LoginNonPkce`, `Tokens`, `Error`, `HttpError`, `ParseError`,
-`ServerError`, `ErrorCode`, `HttpClient`, `ClientSecret`, `AccessToken`,
-`RefreshToken`, `AuthorizationCode`, `CsrfToken`, `PkceVerifier`.
-Eighteen items, flat — no module paths in the public API.
+`ServerError`, `ErrorCode`, `HttpClient`. Twelve items, flat — no module
+paths in the public API.
 
 ## 4. Decision points
 
@@ -409,14 +396,14 @@ Options considered per design point; recommendation first.
    (upstream's `(Url, CsrfToken)` + a floating verifier variable) vs
    getters only. Struct per house style; `into_parts` because the one real
    consumer immediately splits ownership of the three pieces.
-9. **Naming: `PkceVerifier`** (chosen) vs upstream's `PkceCodeVerifier`.
-   Short noun per house style; "code" adds nothing next to
-   `AuthorizationCode`. Parent doc updated to match.
-10. **`AuthorizationCode` argument: explicit newtype** (chosen) vs
-    `impl Into<AuthorizationCode>` sugar on `finish_login`. One
-    `AuthorizationCode::new(params.code)` at the axum boundary keeps the
-    secret visibly typed from the query string onward; `Into` sugar on a
-    security parameter hides the moment a plain `String` becomes a secret.
+9. **Naming: `pkce_verifier`** (chosen) vs upstream's
+   `pkce_code_verifier`. Short noun per house style; "code" adds nothing
+   next to the authorization code. (Originally about the `PkceVerifier`
+   type; the type is gone — decision 12 — but the method/argument name
+   keeps the convention.)
+10. **`AuthorizationCode` argument: explicit newtype** — superseded by
+    decision 12; `finish_login` takes the code as a plain `&str` straight
+    from the query string.
 11. **Endpoints + HTTP backend validated at `try_build()`** (chosen;
     revised from optional endpoints failing at call time) vs
     `Error::MissingEndpoint(Endpoint)`/`Error::NoHttpClient` surfacing on
@@ -430,6 +417,19 @@ Options considered per design point; recommendation first.
     feature `try_build()` now always fails (`ConfigError::NoHttpClient`),
     and phase 4 revisits `auth_url` being required when grants that never
     authorize land.
+12. **No secret newtypes** (chosen; revised — six shipped originally) vs
+    the wrapper set with redacted `Debug` + `subtle` `PartialEq`.
+    Secrets are plain `String`/`&str`; every crate type that holds one
+    (`OAuth2Client`, `Login`, `LoginNonPkce`, `Tokens`) hand-writes
+    `Debug` to redact it, pinned by the redaction tests. This deletes
+    the `.secret()`/`::new()` ceremony at every call site, the six-type
+    macro, and the `subtle` dep (constant-time `state` comparison is the
+    consumer's job — axum-security already does its own; standalone
+    users are pointed at it in the `csrf_token()` docs). Accepted
+    trade-offs, stated honestly: a secret past a getter is an ordinary
+    string, so consumer-side `Debug` leak-safety is the consumer's
+    responsibility, and `finish_login(code, verifier)`'s two `&str`
+    arguments are order-documented, not type-checked.
 
 ## 5. Explicitly not in phase 1
 

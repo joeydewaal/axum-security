@@ -22,11 +22,12 @@ only what axum-security actually uses.
 2. **No typestate.** Configuration is validated once at `build()`; missing
    endpoints are runtime errors at call time. Zero type parameters on the
    client.
-3. **No unnecessary wrapper types.** A newtype must earn its place by being
-   security-load-bearing (Debug redaction, constant-time comparison,
-   preventing secret-argument mixups). Everything else is `String`, `&str`,
-   `url::Url`, `std::time::Duration`, or `i64`. Upstream's `Scope`,
-   `ClientId`, `AuthUrl`, `TokenUrl`, `RedirectUrl`, etc. do not survive.
+3. **No wrapper types.** Secrets are plain `String`/`&str` like everything
+   else; redaction lives in the hand-written `Debug` impls of the crate
+   types that hold them (client, `Login`, `Tokens`, errors). Everything is
+   `String`, `&str`, `url::Url`, `std::time::Duration`, or `i64`.
+   Upstream's `Scope`, `ClientId`, `AuthUrl`, ..., and its secret newtypes
+   (`ClientSecret`, `AccessToken`, `CsrfToken`, ...) do not survive.
 4. **Datetime-library agnostic.** Core API uses std types (`Duration`) and
    raw unix seconds (`i64`). Optional `jiff` / `chrono` / `time` features add
    conversion accessors — the cookie-monster `Expires` pattern
@@ -95,7 +96,7 @@ Verified against vendored `oauth2-5.0.0` source. "axs" = what
 | `rustls-tls` (default) / `native-tls` | ✅ rustls | Same two features |
 | Sync HTTP: `reqwest-blocking`, `curl`, `ureq` | ❌ | **Dropped.** Async-only |
 | wasm support (getrandom/js) | ❌ | Kept cheaply — we use `getrandom` anyway; not a promise, just not broken |
-| `timing-resistant-secret-traits` (opt-in CT eq) | ❌ (axs uses `subtle` itself) | **Always on** via `subtle` — no feature |
+| `timing-resistant-secret-traits` (opt-in CT eq) | ❌ (axs uses `subtle` itself) | **Dropped** with the secret newtypes — comparisons are the consumer's job (axum-security keeps its own `subtle` compare) |
 | Deserialize diagnostics via `serde_path_to_error` | n/a | Dropped (dep budget); errors still carry endpoint + body context |
 | Devicecode injectable clock/sleep (`chrono` + sleep_fn) | n/a | `Instant`-based deadline + caller-supplied async sleep fn → **no runtime dep, no chrono** |
 
@@ -112,12 +113,11 @@ Verified against vendored `oauth2-5.0.0` source. "axs" = what
 | `http` | **dropped** | the request/response seam is crate-private (the `HttpClient` enum dispatches internally); no public types to model with `http::Request`/`Response` |
 | `thiserror` | **dropped** | hand-rolled `Display`/`Error` impls (house style; axum-security and cookie-monster both do this) |
 | `serde_path_to_error` | **dropped** | dep budget |
-| — | + `subtle` | constant-time secret comparison, always on; zero-dep crate already used by axum-security |
 | `reqwest` (optional, default) | same | plus: crate compiles and builds authorize URLs with **no** HTTP feature at all |
 | `curl`, `ureq` (optional) | **dropped** | async-only |
 
-Direct deps: **7** (`serde`, `serde_json`, `sha2`, `base64`, `getrandom`,
-`subtle`, `url`) + optional `reqwest`, `jiff`, `chrono`, `time`.
+Direct deps: **6** (`serde`, `serde_json`, `sha2`, `base64`, `getrandom`,
+`url`) + optional `reqwest`, `jiff`, `chrono`, `time`.
 
 ### Feature flags
 
@@ -211,7 +211,7 @@ One concrete struct, zero type parameters:
 ```rust
 pub struct OAuth2Client {
     client_id: String,
-    client_secret: Option<ClientSecret>,
+    client_secret: Option<String>,     // Debug redacts it
     auth_url: Url,                     // required at try_build() (phase 1–3)
     token_url: Url,                    // required at try_build()
     device_auth_url: Option<Url>,      // phase 4
@@ -265,8 +265,8 @@ helpers duplicated in axum-security's oauth2 and oidc modules);
 let login: Login = client.start_login();
 
 login.url()            // &Url — redirect the user here
-login.csrf_token()     // &CsrfToken — persist (axum-security: HMAC cookie)
-login.pkce_verifier()  // &PkceVerifier — persist alongside
+login.csrf_token()     // &str — persist (axum-security: HMAC cookie)
+login.pkce_verifier()  // &str — persist alongside
 
 // Leg 2 — plain async method
 let tokens: Tokens = client.finish_login(code, login.pkce_verifier()).await?;
@@ -307,10 +307,10 @@ dependency**; deadlines use `std::time::Instant`, not wall-clock time.
 
 ```rust
 pub struct Tokens {
-    access_token: AccessToken,
+    access_token: String,                  // Debug redacts it
     token_type: String,
     expires_in: Option<Duration>,          // std::time::Duration
-    refresh_token: Option<RefreshToken>,
+    refresh_token: Option<String>,         // Debug redacts it
     scopes: Option<Vec<String>>,
     extra: serde_json::Map<String, Value>, // every unrecognized field
 }
@@ -331,25 +331,32 @@ concrete-plus-`extra` treatment. (`Tokens`, not `TokenResponse`: short noun
 per house style, and it avoids colliding with axum-security's existing
 `handler::TokenResponse`.)
 
-## Type policy: which wrappers survive
+## Type policy: no wrappers
 
-**Rule:** a wrapper exists only if it (a) redacts `Debug`, (b) compares in
-constant time, or (c) prevents mixing up two secrets in an argument list.
-Everything else is a std/url type.
+**Rule (revised — the secret newtypes originally survived):** no wrapper
+types at all. Secrets are plain `String`/`&str`; the crate's job is to
+keep them out of *its own* output, so every type that holds one
+(`OAuth2Client`, `Login`, `LoginNonPkce`, `Tokens`, `ParseError`)
+hand-writes `Debug` to print `[redacted]`, and nothing secret-bearing
+implements `Display`. A crate-wide redaction test pins that.
 
-Survivors — the secret set, one shared implementation (macro or generic
-`Secret<Marker>` internally, distinct public names): `ClientSecret`,
-`AccessToken`, `RefreshToken`, `AuthorizationCode`, `CsrfToken`,
-`PkceVerifier` (upstream: `PkceCodeVerifier` — "code" adds nothing),
-`DeviceCode`. All: `Debug` prints `[redacted]`, no
-`Display`, `PartialEq` via `subtle`, access via `.secret() -> &str`,
-`Serialize` only where the wire format requires it.
+What the newtypes bought and where it went: `Debug` redaction moved into
+the containing types (above); constant-time comparison is the consumer's
+job (axum-security's `verify_cookies` already compares via `subtle`;
+standalone users are told to compare `state` in constant time in the
+docs); mixup-proof argument lists are gone — `finish_login(code,
+verifier)` takes two `&str`s, so order is documented, not type-checked.
+Accepted trade-off: once a secret leaves a getter it is an ordinary
+string, and keeping it out of the *consumer's* `Debug` impls is the
+consumer's responsibility.
 
-Dropped (plain `String`/`&str`/`Url`): `Scope`, `ClientId`, `AuthUrl`,
-`TokenUrl`, `RedirectUrl`, `DeviceAuthUrl`, `IntrospectionUrl`,
-`RevocationUrl`, `UserCode` (shown to the user, not secret),
+Dropped along with upstream's non-secret wrappers: `Scope`, `ClientId`,
+`AuthUrl`, `TokenUrl`, `RedirectUrl`, `DeviceAuthUrl`,
+`IntrospectionUrl`, `RevocationUrl`, `UserCode`,
 `EndUserVerificationUrl`, the `*TokenType` trait hierarchy, the
-`ErrorResponseType` trait.
+`ErrorResponseType` trait — and the whole secret set (`ClientSecret`,
+`AccessToken`, `RefreshToken`, `AuthorizationCode`, `CsrfToken`,
+`PkceCodeVerifier`, `DeviceCode`).
 
 ## Datetime handling (agnostic core)
 
@@ -414,8 +421,10 @@ can be constructed, so `try_build()` fails with `ConfigError::NoHttpClient`
   demand it.
 - Token requests: POST, `Accept: application/json`, redirects never followed.
 - Device-flow polling honors `interval` and `slow_down` (RFC 8628 §3.5).
-- Secret types: redacted `Debug`, no `Display`, constant-time `PartialEq` —
-  always, not feature-gated.
+- Secrets never appear in the crate's own output: every type holding one
+  hand-writes `Debug` to redact it, and none implements `Display`.
+  Constant-time comparison of `state` is the consumer's job (documented;
+  axum-security uses `subtle`).
 - TLS: `rustls-tls` default.
 - Redaction test: `format!("{:?}", ...)` of client + every response type
   contains no secret bytes.
@@ -460,8 +469,9 @@ touches a narrow upstream slice, so the rewrite is contained:
    into one `client.finish_login(code, verifier).await`. Drop the
    `TokenResponse as _` trait import (accessors on `Tokens` are inherent);
    `Scope` vec becomes `Vec<String>`.
-5. `cookie.rs`/`redirect.rs`: `CsrfToken` and `AuthorizationCode` change
-   import paths; `PkceCodeVerifier` is renamed `PkceVerifier`.
+5. `cookie.rs`/`redirect.rs`: the `CsrfToken`/`AuthorizationCode`/
+   `PkceCodeVerifier` imports disappear — secrets are plain strings, which
+   is what the HMAC cookie stores anyway.
 
 No intended change to axum-security's public API — upstream types never
 leaked (`handler::TokenResponse` is already our own struct).

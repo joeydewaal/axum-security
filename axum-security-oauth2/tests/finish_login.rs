@@ -3,7 +3,7 @@
 //! bodies, Basic-auth correctness and redirects-not-followed.
 #![cfg(feature = "reqwest")]
 
-use axum_security_oauth2::{AuthorizationCode, Error, ErrorCode, OAuth2Client, PkceVerifier};
+use axum_security_oauth2::{Error, ErrorCode, OAuth2Client};
 use wiremock::{
     Mock, MockServer, ResponseTemplate,
     matchers::{body_string_contains, header, method, path},
@@ -63,20 +63,17 @@ async fn success_round_trip() {
         .await;
 
     let tokens = client
-        .finish_login(AuthorizationCode::new("test-code"), login.pkce_verifier())
+        .finish_login("test-code", login.pkce_verifier())
         .await
         .unwrap();
 
-    assert_eq!(tokens.access_token().secret(), "test-access-token");
+    assert_eq!(tokens.access_token(), "test-access-token");
     assert!(tokens.is_bearer());
     assert_eq!(
         tokens.expires_in(),
         Some(std::time::Duration::from_secs(3600))
     );
-    assert_eq!(
-        tokens.refresh_token().unwrap().secret(),
-        "test-refresh-token"
-    );
+    assert_eq!(tokens.refresh_token(), Some("test-refresh-token"));
     assert_eq!(tokens.scopes(), Some(&["read:user".to_string()][..]));
 }
 
@@ -95,7 +92,7 @@ async fn no_secret_sends_client_id_in_body() {
 
     let login = client.start_login();
     client
-        .finish_login(AuthorizationCode::new("test-code"), login.pkce_verifier())
+        .finish_login("test-code", login.pkce_verifier())
         .await
         .unwrap();
 }
@@ -128,11 +125,8 @@ async fn non_pkce_round_trip() {
         .mount(&server)
         .await;
 
-    let tokens = client
-        .finish_login_non_pkce(AuthorizationCode::new("test-code"))
-        .await
-        .unwrap();
-    assert_eq!(tokens.access_token().secret(), "test-access-token");
+    let tokens = client.finish_login_non_pkce("test-code").await.unwrap();
+    assert_eq!(tokens.access_token(), "test-access-token");
 }
 
 #[tokio::test]
@@ -150,9 +144,8 @@ async fn rfc_6749_error_body() {
         .mount(&server)
         .await;
 
-    let verifier = PkceVerifier::new("stored-verifier");
     let error = client
-        .finish_login(AuthorizationCode::new("expired-code"), &verifier)
+        .finish_login("expired-code", "stored-verifier")
         .await
         .unwrap_err();
 
@@ -180,9 +173,8 @@ async fn error_body_with_success_status() {
         .mount(&server)
         .await;
 
-    let verifier = PkceVerifier::new("stored-verifier");
     let error = client
-        .finish_login(AuthorizationCode::new("bad-code"), &verifier)
+        .finish_login("bad-code", "stored-verifier")
         .await
         .unwrap_err();
 
@@ -210,9 +202,8 @@ async fn non_json_body_is_a_parse_error() {
         .mount(&server)
         .await;
 
-    let verifier = PkceVerifier::new("stored-verifier");
     let error = client
-        .finish_login(AuthorizationCode::new("test-code"), &verifier)
+        .finish_login("test-code", "stored-verifier")
         .await
         .unwrap_err();
 
@@ -251,9 +242,8 @@ async fn redirects_are_not_followed() {
         .mount(&server)
         .await;
 
-    let verifier = PkceVerifier::new("stored-verifier");
     let error = client
-        .finish_login(AuthorizationCode::new("test-code"), &verifier)
+        .finish_login("test-code", "stored-verifier")
         .await
         .unwrap_err();
 

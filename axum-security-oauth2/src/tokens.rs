@@ -3,25 +3,24 @@ use std::{fmt, time::Duration};
 use serde::Deserialize;
 use serde_json::{Map, Value};
 
-use crate::secret::{AccessToken, RefreshToken};
-
 /// A successful token-endpoint response (RFC 6749 §5.1).
 ///
 /// Read-only; every field the server sent that isn't part of the standard
 /// response lands in the extras map, reachable through
 /// [`extra_field`](Tokens::extra_field) / [`extra_fields`](Tokens::extra_fields).
+/// The tokens are secrets; `Debug` redacts them.
 pub struct Tokens {
-    access_token: AccessToken,
+    access_token: String,
     token_type: String,
     expires_in: Option<Duration>,
-    refresh_token: Option<RefreshToken>,
+    refresh_token: Option<String>,
     scopes: Option<Vec<String>>,
     extra: Map<String, Value>,
 }
 
 impl Tokens {
     /// The access token.
-    pub fn access_token(&self) -> &AccessToken {
+    pub fn access_token(&self) -> &str {
         &self.access_token
     }
 
@@ -41,8 +40,8 @@ impl Tokens {
     }
 
     /// The refresh token, if the server sent one.
-    pub fn refresh_token(&self) -> Option<&RefreshToken> {
-        self.refresh_token.as_ref()
+    pub fn refresh_token(&self) -> Option<&str> {
+        self.refresh_token.as_deref()
     }
 
     /// The granted scopes, if the server sent a `scope` parameter
@@ -69,10 +68,13 @@ impl fmt::Debug for Tokens {
         // Extra fields can hold secrets (e.g. `id_token`) — print keys only.
         let extra_keys: Vec<&str> = self.extra.keys().map(String::as_str).collect();
         f.debug_struct("Tokens")
-            .field("access_token", &self.access_token)
+            .field("access_token", &"[redacted]")
             .field("token_type", &self.token_type)
             .field("expires_in", &self.expires_in)
-            .field("refresh_token", &self.refresh_token)
+            .field(
+                "refresh_token",
+                &self.refresh_token.as_ref().map(|_| "[redacted]"),
+            )
             .field("scopes", &self.scopes)
             .field("extra", &extra_keys)
             .finish()
@@ -97,10 +99,10 @@ pub(crate) struct TokensWire {
 impl TokensWire {
     pub(crate) fn into_tokens(self) -> Tokens {
         Tokens {
-            access_token: AccessToken::new(self.access_token),
+            access_token: self.access_token,
             token_type: self.token_type,
             expires_in: self.expires_in.map(Duration::from_secs),
-            refresh_token: self.refresh_token.map(RefreshToken::new),
+            refresh_token: self.refresh_token,
             scopes: self
                 .scope
                 .map(|scope| scope.split_whitespace().map(String::from).collect()),
@@ -131,14 +133,11 @@ mod tests {
                 "example_parameter": "example_value"
             }"#,
         );
-        assert_eq!(tokens.access_token().secret(), "2YotnFZFEjr1zCsicMWpAA");
+        assert_eq!(tokens.access_token(), "2YotnFZFEjr1zCsicMWpAA");
         assert_eq!(tokens.token_type(), "example");
         assert!(!tokens.is_bearer());
         assert_eq!(tokens.expires_in(), Some(Duration::from_secs(3600)));
-        assert_eq!(
-            tokens.refresh_token().unwrap().secret(),
-            "tGzv3JOkF0XG5Qx2TlKWIA"
-        );
+        assert_eq!(tokens.refresh_token(), Some("tGzv3JOkF0XG5Qx2TlKWIA"));
         assert_eq!(tokens.scopes(), None);
         assert_eq!(
             tokens.extra_field::<String>("example_parameter").as_deref(),

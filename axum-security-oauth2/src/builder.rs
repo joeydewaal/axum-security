@@ -2,7 +2,7 @@ use std::{error::Error as StdError, fmt};
 
 use url::Url;
 
-use crate::{client::OAuth2Client, http::HttpClient, secret::ClientSecret};
+use crate::{client::OAuth2Client, http::HttpClient};
 
 /// Builds an [`OAuth2Client`]. Created with
 /// [`OAuth2Client::builder()`](OAuth2Client::builder).
@@ -12,7 +12,7 @@ use crate::{client::OAuth2Client, http::HttpClient, secret::ClientSecret};
 /// front, so the client's methods never fail on configuration.
 pub struct OAuth2ClientBuilder {
     client_id: Option<String>,
-    client_secret: Option<ClientSecret>,
+    client_secret: Option<String>,
     auth_url: Option<String>,
     token_url: Option<String>,
     redirect_url: Option<String>,
@@ -43,7 +43,7 @@ impl OAuth2ClientBuilder {
     /// HTTP Basic (RFC 6749 §2.3.1); without it the `client_id` is sent in
     /// the request body.
     pub fn client_secret(mut self, client_secret: impl Into<String>) -> Self {
-        self.client_secret = Some(ClientSecret::new(client_secret));
+        self.client_secret = Some(client_secret.into());
         self
     }
 

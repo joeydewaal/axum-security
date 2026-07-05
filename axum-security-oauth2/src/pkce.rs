@@ -1,13 +1,13 @@
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use sha2::{Digest, Sha256};
 
-use crate::secret::{PkceVerifier, random_b64};
+use crate::rand::random_b64;
 
-/// Generates a fresh S256 challenge/verifier pair (RFC 7636 §4).
-pub(crate) fn generate() -> (String, PkceVerifier) {
+/// Generates a fresh S256 `(challenge, verifier)` pair (RFC 7636 §4).
+pub(crate) fn generate() -> (String, String) {
     let verifier = random_b64();
     let challenge = challenge_s256(&verifier);
-    (challenge, PkceVerifier::new(verifier))
+    (challenge, verifier)
 }
 
 /// Derives the S256 code challenge from a verifier:
@@ -31,8 +31,8 @@ mod tests {
     #[test]
     fn generated_pair_matches() {
         let (challenge, verifier) = generate();
-        assert_eq!(challenge, challenge_s256(verifier.secret()));
+        assert_eq!(challenge, challenge_s256(&verifier));
         // 43 chars satisfies RFC 7636 §4.1 (43..=128).
-        assert_eq!(verifier.secret().len(), 43);
+        assert_eq!(verifier.len(), 43);
     }
 }

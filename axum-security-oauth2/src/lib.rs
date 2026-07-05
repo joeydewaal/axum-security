@@ -9,9 +9,11 @@
 //! default [`start_login`](OAuth2Client::start_login)/
 //! [`finish_login`](OAuth2Client::finish_login) pair; explicit `_non_pkce`
 //! variants exist for providers that reject the PKCE parameters.
-//! Wrapper types exist only where they are security-load-bearing (redacted
-//! `Debug`, constant-time comparison); everything else is `String`,
-//! [`url::Url`] or [`std::time::Duration`].
+//! There are no wrapper types: everything is `String`, [`url::Url`] or
+//! [`std::time::Duration`]. Secrets stay out of logs because every crate
+//! type that holds one (the client, [`Login`], [`Tokens`], errors) redacts
+//! it in its `Debug` output — but a secret *you* store is a plain string,
+//! so keep it out of your own `Debug`/`Display` impls.
 //!
 //! # Features
 //!
@@ -26,7 +28,7 @@
 //! # Example
 //!
 //! ```no_run
-//! use axum_security_oauth2::{AuthorizationCode, OAuth2Client};
+//! use axum_security_oauth2::OAuth2Client;
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! let client = OAuth2Client::builder()
@@ -45,9 +47,9 @@
 //!
 //! // Leg 2 (on the callback route): after comparing `csrf_token` with the
 //! // `state` query parameter, exchange the code for tokens.
-//! let code = AuthorizationCode::new("code-from-the-query-string");
+//! let code = "code-from-the-query-string";
 //! let tokens = client.finish_login(code, &pkce_verifier).await?;
-//! tokens.access_token().secret();
+//! tokens.access_token();
 //! # Ok(())
 //! # }
 //! ```
@@ -58,7 +60,7 @@ mod error;
 mod http;
 mod login;
 mod pkce;
-mod secret;
+mod rand;
 mod tokens;
 
 pub use builder::{ConfigError, OAuth2ClientBuilder};
@@ -66,7 +68,4 @@ pub use client::OAuth2Client;
 pub use error::{Error, ErrorCode, HttpError, ParseError, ServerError};
 pub use http::HttpClient;
 pub use login::{Login, LoginNonPkce};
-pub use secret::{
-    AccessToken, AuthorizationCode, ClientSecret, CsrfToken, PkceVerifier, RefreshToken,
-};
 pub use tokens::Tokens;
