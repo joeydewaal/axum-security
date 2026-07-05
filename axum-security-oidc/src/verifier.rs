@@ -54,8 +54,8 @@ impl IdTokenVerifier {
     /// A verifier for tokens from `issuer`, addressed to `audience` (the client
     /// id), signed by a key in `jwks`.
     ///
-    /// Defaults to the asymmetric algorithm allow-list ([`DEFAULT_ALGORITHMS`])
-    /// and a 60-second clock-skew leeway; narrow either with
+    /// Defaults to the asymmetric algorithm allow-list (RS/PS 256-512, ES256,
+    /// ES384, EdDSA) and a 60-second clock-skew leeway; narrow either with
     /// [`algorithms`](Self::algorithms) / [`leeway_secs`](Self::leeway_secs).
     pub fn new(issuer: impl Into<String>, audience: impl Into<String>, jwks: JwkSet) -> Self {
         Self {

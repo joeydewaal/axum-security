@@ -180,6 +180,7 @@ dependencies = [
 name = "axum-security-oidc"
 version = "0.0.1"
 dependencies = [
+ "axum-security-oauth2",
  "base64 0.22.1",
  "chrono",
  "jiff",
@@ -188,6 +189,9 @@ dependencies = [
  "serde_json",
  "subtle",
  "time",
+ "tokio",
+ "url",
+ "wiremock",
 ]
 
 [[package]]

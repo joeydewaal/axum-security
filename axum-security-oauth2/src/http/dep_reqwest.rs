@@ -5,7 +5,7 @@ use url::Url;
 
 use crate::{
     error::{HttpError, HttpErrorKind},
-    http::FormResponse,
+    http::{FormResponse, HttpResponse},
 };
 
 /// The default backend: redirects never followed, 10 second timeout.
@@ -47,6 +47,20 @@ pub(crate) async fn post_form(
         content_type,
         body,
     })
+}
+
+pub(crate) async fn get(client: &reqwest::Client, url: &Url) -> Result<HttpResponse, HttpError> {
+    let response = client
+        .get(url.clone())
+        .header(ACCEPT, "application/json")
+        .send()
+        .await
+        .map_err(wrap)?;
+
+    let status = response.status().as_u16();
+    let body = response.bytes().await.map_err(wrap)?.to_vec();
+
+    Ok(HttpResponse { status, body })
 }
 
 fn wrap(error: reqwest::Error) -> HttpError {
