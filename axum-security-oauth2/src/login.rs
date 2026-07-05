@@ -2,6 +2,37 @@ use std::fmt;
 
 use url::{Position, Url};
 
+/// Per-login options for
+/// [`start_login_with`](crate::OAuth2Client::start_login_with) and
+/// [`start_login_non_pkce_with`](crate::OAuth2Client::start_login_non_pkce_with).
+#[derive(Default)]
+pub struct LoginOptions {
+    pub(crate) params: Vec<(String, String)>,
+}
+
+impl LoginOptions {
+    /// Appends an extra query parameter to the authorization URL — e.g.
+    /// `nonce`, `prompt`, `login_hint` or `hd`.
+    ///
+    /// The standard parameters (`response_type`, `client_id`,
+    /// `redirect_uri`, `scope`, `state` and the PKCE challenge) are set by
+    /// the crate; appending one of those here produces a duplicate.
+    pub fn param(mut self, name: impl Into<String>, value: impl Into<String>) -> Self {
+        self.params.push((name.into(), value.into()));
+        self
+    }
+}
+
+impl fmt::Debug for LoginOptions {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // Values can hold secrets (e.g. an oidc nonce) — print names only.
+        let names: Vec<&str> = self.params.iter().map(|(name, _)| name.as_str()).collect();
+        f.debug_struct("LoginOptions")
+            .field("params", &names)
+            .finish()
+    }
+}
+
 /// The first leg of the authorization code flow, created by
 /// [`start_login`](crate::OAuth2Client::start_login).
 ///

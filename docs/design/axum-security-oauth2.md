@@ -75,7 +75,7 @@ Verified against vendored `oauth2-5.0.0` source. "axs" = what
 | Extra params on auth URL / token requests | — | ❌ | ✅ (`nonce`, `prompt`, `hd`, …) | Phase 3 (oidc prereq) |
 | Refresh token grant | §6 | exposed to users, not called | ✅ | Phase 3 (oidc prereq) |
 | Client auth: HTTP Basic (default) / request body (`AuthType`) | §2.3.1 | default only | ✅ (some IdPs body-only) | Basic: **Phase 1**; `RequestBody`: Phase 3 |
-| Per-request redirect-URI override | §4.1.3 | ❌ | maybe | Phase 3 |
+| Per-request redirect-URI override | §4.1.3 | ❌ | ❌ | Rejected in phase 3 — both legs must agree on `redirect_uri` and leg 2 can't see the override (see Core API) |
 | Extra/nonstandard token-response fields (`ExtraTokenFields`) | — | ❌ | ✅ (`id_token`) | **Phase 1** — free, the parser retains unknown fields in the `extra` map; no generic |
 | Client credentials grant | §4.4 | ❌ | ❌ | Phase 4 |
 | Device authorization grant | RFC 8628 | ❌ | ❌ | Phase 4 |
@@ -279,19 +279,25 @@ let tokens: Tokens = client.finish_login_non_pkce(code).await?;
 No request-builder object, no `.send()`, no `.request_async(&http)` — leg 2
 is an ordinary `async fn`. Builders exist where there is real optional
 surface (the *client* builder); a call with one optional argument doesn't
-earn one. When phase 3 adds per-login extras (nonce et al.), the shape is a
-closure-configured variant in axum-security style
-(`.cookie(|c| c...)`): `client.start_login_with(|o| o.param("nonce", n))?`.
+earn one. Per-login extras (nonce et al., phase 3) are a
+closure-configured variant in axum-security style (`.cookie(|c| c...)`):
+`client.start_login_with(|o| o.param("nonce", n))` (plus the
+`_non_pkce_with` twin). `LoginOptions` redacts parameter values in
+`Debug` — a nonce is a secret. Per-request *redirect* override was
+considered for phase 3 and rejected: both legs send `redirect_uri` and
+must agree, but leg 2 runs in a different request with no `Login` in
+hand, so an override could only be honored by making the caller repeat
+it — a footgun with no consumer asking for it.
 
 CSRF comparison stays the consumer's job (cookie vs. query param — that's
 axum-security's `verify_cookies` + `subtle` comparison), as does verifier
 storage. The crate generates the secrets; it doesn't pretend to own state
 it can't see.
 
-### Later-phase calls (target shapes, not phase 1)
+### Later-phase calls
 
 ```rust
-client.refresh_tokens(&refresh_token).await?;          // phase 3
+client.refresh_tokens(&refresh_token).await?;          // phase 3 (shipped)
 client.fetch_client_tokens().await?;                   // phase 4: client credentials
 let device = client.start_device_login().await?;       // phase 4: RFC 8628
 client.finish_device_login(&device, tokio::time::sleep).await?;
@@ -435,13 +441,15 @@ The `oidc` feature **will** move off `openidconnect` onto a new
 `axum-security-oidc` crate layered on this one. That design is written
 separately (ID-token JWS verification, JWKS caching — the lazy-JWKS work —
 and discovery are their own security surface). What it requires from *this*
-crate — phase-3 scope here, landing before the oidc crate starts:
+crate — phase-3 scope, **shipped**:
 
-- `add_extra_param` on the authorize URL (nonce, prompt, login_hint, hd).
+- Extra authorize-URL params (nonce, prompt, login_hint, hd) via
+  `start_login_with(|o| o.param(...))`.
 - `id_token` retrieval via `Tokens::extra_field("id_token")` (the
   retained-extras map itself exists from phase 1).
-- Refresh grant, `AuthType::RequestBody` (some IdPs), and the `HttpClient`
-  backend enum shared so both crates ride one connection pool.
+- Refresh grant (`refresh_tokens`), `AuthType::RequestBody` (some IdPs),
+  and the `HttpClient` backend enum shared so both crates ride one
+  connection pool.
 
 Until it lands, `openidconnect` (and transitively upstream `oauth2`) stays
 in the tree when the `oidc` feature is on — compile-time cost only; the oidc

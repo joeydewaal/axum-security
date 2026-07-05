@@ -2,7 +2,10 @@ use std::{error::Error as StdError, fmt};
 
 use url::Url;
 
-use crate::{client::OAuth2Client, http::HttpClient};
+use crate::{
+    client::{AuthType, OAuth2Client},
+    http::HttpClient,
+};
 
 /// Builds an [`OAuth2Client`]. Created with
 /// [`OAuth2Client::builder()`](OAuth2Client::builder).
@@ -17,6 +20,7 @@ pub struct OAuth2ClientBuilder {
     token_url: Option<String>,
     redirect_url: Option<String>,
     scopes: Vec<String>,
+    auth_type: AuthType,
     http: Option<HttpClient>,
 }
 
@@ -29,6 +33,7 @@ impl OAuth2ClientBuilder {
             token_url: None,
             redirect_url: None,
             scopes: Vec::new(),
+            auth_type: AuthType::default(),
             http: None,
         }
     }
@@ -71,6 +76,14 @@ impl OAuth2ClientBuilder {
     /// scopes; the default is none.
     pub fn scopes(mut self, scopes: &[&str]) -> Self {
         self.scopes = scopes.iter().map(|scope| scope.to_string()).collect();
+        self
+    }
+
+    /// How the client authenticates to the token endpoint. Defaults to
+    /// [`AuthType::BasicAuth`]; some providers only accept credentials in
+    /// the request body ([`AuthType::RequestBody`]).
+    pub fn auth_type(mut self, auth_type: AuthType) -> Self {
+        self.auth_type = auth_type;
         self
     }
 
@@ -127,6 +140,7 @@ impl OAuth2ClientBuilder {
             token_url,
             redirect_url,
             scopes: self.scopes,
+            auth_type: self.auth_type,
             http,
         })
     }
