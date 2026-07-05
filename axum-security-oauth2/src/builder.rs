@@ -7,9 +7,9 @@ use crate::{client::OAuth2Client, http::HttpClient, secret::ClientSecret};
 /// Builds an [`OAuth2Client`]. Created with
 /// [`OAuth2Client::builder()`](OAuth2Client::builder).
 ///
-/// Only `client_id` is required; endpoints stay optional and calls that
-/// need a missing one fail with
-/// [`Error::MissingEndpoint`](crate::Error::MissingEndpoint).
+/// `client_id`, `auth_url` and `token_url` are required; the rest is
+/// optional. [`try_build`](Self::try_build) validates everything up
+/// front, so the client's methods never fail on configuration.
 pub struct OAuth2ClientBuilder {
     client_id: Option<String>,
     client_secret: Option<ClientSecret>,
@@ -17,7 +17,6 @@ pub struct OAuth2ClientBuilder {
     token_url: Option<String>,
     redirect_url: Option<String>,
     scopes: Vec<String>,
-    pkce: bool,
     http: Option<HttpClient>,
 }
 
@@ -30,7 +29,6 @@ impl OAuth2ClientBuilder {
             token_url: None,
             redirect_url: None,
             scopes: Vec::new(),
-            pkce: true,
             http: None,
         }
     }
@@ -50,12 +48,13 @@ impl OAuth2ClientBuilder {
     }
 
     /// The authorization endpoint, parsed in [`build`](Self::build).
+    /// Required.
     pub fn auth_url(mut self, auth_url: impl Into<String>) -> Self {
         self.auth_url = Some(auth_url.into());
         self
     }
 
-    /// The token endpoint, parsed in [`build`](Self::build).
+    /// The token endpoint, parsed in [`build`](Self::build). Required.
     pub fn token_url(mut self, token_url: impl Into<String>) -> Self {
         self.token_url = Some(token_url.into());
         self
@@ -75,20 +74,11 @@ impl OAuth2ClientBuilder {
         self
     }
 
-    /// Enables PKCE (the default).
-    pub fn pkce(self) -> Self {
-        self.set_pkce(true)
-    }
-
-    /// Enables or disables PKCE.
-    pub fn set_pkce(mut self, pkce: bool) -> Self {
-        self.pkce = pkce;
-        self
-    }
-
     /// The HTTP backend for token requests. Defaults to a reqwest client
     /// that never follows redirects and times out after 10 seconds (when
-    /// the `reqwest` feature is enabled).
+    /// the `reqwest` feature is enabled); without any backend feature,
+    /// [`try_build`](Self::try_build) fails with
+    /// [`ConfigError::NoHttpClient`].
     // Without a backend feature `HttpClient` is uninhabited and this
     // method cannot be reached.
     #[cfg_attr(not(feature = "reqwest"), allow(unreachable_code, unused_mut))]
@@ -109,16 +99,10 @@ impl OAuth2ClientBuilder {
     pub fn try_build(self) -> Result<OAuth2Client, ConfigError> {
         let client_id = self.client_id.ok_or(ConfigError::MissingClientId)?;
 
-        let auth_url = self
-            .auth_url
-            .map(|url| Url::parse(&url))
-            .transpose()
+        let auth_url = Url::parse(&self.auth_url.ok_or(ConfigError::MissingAuthUrl)?)
             .map_err(ConfigError::InvalidAuthUrl)?;
 
-        let token_url = self
-            .token_url
-            .map(|url| Url::parse(&url))
-            .transpose()
+        let token_url = Url::parse(&self.token_url.ok_or(ConfigError::MissingTokenUrl)?)
             .map_err(ConfigError::InvalidTokenUrl)?;
 
         let redirect_url = self
@@ -134,6 +118,7 @@ impl OAuth2ClientBuilder {
                 crate::http::dep_reqwest::default_client(),
             ))
         });
+        let http = http.ok_or(ConfigError::NoHttpClient)?;
 
         Ok(OAuth2Client {
             client_id,
@@ -142,7 +127,6 @@ impl OAuth2ClientBuilder {
             token_url,
             redirect_url,
             scopes: self.scopes,
-            pkce: self.pkce,
             http,
         })
     }
@@ -153,15 +137,22 @@ impl OAuth2ClientBuilder {
 #[non_exhaustive]
 pub enum ConfigError {
     MissingClientId,
+    MissingAuthUrl,
+    MissingTokenUrl,
     InvalidAuthUrl(url::ParseError),
     InvalidTokenUrl(url::ParseError),
     InvalidRedirectUrl(url::ParseError),
+    /// No backend feature (such as `reqwest`) is enabled and no client was
+    /// set with [`http_client`](OAuth2ClientBuilder::http_client).
+    NoHttpClient,
 }
 
 impl fmt::Display for ConfigError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             ConfigError::MissingClientId => f.write_str("client id is missing"),
+            ConfigError::MissingAuthUrl => f.write_str("authorization url is missing"),
+            ConfigError::MissingTokenUrl => f.write_str("token url is missing"),
             ConfigError::InvalidAuthUrl(parse_error) => {
                 write!(f, "could not parse authorization url: {parse_error}")
             }
@@ -171,8 +162,28 @@ impl fmt::Display for ConfigError {
             ConfigError::InvalidRedirectUrl(parse_error) => {
                 write!(f, "could not parse redirect url: {parse_error}")
             }
+            ConfigError::NoHttpClient => f.write_str(
+                "no HTTP client available (enable a backend feature such as `reqwest`, or set one with `http_client`)",
+            ),
         }
     }
 }
 
 impl StdError for ConfigError {}
+
+// Without a backend feature there is no default HTTP client and no way to
+// provide one, so building must fail.
+#[cfg(all(test, not(feature = "reqwest")))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn no_backend_is_a_config_error() {
+        let result = OAuth2ClientBuilder::new()
+            .client_id("id")
+            .auth_url("https://provider.example/authorize")
+            .token_url("https://provider.example/token")
+            .try_build();
+        assert!(matches!(result, Err(ConfigError::NoHttpClient)));
+    }
+}

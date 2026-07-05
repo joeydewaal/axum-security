@@ -8,12 +8,12 @@ use crate::secret::{CsrfToken, PkceVerifier};
 /// [`start_login`](crate::OAuth2Client::start_login).
 ///
 /// Redirect the user to [`url`](Login::url) and persist
-/// [`csrf_token`](Login::csrf_token) (and the PKCE verifier when present)
-/// until the callback comes in.
+/// [`csrf_token`](Login::csrf_token) and
+/// [`pkce_verifier`](Login::pkce_verifier) until the callback comes in.
 pub struct Login {
     pub(crate) url: Url,
     pub(crate) csrf_token: CsrfToken,
-    pub(crate) pkce_verifier: Option<PkceVerifier>,
+    pub(crate) pkce_verifier: PkceVerifier,
 }
 
 impl Login {
@@ -28,15 +28,14 @@ impl Login {
         &self.csrf_token
     }
 
-    /// The PKCE verifier belonging to the challenge in the URL; `None`
-    /// when PKCE is disabled on the client.
-    pub fn pkce_verifier(&self) -> Option<&PkceVerifier> {
-        self.pkce_verifier.as_ref()
+    /// The PKCE verifier belonging to the challenge in the URL.
+    pub fn pkce_verifier(&self) -> &PkceVerifier {
+        &self.pkce_verifier
     }
 
     /// Splits the login into its parts, for consumers that scatter them
     /// (secrets into a cookie, URL into a redirect) without cloning.
-    pub fn into_parts(self) -> (Url, CsrfToken, Option<PkceVerifier>) {
+    pub fn into_parts(self) -> (Url, CsrfToken, PkceVerifier) {
         (self.url, self.csrf_token, self.pkce_verifier)
     }
 }

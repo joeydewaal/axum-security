@@ -3,7 +3,7 @@ use url::Url;
 
 use crate::{
     builder::OAuth2ClientBuilder,
-    error::{Endpoint, Error, ParseError, ServerErrorWire},
+    error::{Error, ParseError, ServerErrorWire},
     http::{FormResponse, HttpClient},
     login::Login,
     pkce,
@@ -11,21 +11,21 @@ use crate::{
     tokens::{Tokens, TokensWire},
 };
 
-/// An OAuth2 client for the authorization code flow (RFC 6749 §4.1).
+/// An OAuth2 client for the authorization code flow with PKCE
+/// (RFC 6749 §4.1 + RFC 7636).
 ///
-/// One concrete type, no type parameters: endpoints are optional and a
-/// call whose endpoint is missing fails at call time with
-/// [`Error::MissingEndpoint`].
+/// One concrete type, no type parameters: the configuration is validated
+/// once by [`try_build`](OAuth2ClientBuilder::try_build), so calls only
+/// fail for reasons that can actually occur at request time.
 #[derive(Debug)]
 pub struct OAuth2Client {
     pub(crate) client_id: String,
     pub(crate) client_secret: Option<ClientSecret>,
-    pub(crate) auth_url: Option<Url>,
-    pub(crate) token_url: Option<Url>,
+    pub(crate) auth_url: Url,
+    pub(crate) token_url: Url,
     pub(crate) redirect_url: Option<Url>,
     pub(crate) scopes: Vec<String>,
-    pub(crate) pkce: bool,
-    pub(crate) http: Option<HttpClient>,
+    pub(crate) http: HttpClient,
 }
 
 impl OAuth2Client {
@@ -38,12 +38,12 @@ impl OAuth2Client {
         &self.client_id
     }
 
-    pub fn auth_url(&self) -> Option<&Url> {
-        self.auth_url.as_ref()
+    pub fn auth_url(&self) -> &Url {
+        &self.auth_url
     }
 
-    pub fn token_url(&self) -> Option<&Url> {
-        self.token_url.as_ref()
+    pub fn token_url(&self) -> &Url {
+        &self.token_url
     }
 
     pub fn redirect_url(&self) -> Option<&Url> {
@@ -54,31 +54,15 @@ impl OAuth2Client {
         &self.scopes
     }
 
-    pub fn is_pkce(&self) -> bool {
-        self.pkce
-    }
-
-    /// Starts the login flow: generates the CSRF token (and, when PKCE is
-    /// on, the S256 challenge/verifier pair) and builds the authorization
-    /// URL.
+    /// Starts the login flow: generates the CSRF token and the PKCE S256
+    /// challenge/verifier pair, and builds the authorization URL.
     ///
-    /// Pure — no I/O; works with no HTTP backend configured. Fails only
-    /// when no authorization endpoint is configured.
-    pub fn start_login(&self) -> Result<Login, Error> {
-        let auth_url = self
-            .auth_url
-            .as_ref()
-            .ok_or(Error::MissingEndpoint(Endpoint::Auth))?;
-
+    /// Pure — no I/O, infallible.
+    pub fn start_login(&self) -> Login {
         let csrf_token = CsrfToken::new(random_b64());
-        let (challenge, pkce_verifier) = if self.pkce {
-            let (challenge, verifier) = pkce::generate();
-            (Some(challenge), Some(verifier))
-        } else {
-            (None, None)
-        };
+        let (challenge, pkce_verifier) = pkce::generate();
 
-        let mut url = auth_url.clone();
+        let mut url = self.auth_url.clone();
         {
             let mut query = url.query_pairs_mut();
             query.append_pair("response_type", "code");
@@ -90,47 +74,32 @@ impl OAuth2Client {
                 query.append_pair("scope", &self.scopes.join(" "));
             }
             query.append_pair("state", csrf_token.secret());
-            if let Some(challenge) = &challenge {
-                query.append_pair("code_challenge", challenge);
-                query.append_pair("code_challenge_method", "S256");
-            }
+            query.append_pair("code_challenge", &challenge);
+            query.append_pair("code_challenge_method", "S256");
         }
 
-        Ok(Login {
+        Login {
             url,
             csrf_token,
             pkce_verifier,
-        })
+        }
     }
 
     /// Finishes the login flow: exchanges the authorization code for
     /// tokens at the token endpoint (RFC 6749 §4.1.3).
     ///
     /// `pkce_verifier` is the verifier persisted from
-    /// [`start_login`](Self::start_login); when PKCE is enabled on the
-    /// client and it is `None`, the call fails with
-    /// [`Error::MissingPkceVerifier`] before any I/O.
+    /// [`start_login`](Self::start_login).
     pub async fn finish_login(
         &self,
         code: AuthorizationCode,
-        pkce_verifier: Option<&PkceVerifier>,
+        pkce_verifier: &PkceVerifier,
     ) -> Result<Tokens, Error> {
-        let token_url = self
-            .token_url
-            .as_ref()
-            .ok_or(Error::MissingEndpoint(Endpoint::Token))?;
-        let http = self.http.as_ref().ok_or(Error::NoHttpClient)?;
-        if self.pkce && pkce_verifier.is_none() {
-            return Err(Error::MissingPkceVerifier);
-        }
-
         let mut form: Vec<(&str, &str)> = vec![
             ("grant_type", "authorization_code"),
             ("code", code.secret()),
+            ("code_verifier", pkce_verifier.secret()),
         ];
-        if let Some(verifier) = pkce_verifier {
-            form.push(("code_verifier", verifier.secret()));
-        }
         if let Some(redirect_url) = &self.redirect_url {
             form.push(("redirect_uri", redirect_url.as_str()));
         }
@@ -145,12 +114,13 @@ impl OAuth2Client {
             }
         };
 
-        let response = http
-            .post_form(token_url, &form, authorization.as_deref())
+        let response = self
+            .http
+            .post_form(&self.token_url, &form, authorization.as_deref())
             .await
             .map_err(Error::Http)?;
 
-        parse_token_response(token_url, response)
+        parse_token_response(&self.token_url, response)
     }
 }
 
@@ -200,7 +170,8 @@ fn parse_error_from(url: &Url, response: FormResponse, source: serde_json::Error
     }
 }
 
-#[cfg(test)]
+// Building a client requires an HTTP backend, so these tests need one.
+#[cfg(all(test, feature = "reqwest"))]
 mod tests {
     use std::collections::HashMap;
 
@@ -223,7 +194,7 @@ mod tests {
     fn start_login_builds_the_authorize_url() {
         let client = base_builder().scopes(&["read:user", "user:email"]).build();
 
-        let login = client.start_login().unwrap();
+        let login = client.start_login();
         let url = login.url();
 
         assert_eq!(
@@ -239,37 +210,24 @@ mod tests {
         assert_eq!(query["scope"], "read:user user:email");
         assert!(*login.csrf_token() == query["state"]);
 
-        // PKCE is on by default: challenge matches the verifier.
-        let verifier = login.pkce_verifier().expect("pkce on by default");
+        // The PKCE challenge matches the verifier.
         assert_eq!(
             query["code_challenge"],
-            crate::pkce::challenge_s256(verifier.secret())
+            crate::pkce::challenge_s256(login.pkce_verifier().secret())
         );
         assert_eq!(query["code_challenge_method"], "S256");
     }
 
     #[test]
-    fn start_login_without_pkce() {
-        let client = base_builder().set_pkce(false).build();
-
-        let login = client.start_login().unwrap();
-        let query = query_map(login.url());
-
-        assert!(login.pkce_verifier().is_none());
-        assert!(!query.contains_key("code_challenge"));
-        assert!(!query.contains_key("code_challenge_method"));
-    }
-
-    #[test]
     fn start_login_minimal_client() {
-        // Only client_id + auth_url: no redirect_uri or scope params.
+        // No redirect_url or scopes: neither parameter is sent.
         let client = OAuth2Client::builder()
             .client_id("test_client_id")
             .auth_url("https://provider.example/authorize")
+            .token_url("https://provider.example/token")
             .build();
 
-        let login = client.start_login().unwrap();
-        let query = query_map(login.url());
+        let query = query_map(client.start_login().url());
         assert!(!query.contains_key("redirect_uri"));
         assert!(!query.contains_key("scope"));
     }
@@ -279,51 +237,48 @@ mod tests {
         let client = OAuth2Client::builder()
             .client_id("test_client_id")
             .auth_url("https://provider.example/authorize?audience=api")
+            .token_url("https://provider.example/token")
             .build();
 
-        let query = query_map(client.start_login().unwrap().url());
+        let query = query_map(client.start_login().url());
         assert_eq!(query["audience"], "api");
         assert_eq!(query["response_type"], "code");
     }
 
     #[test]
-    fn start_login_requires_auth_url() {
-        let client = OAuth2Client::builder().client_id("test_client_id").build();
+    fn missing_config() {
+        use crate::ConfigError;
 
-        assert!(matches!(
-            client.start_login(),
-            Err(Error::MissingEndpoint(Endpoint::Auth))
-        ));
-    }
-
-    #[test]
-    fn missing_client_id() {
         let result = OAuth2Client::builder()
             .auth_url("https://provider.example/authorize")
+            .token_url("https://provider.example/token")
             .try_build();
-        assert!(matches!(result, Err(crate::ConfigError::MissingClientId)));
+        assert!(matches!(result, Err(ConfigError::MissingClientId)));
+
+        let result = OAuth2Client::builder()
+            .client_id("id")
+            .token_url("https://provider.example/token")
+            .try_build();
+        assert!(matches!(result, Err(ConfigError::MissingAuthUrl)));
+
+        let result = OAuth2Client::builder()
+            .client_id("id")
+            .auth_url("https://provider.example/authorize")
+            .try_build();
+        assert!(matches!(result, Err(ConfigError::MissingTokenUrl)));
     }
 
     #[test]
     fn invalid_urls() {
         use crate::ConfigError;
 
-        let result = OAuth2Client::builder()
-            .client_id("id")
-            .auth_url("not an url")
-            .try_build();
+        let result = base_builder().auth_url("not an url").try_build();
         assert!(matches!(result, Err(ConfigError::InvalidAuthUrl(_))));
 
-        let result = OAuth2Client::builder()
-            .client_id("id")
-            .token_url("not an url")
-            .try_build();
+        let result = base_builder().token_url("not an url").try_build();
         assert!(matches!(result, Err(ConfigError::InvalidTokenUrl(_))));
 
-        let result = OAuth2Client::builder()
-            .client_id("id")
-            .redirect_url("not an url")
-            .try_build();
+        let result = base_builder().redirect_url("not an url").try_build();
         assert!(matches!(result, Err(ConfigError::InvalidRedirectUrl(_))));
     }
 
@@ -332,17 +287,16 @@ mod tests {
         let client = base_builder().scopes(&["a"]).build();
         assert_eq!(client.client_id(), "test_client_id");
         assert_eq!(
-            client.auth_url().unwrap().as_str(),
+            client.auth_url().as_str(),
             "https://provider.example/authorize"
         );
         assert_eq!(
-            client.token_url().unwrap().as_str(),
+            client.token_url().as_str(),
             "https://provider.example/token"
         );
         // axum-security reads the callback route path off this getter.
         assert_eq!(client.redirect_url().unwrap().path(), "/callback");
         assert_eq!(client.scopes(), ["a"]);
-        assert!(client.is_pkce());
     }
 
     #[test]
@@ -366,12 +320,9 @@ mod tests {
         assert!(!debug.contains("test_client_secret"), "{debug}");
         assert!(debug.contains("test_client_id"), "{debug}");
 
-        let login = client.start_login().unwrap();
+        let login = client.start_login();
         let debug = format!("{login:?}");
         assert!(!debug.contains(login.csrf_token().secret()), "{debug}");
-        assert!(
-            !debug.contains(login.pkce_verifier().unwrap().secret()),
-            "{debug}"
-        );
+        assert!(!debug.contains(login.pkce_verifier().secret()), "{debug}");
     }
 }

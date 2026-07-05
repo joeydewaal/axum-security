@@ -4,19 +4,14 @@ use serde::Deserialize;
 use serde_json::{Map, Value};
 
 /// Errors returned by [`OAuth2Client`](crate::OAuth2Client) calls.
+///
+/// Configuration problems (missing endpoints, no HTTP backend) are caught
+/// by [`try_build`](crate::OAuth2ClientBuilder::try_build) as
+/// [`ConfigError`](crate::ConfigError); everything here can only happen at
+/// request time.
 #[derive(Debug)]
 #[non_exhaustive]
 pub enum Error {
-    /// The call needs an endpoint URL that was never configured on the
-    /// builder.
-    MissingEndpoint(Endpoint),
-    /// The call needs to perform I/O but no HTTP client is configured
-    /// (enable a backend feature such as `reqwest`, or set one with
-    /// [`http_client`](crate::OAuth2ClientBuilder::http_client)).
-    NoHttpClient,
-    /// PKCE is enabled on the client but no verifier was passed to
-    /// [`finish_login`](crate::OAuth2Client::finish_login).
-    MissingPkceVerifier,
     /// The HTTP request itself failed (connect, TLS, timeout, ...).
     Http(HttpError),
     /// The server answered with a well-formed OAuth2 error body
@@ -29,15 +24,6 @@ pub enum Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Error::MissingEndpoint(endpoint) => {
-                write!(f, "no {endpoint} endpoint configured")
-            }
-            Error::NoHttpClient => f.write_str(
-                "no HTTP client configured (enable a backend feature such as `reqwest`, or set one on the builder)",
-            ),
-            Error::MissingPkceVerifier => {
-                f.write_str("PKCE is enabled but no verifier was passed to finish_login")
-            }
             Error::Http(error) => error.fmt(f),
             Error::Server(error) => error.fmt(f),
             Error::Parse(error) => error.fmt(f),
@@ -51,24 +37,6 @@ impl StdError for Error {
             Error::Http(error) => Some(error),
             Error::Server(error) => Some(error),
             Error::Parse(error) => Some(error),
-            _ => None,
-        }
-    }
-}
-
-/// The endpoint a call was missing, see [`Error::MissingEndpoint`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum Endpoint {
-    Auth,
-    Token,
-}
-
-impl fmt::Display for Endpoint {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Endpoint::Auth => f.write_str("authorization"),
-            Endpoint::Token => f.write_str("token"),
         }
     }
 }

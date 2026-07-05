@@ -38,7 +38,7 @@ fn tokens_body() -> serde_json::Value {
 async fn success_round_trip() {
     let server = MockServer::start().await;
     let client = client(&server, true);
-    let login = client.start_login().unwrap();
+    let login = client.start_login();
 
     // The request must be a form-encoded POST carrying the grant, code,
     // verifier and redirect_uri, authenticated via HTTP Basic.
@@ -93,29 +93,11 @@ async fn no_secret_sends_client_id_in_body() {
         .mount(&server)
         .await;
 
-    client
-        .finish_login(AuthorizationCode::new("test-code"), None)
-        .await
-        .expect_err("pkce is on and no verifier given");
-
-    // The pre-I/O check fired; now pass a verifier so the request goes out.
-    let login = client.start_login().unwrap();
+    let login = client.start_login();
     client
         .finish_login(AuthorizationCode::new("test-code"), login.pkce_verifier())
         .await
         .unwrap();
-}
-
-#[tokio::test]
-async fn missing_verifier_fails_before_io() {
-    // No mock mounted: if finish_login did I/O this would hit a 404.
-    let server = MockServer::start().await;
-    let client = client(&server, true);
-
-    let result = client
-        .finish_login(AuthorizationCode::new("test-code"), None)
-        .await;
-    assert!(matches!(result, Err(Error::MissingPkceVerifier)));
 }
 
 #[tokio::test]
@@ -135,7 +117,7 @@ async fn rfc_6749_error_body() {
 
     let verifier = PkceVerifier::new("stored-verifier");
     let error = client
-        .finish_login(AuthorizationCode::new("expired-code"), Some(&verifier))
+        .finish_login(AuthorizationCode::new("expired-code"), &verifier)
         .await
         .unwrap_err();
 
@@ -165,7 +147,7 @@ async fn error_body_with_success_status() {
 
     let verifier = PkceVerifier::new("stored-verifier");
     let error = client
-        .finish_login(AuthorizationCode::new("bad-code"), Some(&verifier))
+        .finish_login(AuthorizationCode::new("bad-code"), &verifier)
         .await
         .unwrap_err();
 
@@ -195,7 +177,7 @@ async fn non_json_body_is_a_parse_error() {
 
     let verifier = PkceVerifier::new("stored-verifier");
     let error = client
-        .finish_login(AuthorizationCode::new("test-code"), Some(&verifier))
+        .finish_login(AuthorizationCode::new("test-code"), &verifier)
         .await
         .unwrap_err();
 
@@ -236,7 +218,7 @@ async fn redirects_are_not_followed() {
 
     let verifier = PkceVerifier::new("stored-verifier");
     let error = client
-        .finish_login(AuthorizationCode::new("test-code"), Some(&verifier))
+        .finish_login(AuthorizationCode::new("test-code"), &verifier)
         .await
         .unwrap_err();
 
