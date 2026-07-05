@@ -47,6 +47,11 @@ jobs:
         run: |
           cargo clippy -p axum-security-oauth2 --all-targets -- -D warnings
           cargo clippy -p axum-security-oauth2 --all-targets --no-default-features -- -D warnings
+      - name: Clippy axum-security-oidc
+        run: |
+          cargo clippy -p axum-security-oidc --all-targets -- -D warnings
+          cargo clippy -p axum-security-oidc --all-targets --features jiff,chrono,time -- -D warnings
+          cargo clippy -p axum-security-oidc --no-default-features -- -D warnings
 
   test:
     name: Test
@@ -63,6 +68,10 @@ jobs:
         run: |
           cargo test -p axum-security-oauth2
           cargo test -p axum-security-oauth2 --no-default-features
+      - name: OIDC crate tests
+        run: |
+          cargo test -p axum-security-oidc
+          cargo test -p axum-security-oidc --features jiff,chrono,time
       - name: Integration tests (each feature)
         run: >-
           cargo hack test -p tests
@@ -85,6 +94,8 @@ jobs:
         run: cargo doc --no-deps -p axum-security-macros
       - name: Doc axum-security-oauth2
         run: cargo doc --no-deps -p axum-security-oauth2
+      - name: Doc axum-security-oidc
+        run: cargo doc --no-deps -p axum-security-oidc
 
   examples:
     name: Examples
