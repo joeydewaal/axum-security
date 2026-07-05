@@ -8,6 +8,7 @@ use axum::{
 
 use axum_security_oauth2::OAuth2Client;
 use cookie_monster::{CookieBuilder, CookieJar};
+use subtle::ConstantTimeEq;
 
 use crate::oauth2::{
     AfterLoginCookies, OAuth2Handler, TokenResponse,
@@ -77,9 +78,10 @@ impl<H: OAuth2Handler> OAuth2Context<H> {
             return StatusCode::UNAUTHORIZED.into_response();
         };
 
-        // verify that csrf token is equal
-        if csrf_token != state {
-            // bad req
+        // Compare the state against the CSRF token from the cookie in
+        // constant time: the attacker controls one side (the `state` query
+        // param), so a byte-by-byte short-circuit would leak the token.
+        if csrf_token.as_bytes().ct_ne(state.as_bytes()).into() {
             crate::debug!("state does not match");
             return StatusCode::UNAUTHORIZED.into_response();
         }
