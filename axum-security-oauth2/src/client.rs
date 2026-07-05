@@ -5,7 +5,7 @@ use crate::{
     builder::OAuth2ClientBuilder,
     error::{Error, ParseError, ServerErrorWire},
     http::{FormResponse, HttpClient},
-    login::Login,
+    login::{Login, LoginNonPkce},
     pkce,
     secret::{AuthorizationCode, ClientSecret, CsrfToken, PkceVerifier, random_b64},
     tokens::{Tokens, TokensWire},
@@ -62,6 +62,37 @@ impl OAuth2Client {
         let csrf_token = CsrfToken::new(random_b64());
         let (challenge, pkce_verifier) = pkce::generate();
 
+        let mut url = self.authorize_url(&csrf_token);
+        url.query_pairs_mut()
+            .append_pair("code_challenge", &challenge)
+            .append_pair("code_challenge_method", "S256");
+
+        Login {
+            url,
+            csrf_token,
+            pkce_verifier,
+        }
+    }
+
+    /// Starts the login flow without PKCE: generates the CSRF token and
+    /// builds the authorization URL.
+    ///
+    /// Prefer [`start_login`](Self::start_login) — compliant providers
+    /// ignore the PKCE parameters (RFC 6749 §3.1), so PKCE against a
+    /// provider that doesn't support it is harmless. This exists for
+    /// providers that reject requests carrying a `code_challenge`. Finish
+    /// with [`finish_login_non_pkce`](Self::finish_login_non_pkce) — the
+    /// two legs must agree on the flow.
+    ///
+    /// Pure — no I/O, infallible.
+    pub fn start_login_non_pkce(&self) -> LoginNonPkce {
+        let csrf_token = CsrfToken::new(random_b64());
+        let url = self.authorize_url(&csrf_token);
+        LoginNonPkce { url, csrf_token }
+    }
+
+    /// The authorization URL with everything but the PKCE parameters.
+    fn authorize_url(&self, csrf_token: &CsrfToken) -> Url {
         let mut url = self.auth_url.clone();
         {
             let mut query = url.query_pairs_mut();
@@ -74,15 +105,8 @@ impl OAuth2Client {
                 query.append_pair("scope", &self.scopes.join(" "));
             }
             query.append_pair("state", csrf_token.secret());
-            query.append_pair("code_challenge", &challenge);
-            query.append_pair("code_challenge_method", "S256");
         }
-
-        Login {
-            url,
-            csrf_token,
-            pkce_verifier,
-        }
+        url
     }
 
     /// Finishes the login flow: exchanges the authorization code for
@@ -104,6 +128,28 @@ impl OAuth2Client {
             form.push(("redirect_uri", redirect_url.as_str()));
         }
 
+        self.token_request(form).await
+    }
+
+    /// Finishes a login started with
+    /// [`start_login_non_pkce`](Self::start_login_non_pkce): exchanges the
+    /// authorization code for tokens without a PKCE verifier.
+    pub async fn finish_login_non_pkce(&self, code: AuthorizationCode) -> Result<Tokens, Error> {
+        let mut form: Vec<(&str, &str)> = vec![
+            ("grant_type", "authorization_code"),
+            ("code", code.secret()),
+        ];
+        if let Some(redirect_url) = &self.redirect_url {
+            form.push(("redirect_uri", redirect_url.as_str()));
+        }
+
+        self.token_request(form).await
+    }
+
+    async fn token_request<'a>(
+        &'a self,
+        mut form: Vec<(&'a str, &'a str)>,
+    ) -> Result<Tokens, Error> {
         // Client auth per RFC 6749 §2.3.1: HTTP Basic when a secret is
         // set, `client_id` in the body otherwise.
         let authorization = match &self.client_secret {
@@ -219,6 +265,23 @@ mod tests {
     }
 
     #[test]
+    fn start_login_non_pkce_omits_challenge() {
+        let client = base_builder().scopes(&["read:user"]).build();
+
+        let login = client.start_login_non_pkce();
+        let query = query_map(login.url());
+
+        assert!(!query.contains_key("code_challenge"));
+        assert!(!query.contains_key("code_challenge_method"));
+        // Everything else matches the PKCE leg.
+        assert_eq!(query["response_type"], "code");
+        assert_eq!(query["client_id"], "test_client_id");
+        assert_eq!(query["redirect_uri"], "https://app.example/callback");
+        assert_eq!(query["scope"], "read:user");
+        assert!(*login.csrf_token() == query["state"]);
+    }
+
+    #[test]
     fn start_login_minimal_client() {
         // No redirect_url or scopes: neither parameter is sent.
         let client = OAuth2Client::builder()
@@ -324,5 +387,9 @@ mod tests {
         let debug = format!("{login:?}");
         assert!(!debug.contains(login.csrf_token().secret()), "{debug}");
         assert!(!debug.contains(login.pkce_verifier().secret()), "{debug}");
+
+        let login = client.start_login_non_pkce();
+        let debug = format!("{login:?}");
+        assert!(!debug.contains(login.csrf_token().secret()), "{debug}");
     }
 }

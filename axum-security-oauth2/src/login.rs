@@ -51,3 +51,43 @@ impl fmt::Debug for Login {
             .finish()
     }
 }
+
+/// The first leg of the authorization code flow without PKCE, created by
+/// [`start_login_non_pkce`](crate::OAuth2Client::start_login_non_pkce).
+///
+/// Redirect the user to [`url`](LoginNonPkce::url) and persist
+/// [`csrf_token`](LoginNonPkce::csrf_token) until the callback comes in.
+pub struct LoginNonPkce {
+    pub(crate) url: Url,
+    pub(crate) csrf_token: CsrfToken,
+}
+
+impl LoginNonPkce {
+    /// The authorization URL to redirect the user to.
+    pub fn url(&self) -> &Url {
+        &self.url
+    }
+
+    /// The CSRF token embedded in the URL's `state` parameter. Compare it
+    /// against the `state` query parameter on the callback.
+    pub fn csrf_token(&self) -> &CsrfToken {
+        &self.csrf_token
+    }
+
+    /// Splits the login into its parts, for consumers that scatter them
+    /// (secret into a cookie, URL into a redirect) without cloning.
+    pub fn into_parts(self) -> (Url, CsrfToken) {
+        (self.url, self.csrf_token)
+    }
+}
+
+impl fmt::Debug for LoginNonPkce {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // The query holds the `state` secret — print the URL without it.
+        let base = &self.url[..Position::AfterPath];
+        f.debug_struct("LoginNonPkce")
+            .field("url", &format_args!("{base}?[redacted]"))
+            .field("csrf_token", &self.csrf_token)
+            .finish()
+    }
+}

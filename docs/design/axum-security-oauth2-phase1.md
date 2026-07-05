@@ -70,7 +70,7 @@ consciously defer/drop (the rest).
 |---|---|---|
 | `state_fn: FnOnce() -> CsrfToken` (injectable CSRF source) | ✓ (`new_random` only) | not injectable — `start_login()` always generates via `getrandom`; tests mock at the HTTP seam, not the RNG (see decision 3) |
 | `add_scope(Scope)` / `add_scopes(iter)` | ✓ | client-level `scopes(&[&str])` config — set once, not re-added per login (see decision 9) |
-| `set_pkce_challenge(PkceCodeChallenge)` | ✓ | PKCE always on — no flag; challenge generated inside `start_login()` (see decision 4) |
+| `set_pkce_challenge(PkceCodeChallenge)` | ✓ | no flag — challenge generated inside `start_login()`; a parallel `start_login_non_pkce()` pair covers providers that reject the params (see decision 4) |
 | `add_extra_param(name, value)` | ❌ | phase 3 (`start_login_with(\|o\| o.param(...))`) — oidc prereq |
 | `set_redirect_uri(Cow<RedirectUrl>)` (per-request override) | ❌ | phase 3 |
 | `set_response_type(&ResponseType)` | ❌ | dropped with the implicit grant; revisit only if oidc needs a non-`code` response type |
@@ -234,7 +234,8 @@ the cheapest redaction of all.
 ### Leg 1: `start_login`
 
 ```rust
-pub fn start_login(&self) -> Login   // pure, infallible
+pub fn start_login(&self) -> Login                 // pure, infallible; PKCE
+pub fn start_login_non_pkce(&self) -> LoginNonPkce // ditto, no PKCE params
 
 pub struct Login { /* owns url, csrf_token, pkce_verifier */ }
 
@@ -244,15 +245,22 @@ impl Login {
     pub fn pkce_verifier(&self) -> &PkceVerifier;
     pub fn into_parts(self) -> (Url, CsrfToken, PkceVerifier);
 }
+
+pub struct LoginNonPkce { /* owns url, csrf_token — no verifier field */ }
+// url(), csrf_token(), into_parts() -> (Url, CsrfToken)
 ```
 
 Pure — no I/O, no async, infallible (configuration was validated at
-build). Always generates the CSRF token (32 bytes, base64url-nopad) and
-the S256 challenge/verifier pair; builds the URL with `response_type=code`,
-`client_id`, `redirect_uri` (if set), joined scopes, `state`, and the
-challenge params. `into_parts` is for consumers like axum-security that
-immediately scatter the pieces (cookie one way, redirect the other) —
-avoids cloning out of the struct.
+build). Generates the CSRF token (32 bytes, base64url-nopad) and, in
+`start_login`, the S256 challenge/verifier pair; builds the URL with
+`response_type=code`, `client_id`, `redirect_uri` (if set), joined scopes,
+`state`, and (PKCE leg) the challenge params. `into_parts` is for
+consumers like axum-security that immediately scatter the pieces (cookie
+one way, redirect the other) — avoids cloning out of the struct. The two
+flows are separate method pairs with separate `Login` types instead of a
+flag or an `Option` (see decision 4); each leg's docs point at its
+matching counterpart, since the type system can't link legs that meet
+across a cookie.
 
 ### Leg 2: `finish_login`
 
@@ -262,10 +270,15 @@ pub async fn finish_login(
     code: AuthorizationCode,
     pkce_verifier: &PkceVerifier,
 ) -> Result<Tokens, Error>
+
+pub async fn finish_login_non_pkce(
+    &self,
+    code: AuthorizationCode,
+) -> Result<Tokens, Error>
 ```
 
 POSTs the token endpoint: `grant_type=authorization_code`, the code, the
-verifier, `redirect_uri` if configured; client auth via HTTP Basic
+verifier (PKCE pair only), `redirect_uri` if configured; client auth via HTTP Basic
 (form-urlencoded credentials, §2.3.1) when a secret is set, `client_id` in
 the body otherwise; `Accept: application/json`; redirects never followed.
 No fail-fast configuration checks — everything configuration-shaped was
@@ -332,11 +345,11 @@ impl From<reqwest::Client> for HttpClient {}   // cfg(feature = "reqwest")
 
 ### Full re-export list (`lib.rs`)
 
-`OAuth2Client`, `OAuth2ClientBuilder`, `ConfigError`, `Login`, `Tokens`,
-`Error`, `HttpError`, `ParseError`, `ServerError`, `ErrorCode`,
-`HttpClient`, `ClientSecret`, `AccessToken`, `RefreshToken`,
-`AuthorizationCode`, `CsrfToken`, `PkceVerifier`. Seventeen items, flat —
-no module paths in the public API.
+`OAuth2Client`, `OAuth2ClientBuilder`, `ConfigError`, `Login`,
+`LoginNonPkce`, `Tokens`, `Error`, `HttpError`, `ParseError`,
+`ServerError`, `ErrorCode`, `HttpClient`, `ClientSecret`, `AccessToken`,
+`RefreshToken`, `AuthorizationCode`, `CsrfToken`, `PkceVerifier`.
+Eighteen items, flat — no module paths in the public API.
 
 ## 4. Decision points
 
@@ -358,21 +371,25 @@ Options considered per design point; recommendation first.
    `state`/`verifier` through the mock server instead. Removing it deletes
    a generic from the hot path and an entire class of "caller supplied weak
    randomness" misuse.
-4. **PKCE: always on, `finish_login` takes `&PkceVerifier`** (chosen;
-   revised from an earlier client-level `pkce` flag with
-   `Option<&PkceVerifier>`) vs the opt-out flag vs splitting the client
-   per flow (`PkceClient`, ...). Always-on is safe against non-PKCE
-   providers — RFC 6749 §3.1 requires servers to ignore unrecognized
-   parameters — and is what OAuth 2.1 mandates anyway. It deletes the
-   flag, the `Option` in `Login`/`into_parts`/`finish_login`, and
-   `Error::MissingPkceVerifier`; a consumer whose cookie is missing the
-   verifier fails its own cookie validation before ever reaching the
-   crate. The flow-split client was rejected: it doubles the type surface
-   (two clients, two `Login`s), multiplies with every phase-3/4 grant,
-   and forces multi-provider consumers to wrap the pair in an enum —
-   the `Option` moves, it doesn't disappear. Passing `&Login` back
-   instead of a verifier is wrong for the actual flow: leg 2 happens in
-   a different request; `Login` is gone.
+4. **PKCE: two method pairs, no flag, no `Option`** (chosen; revised
+   twice — from a client-level `pkce` flag with `Option<&PkceVerifier>`,
+   then from PKCE-only) vs the opt-out flag vs splitting the *client* per
+   flow (`PkceClient`, ...). The default pair `start_login()` /
+   `finish_login(code, &verifier)` is PKCE with a required verifier;
+   `start_login_non_pkce() -> LoginNonPkce` / `finish_login_non_pkce(code)`
+   exist for providers that reject requests carrying `code_challenge`
+   (compliant ones ignore it per RFC 6749 §3.1, so PKCE is the right
+   default and carries no suffix). Method pairs keep every signature
+   `Option`-free — the earlier flag design forced `Option` into `Login`
+   and `finish_login`, plus `Error::MissingPkceVerifier`. The flow-split
+   *client* was rejected: it doubles the client/builder surface,
+   multiplies with every phase-3/4 grant, and forces multi-provider
+   consumers to wrap the pair in an enum. Known limit, documented on the
+   methods: the legs can't be type-linked (leg 2's verifier arrives from
+   a cookie in a different request), so a mismatched
+   `start_login` + `finish_login_non_pkce` fails at the provider, not at
+   compile time. A consumer whose cookie is missing the verifier fails
+   its own cookie validation before ever reaching the crate.
 5. **`ServerError` code: enum with `Other(String)`** (chosen) vs plain
    `String`. The six §5.2 codes are closed by the RFC; matching
    `ErrorCode::InvalidGrant` (expired code — the retryable case) beats

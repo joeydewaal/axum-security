@@ -100,6 +100,41 @@ async fn no_secret_sends_client_id_in_body() {
         .unwrap();
 }
 
+/// Matches when the request body does *not* contain the needle — wiremock
+/// ships no negated `body_string_contains`.
+struct BodyLacks(&'static str);
+
+impl wiremock::Match for BodyLacks {
+    fn matches(&self, request: &wiremock::Request) -> bool {
+        !String::from_utf8_lossy(&request.body).contains(self.0)
+    }
+}
+
+#[tokio::test]
+async fn non_pkce_round_trip() {
+    let server = MockServer::start().await;
+    let client = client(&server, true);
+    let login = client.start_login_non_pkce();
+
+    assert!(!login.url().as_str().contains("code_challenge"));
+
+    Mock::given(method("POST"))
+        .and(path("/token"))
+        .and(body_string_contains("grant_type=authorization_code"))
+        .and(body_string_contains("code=test-code"))
+        .and(BodyLacks("code_verifier"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(tokens_body()))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let tokens = client
+        .finish_login_non_pkce(AuthorizationCode::new("test-code"))
+        .await
+        .unwrap();
+    assert_eq!(tokens.access_token().secret(), "test-access-token");
+}
+
 #[tokio::test]
 async fn rfc_6749_error_body() {
     let server = MockServer::start().await;

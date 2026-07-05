@@ -164,8 +164,8 @@ in this crate.
 - **Builders**: the bare name is the chainable *setter* —
   `fn x(mut self, val) -> Self`. Flags get a no-arg true-setter plus a
   chainable explicit variant: `secure()` / `set_secure(bool) -> Self`
-  (no phase-1 flag survived — PKCE went always-on — but the rule stands
-  for future flags). When a builder needs a
+  (no phase-1 flag survived — PKCE became method pairs, not a flag — but
+  the rule stands for future flags). When a builder needs a
   getter, it takes the `get_` prefix (`CookieBuilder::get_name`,
   axum-security's `get_start_challenge_path`) since the bare name is taken.
 - Terminal `build()`; where construction can fail, `try_build() -> Result`
@@ -226,9 +226,13 @@ pub struct OAuth2Client {
 
 Scopes are client configuration, not per-request builder calls — that's
 where axum-security's own builder puts them (`scopes(&[&str])`), and
-per-login variation is not a real use case for a login flow. PKCE is
-always on — no switch (RFC 6749 §3.1 makes the extra parameters harmless
-to non-PKCE providers; OAuth 2.1 mandates it).
+per-login variation is not a real use case for a login flow. PKCE is not
+a switch either: the default `start_login`/`finish_login` pair is PKCE
+(RFC 6749 §3.1 makes the parameters harmless to non-PKCE providers;
+OAuth 2.1 mandates it), and an explicit
+`start_login_non_pkce`/`finish_login_non_pkce` pair covers providers
+that reject them — separate methods and `Login` types, so neither flow
+carries an `Option`.
 
 ```rust
 let client = OAuth2Client::builder()
@@ -264,8 +268,12 @@ login.url()            // &Url — redirect the user here
 login.csrf_token()     // &CsrfToken — persist (axum-security: HMAC cookie)
 login.pkce_verifier()  // &PkceVerifier — persist alongside
 
-// Leg 2 — plain async method; the only option is a plain argument
+// Leg 2 — plain async method
 let tokens: Tokens = client.finish_login(code, login.pkce_verifier()).await?;
+
+// Providers that reject the PKCE params: a parallel pair, no Options
+let login: LoginNonPkce = client.start_login_non_pkce();
+let tokens: Tokens = client.finish_login_non_pkce(code).await?;
 ```
 
 No request-builder object, no `.send()`, no `.request_async(&http)` — leg 2
@@ -441,7 +449,8 @@ touches a narrow upstream slice, so the rewrite is contained:
    becomes `client: OAuth2Client`.
 3. `builder.rs`: `Client::new(...).set_auth_uri(...)` chain → new client
    builder; scopes move onto the client (today they live in
-   axum-security's context and are applied per call); PKCE is always on;
+   axum-security's context and are applied per call); axum-security uses
+   the default PKCE method pair;
    `default_reqwest_client()` deleted (the new builder's default backend
    replaces it); existing `OAuth2BuilderError` variants map 1:1 onto the
    new `ConfigError`.

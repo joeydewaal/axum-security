@@ -5,7 +5,10 @@
 //! Compared to the `oauth2` crate this one has no typestate and no type
 //! parameters: configuration is validated once at
 //! [`build()`](OAuth2ClientBuilder::build), so client calls only fail for
-//! reasons that can occur at request time. PKCE (RFC 7636) is always on.
+//! reasons that can occur at request time. PKCE (RFC 7636) is on for the
+//! default [`start_login`](OAuth2Client::start_login)/
+//! [`finish_login`](OAuth2Client::finish_login) pair; explicit `_non_pkce`
+//! variants exist for providers that reject the PKCE parameters.
 //! Wrapper types exist only where they are security-load-bearing (redacted
 //! `Debug`, constant-time comparison); everything else is `String`,
 //! [`url::Url`] or [`std::time::Duration`].
@@ -62,7 +65,7 @@ pub use builder::{ConfigError, OAuth2ClientBuilder};
 pub use client::OAuth2Client;
 pub use error::{Error, ErrorCode, HttpError, ParseError, ServerError};
 pub use http::HttpClient;
-pub use login::Login;
+pub use login::{Login, LoginNonPkce};
 pub use secret::{
     AccessToken, AuthorizationCode, ClientSecret, CsrfToken, PkceVerifier, RefreshToken,
 };
