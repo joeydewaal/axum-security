@@ -12,7 +12,6 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use cookie_monster::CookieJar;
-use openidconnect::{AuthorizationCode, CsrfToken};
 use serde::Deserialize;
 use tower::Service;
 
@@ -22,8 +21,8 @@ type BoxFuture<T> = Pin<Box<dyn Future<Output = T> + Send>>;
 
 #[derive(Deserialize, Debug)]
 pub struct OidcParams {
-    code: AuthorizationCode,
-    state: CsrfToken,
+    code: String,
+    state: String,
 }
 
 pub(crate) struct OidcRedirectService<H: OidcHandler> {

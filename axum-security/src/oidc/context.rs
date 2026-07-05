@@ -1,4 +1,4 @@
-use std::{borrow::Cow, convert::Infallible, str::FromStr, sync::Arc};
+use std::{borrow::Cow, convert::Infallible, sync::Arc};
 
 use axum::{
     extract::{FromRef, FromRequestParts},
@@ -6,34 +6,17 @@ use axum::{
     response::{IntoResponse, Redirect},
 };
 
+use axum_security_oidc::{CsrfToken, LogoutUrl, OidcClient, OidcError, VerifyError};
 use cookie_monster::{CookieBuilder, CookieJar};
 use http::Extensions;
-use openidconnect::{
-    AuthenticationFlow, AuthorizationCode, ClientId, CsrfToken, EmptyAdditionalClaims,
-    EndSessionUrl, EndpointMaybeSet, EndpointNotSet, EndpointSet, IdToken, LogoutHint,
-    LogoutRequest, Nonce, OAuth2TokenResponse, PkceCodeChallenge, PostLogoutRedirectUrl, Scope,
-    TokenResponse as _,
-    core::{
-        CoreClient, CoreGenderClaim, CoreIdToken, CoreJweContentEncryptionAlgorithm,
-        CoreJwsSigningAlgorithm,
-    },
-};
+use url::Url;
 
 use crate::{
     after_login::AfterLoginCookies,
-    oidc::{OidcBuilderError, OidcClaims, builder::OidcContextBuilder},
+    oidc::{OidcBuilderError, builder::OidcContextBuilder},
 };
 
-use super::{OidcHandler, OidcTokenResponse, cookie::OidcCookie, jwks::LazyVerifier};
-
-pub(crate) type OidcClient = CoreClient<
-    EndpointSet,
-    EndpointNotSet,
-    EndpointNotSet,
-    EndpointNotSet,
-    EndpointMaybeSet,
-    EndpointMaybeSet,
->;
+use super::{OidcHandler, OidcTokenResponse, cookie::OidcCookie};
 
 /// OIDC context that manages the login/logout flow.
 ///
@@ -49,21 +32,9 @@ pub(super) struct OidcContextInner<H> {
     pub(super) handler: H,
     pub(super) session: OidcCookie,
     pub(super) client: OidcClient,
-    pub(super) id_token_verification: IdTokenVerification,
     pub(super) login_path: Option<Cow<'static, str>>,
     pub(super) logout_path: Option<Cow<'static, str>>,
-    pub(super) end_session_url: Option<EndSessionUrl>,
-    pub(super) post_logout_redirect_url: Option<PostLogoutRedirectUrl>,
-    pub(super) scopes: Vec<Scope>,
-    pub(super) http_client: openidconnect::reqwest::Client,
-}
-
-/// How ID token signatures are verified.
-pub(super) enum IdTokenVerification {
-    /// Discovery path: the JWKS was baked into the client at build time.
-    Baked,
-    /// Manual (hard-coded endpoint) path: the JWKS is fetched lazily.
-    Lazy(Box<LazyVerifier>),
+    pub(super) post_logout_redirect_url: Option<String>,
 }
 
 impl OidcContext<()> {
@@ -103,9 +74,8 @@ impl<H: OidcHandler> OidcContext<H> {
     pub(crate) fn callback_url(&self) -> &str {
         self.0
             .client
-            .redirect_uri()
+            .redirect_url()
             .expect("redirect_uri must be set")
-            .url()
             .path()
     }
 
@@ -116,33 +86,21 @@ impl<H: OidcHandler> OidcContext<H> {
     pub(crate) async fn start_challenge(&self) -> axum::response::Response {
         crate::debug!("Starting OIDC login flow");
 
-        let (pkce_challenge, pkce_verifier) = PkceCodeChallenge::new_random_sha256();
-        let (redirect_url, csrf_token, nonce) = self
-            .0
-            .client
-            .authorize_url(
-                AuthenticationFlow::<openidconnect::core::CoreResponseType>::AuthorizationCode,
-                CsrfToken::new_random,
-                Nonce::new_random,
-            )
-            .set_pkce_challenge(pkce_challenge)
-            .add_scopes(self.0.scopes.clone())
-            .url();
-
+        let login = self.0.client.start_login();
         let cookie = self.0.session.generate_cookie(
-            csrf_token.secret(),
-            pkce_verifier.secret(),
-            nonce.secret(),
+            login.csrf_token.as_str(),
+            &login.pkce_verifier,
+            &login.nonce,
         );
 
-        (cookie, Redirect::to(redirect_url.as_str())).into_response()
+        (cookie, Redirect::to(login.url.as_str())).into_response()
     }
 
     pub(crate) async fn on_redirect(
         &self,
         mut jar: CookieJar,
-        code: AuthorizationCode,
-        state: CsrfToken,
+        code: String,
+        state: String,
     ) -> axum::response::Response {
         crate::debug!("handling OIDC redirect");
 
@@ -151,58 +109,36 @@ impl<H: OidcHandler> OidcContext<H> {
             return StatusCode::UNAUTHORIZED.into_response();
         };
 
-        if csrf_token.secret() != state.secret() {
+        // Wrap the cookie's token so the comparison against the
+        // attacker-controlled `state` runs in constant time.
+        let csrf_token = CsrfToken::from(csrf_token);
+        if csrf_token != state {
             crate::debug!("state does not match");
             return StatusCode::UNAUTHORIZED.into_response();
         }
 
         crate::debug!("exchanging authorization code for tokens");
 
-        let code_request = match self.0.client.exchange_code(code) {
-            Ok(req) => req,
-            Err(_e) => {
-                crate::debug!("token endpoint not configured: {_e}");
-                return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-            }
-        };
-
-        let token_response = match code_request
-            .set_pkce_verifier(pkce_verifier)
-            .request_async(&self.0.http_client)
+        let tokens = match self
+            .0
+            .client
+            .finish_login(&code, &pkce_verifier, &nonce)
             .await
         {
-            Ok(res) => res,
+            Ok(tokens) => tokens,
+            // A verification failure (bad signature, nonce, expiry, unknown key)
+            // is an auth failure; an exchange/no-id_token failure is a 500.
+            Err(OidcError::Verify(_e)) => {
+                crate::debug!("id_token verification failed: {_e}");
+                return StatusCode::UNAUTHORIZED.into_response();
+            }
             Err(_e) => {
-                crate::debug!("failed to exchange code for tokens: {_e}");
+                crate::debug!("OIDC login failed: {_e}");
                 return StatusCode::INTERNAL_SERVER_ERROR.into_response();
             }
         };
 
-        let id_token = match token_response.id_token() {
-            Some(id_token) => id_token,
-            None => {
-                crate::debug!("no id_token in token response");
-                return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-            }
-        };
-
-        // Verify the token (signature, nonce, audience, expiration)
-        if !self.verify_id_token(id_token, &nonce).await {
-            return StatusCode::UNAUTHORIZED.into_response();
-        }
-
-        // Extract and deserialize the JWT payload into our own claims struct
-        let jwt_str = id_token.to_string();
-
-        let bytes = match OidcClaims::decode_token(&jwt_str) {
-            Ok(claims) => claims,
-            Err(_e) => {
-                crate::debug!("failed to decode claims: {_e}");
-                return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-            }
-        };
-
-        let claims = match OidcClaims::from_decoded_payload(&bytes) {
+        let claims = match tokens.claims() {
             Ok(claims) => claims,
             Err(_e) => {
                 crate::debug!("failed to deserialize claims: {_e}");
@@ -211,10 +147,10 @@ impl<H: OidcHandler> OidcContext<H> {
         };
 
         let oidc_response = OidcTokenResponse {
-            id_token: &jwt_str,
+            id_token: tokens.id_token(),
             claims,
-            access_token: token_response.access_token().secret().clone(),
-            refresh_token: token_response.refresh_token().map(|t| t.secret().clone()),
+            access_token: tokens.access_token().to_string(),
+            refresh_token: tokens.refresh_token().map(String::from),
         };
 
         let mut context = AfterLoginCookies {
@@ -233,21 +169,28 @@ impl<H: OidcHandler> OidcContext<H> {
         (context.cookie_jar, res).into_response()
     }
 
-    /// Verify an ID token's signature, nonce, audience, and expiration.
-    async fn verify_id_token(&self, id_token: &CoreIdToken, nonce: &Nonce) -> bool {
-        match &self.0.id_token_verification {
-            IdTokenVerification::Baked => id_token
-                .claims(&self.0.client.id_token_verifier(), nonce)
-                .inspect_err(|_e| crate::debug!("id_token verification failed: {_e}"))
-                .is_ok(),
-            IdTokenVerification::Lazy(lazy) => {
-                lazy.verify(id_token, nonce, &self.0.http_client).await
-            }
-        }
-    }
-
     pub fn cookie(&self, name: impl Into<Cow<'static, str>>) -> CookieBuilder {
         self.0.session.cookie_builder.clone().name(name.into())
+    }
+
+    /// Fetch and cache the provider's JWKS now instead of lazily on the first
+    /// login. [`OidcContext`] is cheap to clone, so warm it in the background at
+    /// startup:
+    ///
+    /// ```no_run
+    /// # async fn f<H: axum_security::oidc::OidcHandler + 'static>(
+    /// #     oidc: axum_security::oidc::OidcContext<H>,
+    /// # ) {
+    /// let oidc = oidc.clone();
+    /// tokio::spawn(async move {
+    ///     if let Err(e) = oidc.warm_jwks().await {
+    ///         eprintln!("failed to prefetch OIDC keys: {e}");
+    ///     }
+    /// });
+    /// # }
+    /// ```
+    pub async fn warm_jwks(&self) -> Result<(), VerifyError> {
+        self.0.client.warm_jwks().await
     }
 
     pub(crate) fn get_logout_path(&self) -> Option<&str> {
@@ -257,7 +200,7 @@ impl<H: OidcHandler> OidcContext<H> {
     pub(crate) fn build_logout_context(&self, extensions: Extensions) -> LogoutContext {
         LogoutContext {
             extensions,
-            end_session_url: self.0.end_session_url.clone(),
+            end_session_endpoint: self.0.client.end_session_endpoint().cloned(),
             post_logout_redirect_url: self.0.post_logout_redirect_url.clone(),
             id_token_hint: None,
             logout_hint: None,
@@ -275,8 +218,8 @@ impl<H: OidcHandler> OidcContext<H> {
 /// redirect response using the configured end-session endpoint.
 pub struct LogoutContext {
     extensions: Extensions,
-    end_session_url: Option<EndSessionUrl>,
-    post_logout_redirect_url: Option<PostLogoutRedirectUrl>,
+    end_session_endpoint: Option<Url>,
+    post_logout_redirect_url: Option<String>,
     id_token_hint: Option<String>,
     logout_hint: Option<String>,
     client_id: Option<String>,
@@ -314,8 +257,7 @@ impl LogoutContext {
     }
 
     pub fn set_post_logout_redirect_uri(&mut self, post_logout_redirect_uri: impl Into<String>) {
-        self.post_logout_redirect_url =
-            PostLogoutRedirectUrl::new(post_logout_redirect_uri.into()).ok();
+        self.post_logout_redirect_url = Some(post_logout_redirect_uri.into());
     }
 
     pub fn set_state(&mut self, state: impl Into<String>) {
@@ -323,53 +265,39 @@ impl LogoutContext {
     }
 
     pub fn default_redirect(self) -> Redirect {
-        match self.end_session_url {
-            Some(url) => {
-                let mut request = LogoutRequest::from(url);
-                if let Some(redirect) = self.post_logout_redirect_url {
-                    request = request.set_post_logout_redirect_uri(redirect);
+        match self.end_session_endpoint {
+            Some(endpoint) => {
+                let mut logout = LogoutUrl::new(endpoint);
+                if let Some(id_token_hint) = self.id_token_hint {
+                    logout = logout.id_token_hint(id_token_hint);
                 }
-
-                if let Some(id_token_hint) = &self.id_token_hint
-                    // Just,.... why?
-                    && let Some(token) = IdToken::<
-                        EmptyAdditionalClaims,
-                        CoreGenderClaim,
-                        CoreJweContentEncryptionAlgorithm,
-                        CoreJwsSigningAlgorithm,
-                    >::from_str(id_token_hint)
-                    .ok()
-                {
-                    request = request.set_id_token_hint(&token);
+                if let Some(redirect) = &self.post_logout_redirect_url {
+                    logout = logout.post_logout_redirect_uri(redirect);
                 }
-
                 if let Some(logout_hint) = self.logout_hint {
-                    request = request.set_logout_hint(LogoutHint::new(logout_hint));
+                    logout = logout.logout_hint(logout_hint);
                 }
-
                 if let Some(client_id) = self.client_id {
-                    request = request.set_client_id(ClientId::new(client_id));
+                    logout = logout.client_id(client_id);
                 }
-
                 if let Some(state) = self.state {
-                    request = request.set_state(CsrfToken::new(state));
+                    logout = logout.state(state);
                 }
-
-                Redirect::to(request.http_get_url().as_str())
+                Redirect::to(logout.build().as_str())
             }
             None => match &self.post_logout_redirect_url {
-                Some(url) => Redirect::to(url.as_str()),
+                Some(url) => Redirect::to(url),
                 None => Redirect::to("/"),
             },
         }
     }
 
     pub fn end_session_url(&self) -> Option<&str> {
-        self.end_session_url.as_ref().map(|e| e.as_str())
+        self.end_session_endpoint.as_ref().map(Url::as_str)
     }
 
     pub fn post_logout_redirect_url(&self) -> Option<&str> {
-        self.post_logout_redirect_url.as_ref().map(|e| e.as_str())
+        self.post_logout_redirect_url.as_deref()
     }
 }
 
@@ -397,40 +325,37 @@ mod tests {
     use axum::http::StatusCode;
     use axum::response::IntoResponse;
     use http::Extensions;
-    use openidconnect::{EndSessionUrl, PostLogoutRedirectUrl};
+    use url::Url;
 
     use super::LogoutContext;
 
-    #[test]
-    fn logout_redirects_to_slash_when_nothing_configured() {
-        let ctx = LogoutContext {
+    fn ctx(
+        end_session_endpoint: Option<&str>,
+        post_logout_redirect_url: Option<&str>,
+    ) -> LogoutContext {
+        LogoutContext {
             extensions: Extensions::new(),
-            end_session_url: None,
-            post_logout_redirect_url: None,
+            end_session_endpoint: end_session_endpoint.map(|u| Url::parse(u).unwrap()),
+            post_logout_redirect_url: post_logout_redirect_url.map(String::from),
             id_token_hint: None,
             logout_hint: None,
             client_id: None,
             state: None,
-        };
-        let response = ctx.default_redirect().into_response();
+        }
+    }
+
+    #[test]
+    fn logout_redirects_to_slash_when_nothing_configured() {
+        let response = ctx(None, None).default_redirect().into_response();
         assert_eq!(response.status(), StatusCode::SEE_OTHER);
         assert_eq!(response.headers().get("location").unwrap(), "/");
     }
 
     #[test]
     fn logout_redirects_to_post_logout_url() {
-        let ctx = LogoutContext {
-            extensions: Extensions::new(),
-            end_session_url: None,
-            post_logout_redirect_url: Some(
-                PostLogoutRedirectUrl::new("http://localhost:3000/".to_string()).unwrap(),
-            ),
-            id_token_hint: None,
-            logout_hint: None,
-            client_id: None,
-            state: None,
-        };
-        let response = ctx.default_redirect().into_response();
+        let response = ctx(None, Some("http://localhost:3000/"))
+            .default_redirect()
+            .into_response();
         assert_eq!(response.status(), StatusCode::SEE_OTHER);
         assert_eq!(
             response.headers().get("location").unwrap(),
@@ -440,18 +365,9 @@ mod tests {
 
     #[test]
     fn logout_redirects_to_end_session_endpoint() {
-        let ctx = LogoutContext {
-            extensions: Extensions::new(),
-            end_session_url: Some(
-                EndSessionUrl::new("https://provider.example.com/logout".to_string()).unwrap(),
-            ),
-            post_logout_redirect_url: None,
-            id_token_hint: None,
-            logout_hint: None,
-            client_id: None,
-            state: None,
-        };
-        let response = ctx.default_redirect().into_response();
+        let response = ctx(Some("https://provider.example.com/logout"), None)
+            .default_redirect()
+            .into_response();
         assert_eq!(response.status(), StatusCode::SEE_OTHER);
         let location = response
             .headers()
@@ -464,20 +380,12 @@ mod tests {
 
     #[test]
     fn logout_end_session_includes_post_logout_redirect() {
-        let ctx = LogoutContext {
-            extensions: Extensions::new(),
-            end_session_url: Some(
-                EndSessionUrl::new("https://provider.example.com/logout".to_string()).unwrap(),
-            ),
-            post_logout_redirect_url: Some(
-                PostLogoutRedirectUrl::new("http://localhost:3000/".to_string()).unwrap(),
-            ),
-            id_token_hint: None,
-            logout_hint: None,
-            client_id: None,
-            state: None,
-        };
-        let response = ctx.default_redirect().into_response();
+        let response = ctx(
+            Some("https://provider.example.com/logout"),
+            Some("http://localhost:3000/"),
+        )
+        .default_redirect()
+        .into_response();
         assert_eq!(response.status(), StatusCode::SEE_OTHER);
         let location = response
             .headers()

@@ -8,24 +8,18 @@ use std::{
         Arc, Mutex,
         atomic::{AtomicUsize, Ordering},
     },
-    time::Duration,
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use axum::{Router, http::StatusCode};
+#[cfg(any(feature = "jiff", feature = "chrono", feature = "time"))]
+use axum_security::oidc::OidcClaims;
 use axum_security::oidc::{
-    AfterLoginCookies, LogoutContext, OidcClaims, OidcContext, OidcExt, OidcHandler,
-    OidcTokenResponse, UtcTimestamp,
+    AfterLoginCookies, LogoutContext, OidcContext, OidcExt, OidcHandler, OidcTokenResponse,
+    UtcTimestamp,
 };
 use base64::{Engine as _, engine::general_purpose};
-use chrono::Utc;
-use openidconnect::{
-    Audience, EmptyAdditionalClaims, IssuerUrl, JsonWebKeyId, Nonce, PrivateSigningKey as _,
-    StandardClaims, SubjectIdentifier,
-    core::{
-        CoreIdToken, CoreIdTokenClaims, CoreJsonWebKeySet, CoreJwsSigningAlgorithm,
-        CoreRsaPrivateSigningKey,
-    },
-};
+use jsonwebtoken::{Algorithm, EncodingKey, Header, encode};
 use reqwest::{Client, redirect::Policy};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
@@ -40,6 +34,9 @@ const CLIENT_ID: &str = "test_client_id";
 const CLIENT_SECRET: &str = "test_client_secret";
 const LOGIN_PATH: &str = "/auth/oidc/login";
 const REDIRECT_PATH: &str = "/auth/oidc/callback";
+const KID: &str = "test-key-1";
+/// The base64url modulus of `TEST_RSA_KEY`, for the JWKS the mock provider serves.
+const MODULUS: &str = "sRMj0YYjy7du6v1gWyKSTJx3YjBzZTG0XotRP0IaObw0k-6830dXadjL5jVhSWNdcg9OyMyTGWfdNqfdrS6ppBqlQNgjZJdloIqL9zOLBZrDm7G4-qN4KeZ4_5TyEilq2zOHHGFEzXpOq_UxqVnm3J4fhjqCNaS2nKd7HVVXGBQQ-4-FdVT-MyJXemw5maz2F_h324TQi6XoUPEwUddxBwLQFSOlzWnHYMc4_lcyZJ8MpTXCMPe_YJFNtb9CaikKUdf8x4mzwH7usSf8s2d6R4dQITzKrjrEJ0u3w3eGkBBapoMVFBGPjP3Haz5FsVtHc5VEN3FZVIDF6HrbJH1C4Q";
 
 const TEST_RSA_KEY: &str = "\
 -----BEGIN RSA PRIVATE KEY-----\n\
@@ -113,41 +110,39 @@ fn generate_code_challenge(verifier: &str) -> String {
     general_purpose::URL_SAFE_NO_PAD.encode(result)
 }
 
-fn signing_key() -> CoreRsaPrivateSigningKey {
-    CoreRsaPrivateSigningKey::from_pem(
-        TEST_RSA_KEY,
-        Some(JsonWebKeyId::new("test-key-1".to_string())),
-    )
-    .unwrap()
+fn create_id_token(issuer_url: &str, nonce: &str) -> String {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    let claims = serde_json::json!({
+        "iss": issuer_url,
+        "aud": CLIENT_ID,
+        "sub": "user-123",
+        "exp": now + 3600,
+        "iat": now,
+        "nonce": nonce,
+    });
+
+    let mut header = Header::new(Algorithm::RS256);
+    header.kid = Some(KID.to_string());
+    let key = EncodingKey::from_rsa_pem(TEST_RSA_KEY.as_bytes()).unwrap();
+    encode(&header, &claims, &key).unwrap()
 }
 
-fn create_id_token(issuer_url: &str, nonce: &str) -> String {
-    let key = signing_key();
+/// The JWKS the mock provider serves: the test public key under `KID`.
+fn jwks_body() -> serde_json::Value {
+    serde_json::json!({
+        "keys": [{
+            "kty": "RSA", "use": "sig", "kid": KID, "alg": "RS256",
+            "n": MODULUS, "e": "AQAB",
+        }]
+    })
+}
 
-    let claims = CoreIdTokenClaims::new(
-        IssuerUrl::new(issuer_url.to_string()).unwrap(),
-        vec![Audience::new(CLIENT_ID.to_string())],
-        Utc::now() + chrono::Duration::hours(1),
-        Utc::now(),
-        StandardClaims::new(SubjectIdentifier::new("user-123".to_string())),
-        EmptyAdditionalClaims {},
-    )
-    .set_nonce(Some(Nonce::new(nonce.to_string())));
-
-    let id_token = CoreIdToken::new(
-        claims,
-        &key,
-        CoreJwsSigningAlgorithm::RsaSsaPkcs1V15Sha256,
-        None,
-        None,
-    )
-    .unwrap();
-
-    serde_json::to_value(&id_token)
-        .unwrap()
-        .as_str()
-        .unwrap()
-        .to_string()
+/// An empty JWKS — no keys, so a token's signing key is unknown.
+fn empty_jwks() -> serde_json::Value {
+    serde_json::json!({ "keys": [] })
 }
 
 async fn install_mock_oidc_server() -> (MockServer, String) {
@@ -185,14 +180,11 @@ async fn install_mock_oidc_server() -> (MockServer, String) {
         .await;
 
     // JWKS endpoint
-    let key = signing_key();
-    let jwks = CoreJsonWebKeySet::new(vec![key.as_verification_key()]);
-
     Mock::given(method("GET"))
         .and(path(jwks_path))
         .respond_with(
             ResponseTemplate::new(200)
-                .set_body_json(&jwks)
+                .set_body_json(jwks_body())
                 .insert_header("Content-Type", "application/json"),
         )
         .mount(&mock_server)
@@ -677,21 +669,15 @@ async fn install_mock_oidc_server_rotating_jwks() -> (MockServer, String) {
     let mock_server = MockServer::start().await;
     let issuer_url = mock_server.uri();
 
-    let key = signing_key();
-    let real_jwks = CoreJsonWebKeySet::new(vec![key.as_verification_key()]);
     let call_count = Arc::new(AtomicUsize::new(0));
 
     Mock::given(method("GET"))
         .and(path("/.well-known/jwks.json"))
         .respond_with(move |_req: &WireRequest| {
             let n = call_count.fetch_add(1, Ordering::SeqCst);
-            let body = if n == 0 {
-                CoreJsonWebKeySet::new(vec![])
-            } else {
-                real_jwks.clone()
-            };
+            let body = if n == 0 { empty_jwks() } else { jwks_body() };
             ResponseTemplate::new(200)
-                .set_body_json(&body)
+                .set_body_json(body)
                 .insert_header("Content-Type", "application/json")
         })
         .mount(&mock_server)
@@ -717,7 +703,7 @@ async fn install_mock_oidc_server_failing_jwks() -> (MockServer, String) {
             let n = call_count.fetch_add(1, Ordering::SeqCst);
             if n == 0 {
                 ResponseTemplate::new(200)
-                    .set_body_json(CoreJsonWebKeySet::new(vec![]))
+                    .set_body_json(empty_jwks())
                     .insert_header("Content-Type", "application/json")
             } else {
                 ResponseTemplate::new(500)
@@ -959,14 +945,11 @@ async fn install_mock_oidc_server_with_logout() -> (MockServer, String) {
         .mount(&mock_server)
         .await;
 
-    let key = signing_key();
-    let jwks = CoreJsonWebKeySet::new(vec![key.as_verification_key()]);
-
     Mock::given(method("GET"))
         .and(path(jwks_path))
         .respond_with(
             ResponseTemplate::new(200)
-                .set_body_json(&jwks)
+                .set_body_json(jwks_body())
                 .insert_header("Content-Type", "application/json"),
         )
         .mount(&mock_server)
