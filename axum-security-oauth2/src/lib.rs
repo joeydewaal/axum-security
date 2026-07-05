@@ -68,12 +68,18 @@
 //! [`start_login_with`](OAuth2Client::start_login_with); providers that
 //! only take credentials in the request body are served by
 //! [`AuthType::RequestBody`].
+//!
+//! Beyond the login flow, a client with the matching endpoint configured can
+//! [`introspect`](OAuth2Client::introspect) a token (RFC 7662) to check
+//! whether it is still active, and [`revoke`](OAuth2Client::revoke) an
+//! access or refresh token (RFC 7009) — e.g. on logout.
 
 mod builder;
 mod client;
 mod csrf;
 mod error;
 mod http;
+mod introspect;
 mod login;
 mod pkce;
 mod rand;
@@ -84,5 +90,6 @@ pub use client::{AuthType, OAuth2Client};
 pub use csrf::CsrfToken;
 pub use error::{Error, ErrorCode, HttpError, ParseError, ServerError};
 pub use http::HttpClient;
+pub use introspect::Introspection;
 pub use login::{Login, LoginNonPkce, LoginOptions};
 pub use tokens::Tokens;

@@ -19,6 +19,10 @@ pub enum Error {
     Server(ServerError),
     /// The server response could not be parsed.
     Parse(ParseError),
+    /// The call needs an endpoint that was not configured on the builder —
+    /// e.g. [`introspect`](crate::OAuth2Client::introspect) without an
+    /// `introspection_url`. The `&str` names the missing endpoint.
+    MissingEndpoint(&'static str),
 }
 
 impl fmt::Display for Error {
@@ -27,6 +31,9 @@ impl fmt::Display for Error {
             Error::Http(error) => error.fmt(f),
             Error::Server(error) => error.fmt(f),
             Error::Parse(error) => error.fmt(f),
+            Error::MissingEndpoint(endpoint) => {
+                write!(f, "the {endpoint} endpoint is not configured")
+            }
         }
     }
 }
@@ -37,6 +44,7 @@ impl StdError for Error {
             Error::Http(error) => Some(error),
             Error::Server(error) => Some(error),
             Error::Parse(error) => Some(error),
+            Error::MissingEndpoint(_) => None,
         }
     }
 }
