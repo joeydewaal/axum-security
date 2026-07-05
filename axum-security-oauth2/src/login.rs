@@ -13,6 +13,11 @@ pub struct LoginOptions {
 }
 
 impl LoginOptions {
+    /// An empty set of options. Add parameters with [`param`](Self::param).
+    pub fn new() -> Self {
+        Self::default()
+    }
+
     /// Appends an extra query parameter to the authorization URL — e.g.
     /// `nonce`, `prompt`, `login_hint` or `hd`.
     ///

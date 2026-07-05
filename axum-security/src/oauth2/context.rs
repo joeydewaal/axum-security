@@ -178,10 +178,7 @@ impl<H: OAuth2Handler> OAuth2Context<H> {
 
         let (redirect_url, cookie) = match self.0.flow_type {
             FlowType::AuthorizationCodeFlow => {
-                let login = self
-                    .0
-                    .client
-                    .start_login_non_pkce_with(|options| self.auth_params(options));
+                let login = self.0.client.start_login_non_pkce_with(self.auth_params());
                 let cookie = self
                     .0
                     .session
@@ -189,10 +186,7 @@ impl<H: OAuth2Handler> OAuth2Context<H> {
                 (login.url, cookie)
             }
             FlowType::AuthorizationCodeFlowPkce => {
-                let login = self
-                    .0
-                    .client
-                    .start_login_with(|options| self.auth_params(options));
+                let login = self.0.client.start_login_with(self.auth_params());
                 let cookie = self
                     .0
                     .session
@@ -205,8 +199,9 @@ impl<H: OAuth2Handler> OAuth2Context<H> {
         (cookie, Redirect::to(redirect_url.as_str())).into_response()
     }
 
-    /// Applies the builder's `auth_param` extras to a login.
-    fn auth_params(&self, mut options: LoginOptions) -> LoginOptions {
+    /// The builder's `auth_param` extras as per-login options.
+    fn auth_params(&self) -> LoginOptions {
+        let mut options = LoginOptions::new();
         for (name, value) in &self.0.auth_params {
             options = options.param(name, value);
         }
