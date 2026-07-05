@@ -31,6 +31,10 @@ pub enum VerifyError {
     ImmatureToken,
     /// The `nonce` claim did not match the expected value — replay protection.
     NonceMismatch,
+    /// The signing keys could not be fetched from the provider's `jwks_uri`
+    /// (network error, non-2xx status, or unparsable JWK set), so the token
+    /// could not be checked.
+    JwksUnavailable,
     /// A standard-claim check failed for a reason not covered above.
     InvalidToken,
 }
@@ -50,12 +54,58 @@ impl fmt::Display for VerifyError {
             VerifyError::Expired => f.write_str("ID token has expired"),
             VerifyError::ImmatureToken => f.write_str("ID token is not yet valid"),
             VerifyError::NonceMismatch => f.write_str("ID token nonce does not match"),
+            VerifyError::JwksUnavailable => f.write_str("could not fetch the provider's JWKS"),
             VerifyError::InvalidToken => f.write_str("ID token failed verification"),
         }
     }
 }
 
 impl std::error::Error for VerifyError {}
+
+/// A failure while fetching OpenID Connect provider metadata from a
+/// `.well-known/openid-configuration` document.
+#[derive(Debug)]
+#[non_exhaustive]
+pub enum DiscoveryError {
+    /// The issuer URL could not be turned into a discovery URL.
+    InvalidIssuerUrl(url::ParseError),
+    /// The metadata request failed at the transport layer.
+    Http(axum_security_oauth2::HttpError),
+    /// The discovery endpoint returned a non-2xx status.
+    Status(u16),
+    /// The metadata document could not be deserialized.
+    Parse(serde_json::Error),
+    /// The `issuer` in the metadata did not match the requested issuer URL
+    /// (OpenID Connect Discovery §4.3) — a misconfigured or hostile provider.
+    IssuerMismatch,
+}
+
+impl std::fmt::Display for DiscoveryError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            DiscoveryError::InvalidIssuerUrl(e) => write!(f, "invalid issuer URL: {e}"),
+            DiscoveryError::Http(e) => write!(f, "discovery request failed: {e}"),
+            DiscoveryError::Status(status) => {
+                write!(f, "discovery endpoint returned status {status}")
+            }
+            DiscoveryError::Parse(e) => write!(f, "could not parse provider metadata: {e}"),
+            DiscoveryError::IssuerMismatch => {
+                f.write_str("provider metadata issuer does not match the requested issuer")
+            }
+        }
+    }
+}
+
+impl std::error::Error for DiscoveryError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            DiscoveryError::InvalidIssuerUrl(e) => Some(e),
+            DiscoveryError::Http(e) => Some(e),
+            DiscoveryError::Parse(e) => Some(e),
+            DiscoveryError::Status(_) | DiscoveryError::IssuerMismatch => None,
+        }
+    }
+}
 
 /// A failure while deserializing a verified ID token's payload into
 /// [`OidcClaims`](crate::OidcClaims).

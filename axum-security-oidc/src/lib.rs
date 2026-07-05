@@ -40,13 +40,22 @@
 
 mod claims;
 mod error;
+mod jwks;
+mod metadata;
 mod verifier;
 
 pub use claims::{OidcAddress, OidcClaims, UtcTimestamp};
-pub use error::{ClaimsError, VerifyError};
+pub use error::{ClaimsError, DiscoveryError, VerifyError};
+pub use jwks::{DEFAULT_MIN_REFETCH_INTERVAL, JwksCache};
+pub use metadata::ProviderMetadata;
 pub use verifier::{IdTokenVerifier, VerifiedIdToken};
 
 /// Re-exported from [`jsonwebtoken`]: the signing-algorithm enum for
 /// [`IdTokenVerifier::algorithms`], and the JWK-set type
 /// [`IdTokenVerifier::new`] takes.
 pub use jsonwebtoken::{Algorithm, jwk::JwkSet};
+
+/// Re-exported from [`axum_security_oauth2`]: the shared HTTP backend used for
+/// discovery and JWKS fetches. Clone the login flow's client in so both ride
+/// one connection pool.
+pub use axum_security_oauth2::{HttpClient, HttpResponse};
