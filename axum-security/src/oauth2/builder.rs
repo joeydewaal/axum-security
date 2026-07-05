@@ -1,6 +1,6 @@
 use std::{borrow::Cow, error::Error, fmt::Display, sync::Arc, time::Duration};
 
-use axum_security_oauth2::{ConfigError, HttpClient, OAuth2Client};
+use axum_security_oauth2::{ConfigError, HttpClient, OAuth2Client, OAuth2ClientBuilder};
 use cookie_monster::CookieBuilder;
 
 use crate::{
@@ -13,13 +13,7 @@ use crate::{
 pub struct OAuth2ContextBuilder {
     cookie_builder: OAuthCookieBuilder,
     login_path: Option<Cow<'static, str>>,
-    redirect_url: Option<String>,
-    client_id: Option<String>,
-    client_secret: Option<String>,
-    scopes: Vec<String>,
-    auth_url: Option<String>,
-    token_url: Option<String>,
-    http_client: Option<HttpClient>,
+    client_builder: OAuth2ClientBuilder,
     flow_type: FlowType,
 }
 
@@ -28,19 +22,13 @@ impl OAuth2ContextBuilder {
         Self {
             cookie_builder: OAuthCookieBuilder::new(oauth2_provider_name.into()),
             login_path: None,
-            redirect_url: None,
-            client_id: None,
-            client_secret: None,
-            scopes: Vec::new(),
-            auth_url: None,
-            token_url: None,
-            http_client: None,
+            client_builder: OAuth2Client::builder(),
             flow_type: FlowType::AuthorizationCodeFlowPkce,
         }
     }
 
     pub fn redirect_url(mut self, url: impl Into<String>) -> Self {
-        self.redirect_url = Some(url.into());
+        self.client_builder.set_redirect_url(url);
         self
     }
 
@@ -49,7 +37,7 @@ impl OAuth2ContextBuilder {
     }
 
     pub fn client_id(mut self, client_id: impl Into<String>) -> Self {
-        self.client_id = Some(client_id.into());
+        self.client_builder.set_client_id(client_id);
         self
     }
 
@@ -58,7 +46,7 @@ impl OAuth2ContextBuilder {
     }
 
     pub fn client_secret(mut self, client_secret: impl Into<String>) -> Self {
-        self.client_secret = Some(client_secret.into());
+        self.client_builder.set_client_secret(client_secret);
         self
     }
 
@@ -67,7 +55,7 @@ impl OAuth2ContextBuilder {
     }
 
     pub fn auth_url(mut self, auth_url: impl Into<String>) -> Self {
-        self.auth_url = Some(auth_url.into());
+        self.client_builder.set_auth_url(auth_url);
         self
     }
 
@@ -76,7 +64,7 @@ impl OAuth2ContextBuilder {
     }
 
     pub fn token_url(mut self, token_url: impl Into<String>) -> Self {
-        self.token_url = Some(token_url.into());
+        self.client_builder.set_token_url(token_url);
         self
     }
 
@@ -85,7 +73,7 @@ impl OAuth2ContextBuilder {
     }
 
     pub fn scopes(mut self, scopes: &[&str]) -> Self {
-        self.scopes = scopes.iter().map(|s| s.to_string()).collect();
+        self.client_builder.set_scopes(scopes);
         self
     }
 
@@ -114,7 +102,7 @@ impl OAuth2ContextBuilder {
     }
 
     pub fn http_client(mut self, http_client: impl Into<HttpClient>) -> Self {
-        self.http_client = Some(http_client.into());
+        self.client_builder.set_http_client(http_client);
         self
     }
 
@@ -157,30 +145,13 @@ impl OAuth2ContextBuilder {
     where
         T: OAuth2Handler,
     {
+        let client = self.client_builder.try_build()?;
+
         // The protocol crate treats redirect_url as optional; here the
         // callback route is derived from it, so it is required.
-        let redirect_url = self
-            .redirect_url
-            .ok_or(OAuth2BuilderError::MissingRedirectUrl)?;
-
-        let mut client_builder = OAuth2Client::builder().redirect_url(redirect_url);
-        if let Some(client_id) = self.client_id {
-            client_builder = client_builder.client_id(client_id);
+        if client.redirect_url().is_none() {
+            return Err(OAuth2BuilderError::MissingRedirectUrl);
         }
-        if let Some(client_secret) = self.client_secret {
-            client_builder = client_builder.client_secret(client_secret);
-        }
-        if let Some(auth_url) = self.auth_url {
-            client_builder = client_builder.auth_url(auth_url);
-        }
-        if let Some(token_url) = self.token_url {
-            client_builder = client_builder.token_url(token_url);
-        }
-        if let Some(http_client) = self.http_client {
-            client_builder = client_builder.http_client(http_client);
-        }
-        let scopes: Vec<&str> = self.scopes.iter().map(String::as_str).collect();
-        let client = client_builder.scopes(&scopes).try_build()?;
 
         Ok(OAuth2Context(Arc::new(OAuth2ContextInner {
             client,

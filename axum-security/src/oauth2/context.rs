@@ -138,8 +138,8 @@ impl<H: OAuth2Handler> OAuth2Context<H> {
         };
 
         Ok(TokenResponse {
-            access_token: tokens.access_token().to_string(),
-            refresh_token: tokens.refresh_token().map(String::from),
+            access_token: tokens.access_token,
+            refresh_token: tokens.refresh_token,
         })
     }
 
@@ -152,16 +152,20 @@ impl<H: OAuth2Handler> OAuth2Context<H> {
 
         let (redirect_url, cookie) = match self.0.flow_type {
             FlowType::AuthorizationCodeFlow => {
-                let (url, csrf_token) = self.0.client.start_login_non_pkce().into_parts();
-                (url, self.0.session.generate_cookie(&csrf_token, None))
-            }
-            FlowType::AuthorizationCodeFlowPkce => {
-                let (url, csrf_token, pkce_verifier) = self.0.client.start_login().into_parts();
+                let login = self.0.client.start_login_non_pkce();
                 let cookie = self
                     .0
                     .session
-                    .generate_cookie(&csrf_token, Some(&pkce_verifier));
-                (url, cookie)
+                    .generate_cookie(login.csrf_token.as_str(), None);
+                (login.url, cookie)
+            }
+            FlowType::AuthorizationCodeFlowPkce => {
+                let login = self.0.client.start_login();
+                let cookie = self
+                    .0
+                    .session
+                    .generate_cookie(login.csrf_token.as_str(), Some(&login.pkce_verifier));
+                (login.url, cookie)
             }
         };
 
