@@ -6,7 +6,7 @@ use axum::{
     response::{IntoResponse, Redirect},
 };
 
-use axum_security_oauth2::{LoginOptions, OAuth2Client};
+use axum_security_oauth2::{CsrfToken, LoginOptions, OAuth2Client};
 use cookie_monster::{CookieBuilder, CookieJar};
 
 use crate::oauth2::{
@@ -100,9 +100,11 @@ impl<H: OAuth2Handler> OAuth2Context<H> {
             return StatusCode::UNAUTHORIZED.into_response();
         };
 
-        // verify that csrf token is equal
+        // Wrap the cookie's token in `CsrfToken` so the comparison against
+        // the attacker-controlled `state` query param runs in constant time
+        // (its `PartialEq`), rather than `String`'s byte-by-byte short-circuit.
+        let csrf_token = CsrfToken::from(csrf_token);
         if csrf_token != state {
-            // bad req
             crate::debug!("state does not match");
             return StatusCode::UNAUTHORIZED.into_response();
         }
@@ -161,9 +163,9 @@ impl<H: OAuth2Handler> OAuth2Context<H> {
         };
 
         Ok(TokenResponse {
-            access_token: tokens.access_token().to_string(),
-            refresh_token: tokens.refresh_token().map(String::from),
-            expires_in: tokens.expires_in(),
+            access_token: tokens.access_token,
+            refresh_token: tokens.refresh_token,
+            expires_in: tokens.expires_in,
         })
     }
 
@@ -176,24 +178,26 @@ impl<H: OAuth2Handler> OAuth2Context<H> {
 
         let (redirect_url, cookie) = match self.0.flow_type {
             FlowType::AuthorizationCodeFlow => {
-                let (url, csrf_token) = self
+                let login = self
                     .0
                     .client
-                    .start_login_non_pkce_with(|options| self.auth_params(options))
-                    .into_parts();
-                (url, self.0.session.generate_cookie(&csrf_token, None))
-            }
-            FlowType::AuthorizationCodeFlowPkce => {
-                let (url, csrf_token, pkce_verifier) = self
-                    .0
-                    .client
-                    .start_login_with(|options| self.auth_params(options))
-                    .into_parts();
+                    .start_login_non_pkce_with(|options| self.auth_params(options));
                 let cookie = self
                     .0
                     .session
-                    .generate_cookie(&csrf_token, Some(&pkce_verifier));
-                (url, cookie)
+                    .generate_cookie(login.csrf_token.as_str(), None);
+                (login.url, cookie)
+            }
+            FlowType::AuthorizationCodeFlowPkce => {
+                let login = self
+                    .0
+                    .client
+                    .start_login_with(|options| self.auth_params(options));
+                let cookie = self
+                    .0
+                    .session
+                    .generate_cookie(login.csrf_token.as_str(), Some(&login.pkce_verifier));
+                (login.url, cookie)
             }
         };
 

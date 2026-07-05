@@ -19,7 +19,7 @@ features = ["cookie", "jwt", "oauth2", "oidc", "rbac", "macros", "pbac", "header
 tracing = ["dep:tracing"]
 cookie = ["dep:cookie-monster", "dep:uuid"]
 jwt = ["dep:jsonwebtoken"]
-oauth2 = ["dep:axum-security-oauth2", "dep:url", "dep:wincode", "dep:base64", "dep:hmac", "dep:sha2", "dep:rand", "dep:subtle", "cookie"]
+oauth2 = ["dep:axum-security-oauth2", "axum-security-oauth2/reqwest", "axum-security-oauth2/rustls-tls", "dep:url", "dep:wincode", "dep:base64", "dep:hmac", "dep:sha2", "dep:rand", "dep:subtle", "cookie"]
 oidc = ["dep:openidconnect", "dep:wincode", "dep:base64", "dep:hmac", "dep:sha2", "dep:rand", "dep:subtle", "dep:serde_json", "cookie"]
 basic-auth = ["dep:base64"]
 rbac = []
@@ -46,7 +46,7 @@ jsonwebtoken = { workspace = true, features = ["aws_lc_rs"], optional = true }
 openidconnect = { workspace = true, optional = true }
 
 axum-security-macros = { path = "../axum-security-macros", version = "0.0.1", optional = true }
-axum-security-oauth2 = { path = "../axum-security-oauth2", version = "0.0.1", optional = true }
+axum-security-oauth2 = { path = "../axum-security-oauth2", version = "0.0.1", default-features = false, optional = true }
 url = { workspace = true, optional = true }
 
 uuid = { workspace = true, features = ["v7"], optional = true }

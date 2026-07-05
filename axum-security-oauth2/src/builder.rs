@@ -102,6 +102,52 @@ impl OAuth2ClientBuilder {
         self
     }
 
+    /// Sets the client id in place. See [`client_id`](Self::client_id).
+    pub fn set_client_id(&mut self, client_id: impl Into<String>) {
+        self.client_id = Some(client_id.into());
+    }
+
+    /// Sets the client secret in place. See
+    /// [`client_secret`](Self::client_secret).
+    pub fn set_client_secret(&mut self, client_secret: impl Into<String>) {
+        self.client_secret = Some(client_secret.into());
+    }
+
+    /// Sets the authorization endpoint in place. See
+    /// [`auth_url`](Self::auth_url).
+    pub fn set_auth_url(&mut self, auth_url: impl Into<String>) {
+        self.auth_url = Some(auth_url.into());
+    }
+
+    /// Sets the token endpoint in place. See [`token_url`](Self::token_url).
+    pub fn set_token_url(&mut self, token_url: impl Into<String>) {
+        self.token_url = Some(token_url.into());
+    }
+
+    /// Sets the redirect URL in place. See
+    /// [`redirect_url`](Self::redirect_url).
+    pub fn set_redirect_url(&mut self, redirect_url: impl Into<String>) {
+        self.redirect_url = Some(redirect_url.into());
+    }
+
+    /// Sets the requested scopes in place. See [`scopes`](Self::scopes).
+    pub fn set_scopes(&mut self, scopes: &[&str]) {
+        self.scopes = scopes.iter().map(|scope| scope.to_string()).collect();
+    }
+
+    /// Sets the token-endpoint auth type in place. See
+    /// [`auth_type`](Self::auth_type).
+    pub fn set_auth_type(&mut self, auth_type: AuthType) {
+        self.auth_type = auth_type;
+    }
+
+    /// Sets the HTTP backend in place. See
+    /// [`http_client`](Self::http_client).
+    #[cfg_attr(not(feature = "reqwest"), allow(unreachable_code))]
+    pub fn set_http_client(&mut self, http_client: impl Into<HttpClient>) {
+        self.http = Some(http_client.into());
+    }
+
     /// Validates the configuration and builds the client.
     ///
     /// Panics on invalid configuration; use [`try_build`](Self::try_build)

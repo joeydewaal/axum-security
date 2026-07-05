@@ -165,6 +165,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.11.0",
+ "subtle",
  "url",
 ]
 
@@ -360,9 +361,9 @@ dependencies = [
 
 [[package]]
 name = "cookie-monster"
-version = "0.2.1"
+version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4466743371e888bd1192f2393f2dc0bb09831cf79b9f7d74bee344180bff52af"
+checksum = "507c43ba9aba997b283753fcd7eaffd883cfba4c4b02b5d3924fc2522863537a"
 dependencies = [
  "axum-core",
  "http",

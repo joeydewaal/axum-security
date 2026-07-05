@@ -2,6 +2,8 @@ use std::fmt;
 
 use url::{Position, Url};
 
+use crate::csrf::CsrfToken;
+
 /// Per-login options for
 /// [`start_login_with`](crate::OAuth2Client::start_login_with) and
 /// [`start_login_non_pkce_with`](crate::OAuth2Client::start_login_non_pkce_with).
@@ -40,36 +42,20 @@ impl fmt::Debug for LoginOptions {
 /// [`csrf_token`](Login::csrf_token) and
 /// [`pkce_verifier`](Login::pkce_verifier) until the callback comes in.
 /// Both are secrets; `Debug` redacts them.
+///
+/// Only [`start_login`](crate::OAuth2Client::start_login) constructs this;
+/// it is `#[non_exhaustive]` so it cannot be built outside the crate.
+#[non_exhaustive]
 pub struct Login {
-    pub(crate) url: Url,
-    pub(crate) csrf_token: String,
-    pub(crate) pkce_verifier: String,
-}
-
-impl Login {
     /// The authorization URL to redirect the user to.
-    pub fn url(&self) -> &Url {
-        &self.url
-    }
-
+    pub url: Url,
     /// The CSRF token embedded in the URL's `state` parameter. Compare it
-    /// against the `state` query parameter on the callback — in constant
-    /// time, since an attacker controls one side of the comparison.
-    pub fn csrf_token(&self) -> &str {
-        &self.csrf_token
-    }
-
+    /// against the `state` query parameter on the callback; [`CsrfToken`]'s
+    /// `==` does this in constant time, since an attacker controls one side
+    /// of the comparison.
+    pub csrf_token: CsrfToken,
     /// The PKCE verifier belonging to the challenge in the URL.
-    pub fn pkce_verifier(&self) -> &str {
-        &self.pkce_verifier
-    }
-
-    /// Splits the login into its parts — `(url, csrf_token,
-    /// pkce_verifier)` — for consumers that scatter them (secrets into a
-    /// cookie, URL into a redirect) without cloning.
-    pub fn into_parts(self) -> (Url, String, String) {
-        (self.url, self.csrf_token, self.pkce_verifier)
-    }
+    pub pkce_verifier: String,
 }
 
 impl fmt::Debug for Login {
@@ -90,30 +76,19 @@ impl fmt::Debug for Login {
 /// Redirect the user to [`url`](LoginNonPkce::url) and persist
 /// [`csrf_token`](LoginNonPkce::csrf_token) until the callback comes in.
 /// The token is a secret; `Debug` redacts it.
+///
+/// Only [`start_login_non_pkce`](crate::OAuth2Client::start_login_non_pkce)
+/// constructs this; it is `#[non_exhaustive]` so it cannot be built outside
+/// the crate.
+#[non_exhaustive]
 pub struct LoginNonPkce {
-    pub(crate) url: Url,
-    pub(crate) csrf_token: String,
-}
-
-impl LoginNonPkce {
     /// The authorization URL to redirect the user to.
-    pub fn url(&self) -> &Url {
-        &self.url
-    }
-
+    pub url: Url,
     /// The CSRF token embedded in the URL's `state` parameter. Compare it
-    /// against the `state` query parameter on the callback — in constant
-    /// time, since an attacker controls one side of the comparison.
-    pub fn csrf_token(&self) -> &str {
-        &self.csrf_token
-    }
-
-    /// Splits the login into its parts — `(url, csrf_token)` — for
-    /// consumers that scatter them (secret into a cookie, URL into a
-    /// redirect) without cloning.
-    pub fn into_parts(self) -> (Url, String) {
-        (self.url, self.csrf_token)
-    }
+    /// against the `state` query parameter on the callback; [`CsrfToken`]'s
+    /// `==` does this in constant time, since an attacker controls one side
+    /// of the comparison.
+    pub csrf_token: CsrfToken,
 }
 
 impl fmt::Debug for LoginNonPkce {

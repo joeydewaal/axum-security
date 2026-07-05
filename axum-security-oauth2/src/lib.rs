@@ -9,11 +9,12 @@
 //! default [`start_login`](OAuth2Client::start_login)/
 //! [`finish_login`](OAuth2Client::finish_login) pair; explicit `_non_pkce`
 //! variants exist for providers that reject the PKCE parameters.
-//! There are no wrapper types: everything is `String`, [`url::Url`] or
-//! [`std::time::Duration`]. Secrets stay out of logs because every crate
-//! type that holds one (the client, [`Login`], [`Tokens`], errors) redacts
-//! it in its `Debug` output — but a secret *you* store is a plain string,
-//! so keep it out of your own `Debug`/`Display` impls.
+//! Values are plain `String`, [`url::Url`] or [`std::time::Duration`], with
+//! one wrapper: [`CsrfToken`], whose `==` compares in constant time.
+//! Secrets stay out of logs because every crate type that holds one (the
+//! client, [`Login`], [`Tokens`], [`CsrfToken`], errors) redacts it in its
+//! `Debug` output — but a secret *you* store is a plain string, so keep it
+//! out of your own `Debug`/`Display` impls.
 //!
 //! # Features
 //!
@@ -40,21 +41,24 @@
 //!     .scopes(&["read:user"])
 //!     .build(); // or try_build() to handle ConfigError
 //!
-//! // Leg 1: redirect the user to `login.url()`; persist the CSRF token
+//! // Leg 1: redirect the user to `login.url`; persist the CSRF token
 //! // and PKCE verifier (e.g. in a signed cookie) for the callback.
 //! let login = client.start_login();
-//! let (url, csrf_token, pkce_verifier) = login.into_parts();
+//! // Fields are owned and public — move them out, no clone needed.
+//! let (url, csrf_token, pkce_verifier) = (login.url, login.csrf_token, login.pkce_verifier);
 //!
-//! // Leg 2 (on the callback route): after comparing `csrf_token` with the
-//! // `state` query parameter, exchange the code for tokens.
+//! // Leg 2 (on the callback route): compare `csrf_token` with the `state`
+//! // query parameter (constant-time via `==`), then exchange the code.
+//! let state = "state-from-the-query-string";
+//! assert!(csrf_token == state); // reject the callback if this fails
 //! let code = "code-from-the-query-string";
 //! let tokens = client.finish_login(code, &pkce_verifier).await?;
-//! tokens.access_token();
+//! let _access_token = &tokens.access_token;
 //!
 //! // Later: trade the refresh token for fresh tokens (RFC 6749 §6).
-//! if let Some(refresh_token) = tokens.refresh_token() {
+//! if let Some(refresh_token) = &tokens.refresh_token {
 //!     let fresh = client.refresh_tokens(refresh_token).await?;
-//!     fresh.access_token();
+//!     let _fresh_access_token = &fresh.access_token;
 //! }
 //! # Ok(())
 //! # }
@@ -67,6 +71,7 @@
 
 mod builder;
 mod client;
+mod csrf;
 mod error;
 mod http;
 mod login;
@@ -76,6 +81,7 @@ mod tokens;
 
 pub use builder::{ConfigError, OAuth2ClientBuilder};
 pub use client::{AuthType, OAuth2Client};
+pub use csrf::CsrfToken;
 pub use error::{Error, ErrorCode, HttpError, ParseError, ServerError};
 pub use http::HttpClient;
 pub use login::{Login, LoginNonPkce, LoginOptions};

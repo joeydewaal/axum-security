@@ -63,17 +63,17 @@ async fn success_round_trip() {
         .await;
 
     let tokens = client
-        .finish_login("test-code", login.pkce_verifier())
+        .finish_login("test-code", &login.pkce_verifier)
         .await
         .unwrap();
 
-    assert_eq!(tokens.access_token(), "test-access-token");
+    assert_eq!(tokens.access_token, "test-access-token");
     assert!(tokens.is_bearer());
     assert_eq!(
-        tokens.expires_in(),
+        tokens.expires_in,
         Some(std::time::Duration::from_secs(3600))
     );
-    assert_eq!(tokens.refresh_token(), Some("test-refresh-token"));
+    assert_eq!(tokens.refresh_token.as_deref(), Some("test-refresh-token"));
     assert_eq!(tokens.scopes(), Some(&["read:user".to_string()][..]));
 }
 
@@ -92,7 +92,7 @@ async fn no_secret_sends_client_id_in_body() {
 
     let login = client.start_login();
     client
-        .finish_login("test-code", login.pkce_verifier())
+        .finish_login("test-code", &login.pkce_verifier)
         .await
         .unwrap();
 }
@@ -113,7 +113,7 @@ async fn non_pkce_round_trip() {
     let client = client(&server, true);
     let login = client.start_login_non_pkce();
 
-    assert!(!login.url().as_str().contains("code_challenge"));
+    assert!(!login.url.as_str().contains("code_challenge"));
 
     Mock::given(method("POST"))
         .and(path("/token"))
@@ -126,7 +126,7 @@ async fn non_pkce_round_trip() {
         .await;
 
     let tokens = client.finish_login_non_pkce("test-code").await.unwrap();
-    assert_eq!(tokens.access_token(), "test-access-token");
+    assert_eq!(tokens.access_token, "test-access-token");
 }
 
 /// Matches when the request carries no header with the given name.
@@ -163,10 +163,10 @@ async fn refresh_tokens_round_trip() {
         .await;
 
     let tokens = client.refresh_tokens("test-refresh-token").await.unwrap();
-    assert_eq!(tokens.access_token(), "fresh-access-token");
+    assert_eq!(tokens.access_token, "fresh-access-token");
     // §6: no new refresh token in the response — the caller keeps the
     // old one.
-    assert_eq!(tokens.refresh_token(), None);
+    assert_eq!(tokens.refresh_token, None);
 }
 
 /// `AuthType::RequestBody`: credentials go in the form body and no
@@ -194,7 +194,7 @@ async fn request_body_auth_sends_credentials_in_body() {
 
     let login = client.start_login();
     client
-        .finish_login("test-code", login.pkce_verifier())
+        .finish_login("test-code", &login.pkce_verifier)
         .await
         .unwrap();
 }

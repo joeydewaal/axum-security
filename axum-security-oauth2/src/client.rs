@@ -5,6 +5,7 @@ use url::Url;
 
 use crate::{
     builder::OAuth2ClientBuilder,
+    csrf::CsrfToken,
     error::{Error, ParseError, ServerErrorWire},
     http::{FormResponse, HttpClient},
     login::{Login, LoginNonPkce, LoginOptions},
@@ -171,7 +172,7 @@ impl OAuth2Client {
 
         Login {
             url,
-            csrf_token,
+            csrf_token: CsrfToken::new(csrf_token),
             pkce_verifier,
         }
     }
@@ -203,7 +204,10 @@ impl OAuth2Client {
         let options = f(LoginOptions::default());
         let csrf_token = random_b64();
         let url = self.authorize_url(&csrf_token, &options);
-        LoginNonPkce { url, csrf_token }
+        LoginNonPkce {
+            url,
+            csrf_token: CsrfToken::new(csrf_token),
+        }
     }
 
     /// The authorization URL with everything but the PKCE parameters.
@@ -376,7 +380,7 @@ mod tests {
         let client = base_builder().scopes(&["read:user", "user:email"]).build();
 
         let login = client.start_login();
-        let url = login.url();
+        let url = &login.url;
 
         assert_eq!(
             url.origin().ascii_serialization(),
@@ -389,12 +393,12 @@ mod tests {
         assert_eq!(query["client_id"], "test_client_id");
         assert_eq!(query["redirect_uri"], "https://app.example/callback");
         assert_eq!(query["scope"], "read:user user:email");
-        assert_eq!(login.csrf_token(), query["state"]);
+        assert_eq!(login.csrf_token, query["state"]);
 
         // The PKCE challenge matches the verifier.
         assert_eq!(
             query["code_challenge"],
-            crate::pkce::challenge_s256(login.pkce_verifier())
+            crate::pkce::challenge_s256(&login.pkce_verifier)
         );
         assert_eq!(query["code_challenge_method"], "S256");
     }
@@ -405,17 +409,17 @@ mod tests {
 
         let login =
             client.start_login_with(|o| o.param("nonce", "test-nonce").param("hd", "example.com"));
-        let query = query_map(login.url());
+        let query = query_map(&login.url);
 
         assert_eq!(query["nonce"], "test-nonce");
         assert_eq!(query["hd"], "example.com");
         // The standard parameters are still present.
         assert_eq!(query["response_type"], "code");
-        assert_eq!(login.csrf_token(), query["state"]);
+        assert_eq!(login.csrf_token, query["state"]);
         assert!(query.contains_key("code_challenge"));
 
         let login = client.start_login_non_pkce_with(|o| o.param("nonce", "test-nonce"));
-        let query = query_map(login.url());
+        let query = query_map(&login.url);
         assert_eq!(query["nonce"], "test-nonce");
         assert!(!query.contains_key("code_challenge"));
     }
@@ -489,7 +493,7 @@ mod tests {
         let client = base_builder().scopes(&["read:user"]).build();
 
         let login = client.start_login_non_pkce();
-        let query = query_map(login.url());
+        let query = query_map(&login.url);
 
         assert!(!query.contains_key("code_challenge"));
         assert!(!query.contains_key("code_challenge_method"));
@@ -498,7 +502,7 @@ mod tests {
         assert_eq!(query["client_id"], "test_client_id");
         assert_eq!(query["redirect_uri"], "https://app.example/callback");
         assert_eq!(query["scope"], "read:user");
-        assert_eq!(login.csrf_token(), query["state"]);
+        assert_eq!(login.csrf_token, query["state"]);
     }
 
     #[test]
@@ -510,7 +514,7 @@ mod tests {
             .token_url("https://provider.example/token")
             .build();
 
-        let query = query_map(client.start_login().url());
+        let query = query_map(&client.start_login().url);
         assert!(!query.contains_key("redirect_uri"));
         assert!(!query.contains_key("scope"));
     }
@@ -523,7 +527,7 @@ mod tests {
             .token_url("https://provider.example/token")
             .build();
 
-        let query = query_map(client.start_login().url());
+        let query = query_map(&client.start_login().url);
         assert_eq!(query["audience"], "api");
         assert_eq!(query["response_type"], "code");
     }
@@ -605,11 +609,11 @@ mod tests {
 
         let login = client.start_login();
         let debug = format!("{login:?}");
-        assert!(!debug.contains(login.csrf_token()), "{debug}");
-        assert!(!debug.contains(login.pkce_verifier()), "{debug}");
+        assert!(!debug.contains(login.csrf_token.as_str()), "{debug}");
+        assert!(!debug.contains(login.pkce_verifier.as_str()), "{debug}");
 
         let login = client.start_login_non_pkce();
         let debug = format!("{login:?}");
-        assert!(!debug.contains(login.csrf_token()), "{debug}");
+        assert!(!debug.contains(login.csrf_token.as_str()), "{debug}");
     }
 }

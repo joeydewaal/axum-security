@@ -97,6 +97,34 @@ mod tests {
         handler.inner.sign_and_encode(&data)
     }
 
+    /// The production cookie must carry the `__Host-` prefix (which forces
+    /// `Secure` + `Path=/`) and `SameSite=Lax` so it survives the provider's
+    /// cross-site callback navigation.
+    #[test]
+    fn production_cookie_is_host_prefixed_and_lax() {
+        use cookie_monster::SameSite;
+
+        // dev defaults to false, so this builds the production cookie.
+        let handler = OAuthCookieBuilder::new("test".into()).try_build().unwrap();
+        let cookie = handler.generate_cookie("csrf", Some("pkce"));
+
+        // The logical name is unprefixed; the prefix lands on the wire.
+        assert_eq!(cookie.name(), "oauth2.session.test");
+        assert!(cookie.is_secure());
+        assert_eq!(cookie.path(), Some("/"));
+        assert_eq!(cookie.same_site(), Some(SameSite::Lax));
+
+        let wire = cookie.serialize().unwrap();
+        assert!(
+            wire.starts_with("__Host-oauth2.session.test="),
+            "expected __Host- prefix on the wire, got: {wire}"
+        );
+
+        // The signed cookie still round-trips through verification.
+        let mut jar = make_jar(cookie);
+        assert!(handler.verify_cookies(&mut jar).is_some());
+    }
+
     #[test]
     fn round_trip_with_pkce() {
         let handler = make_handler(None);

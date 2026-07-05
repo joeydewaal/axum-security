@@ -79,10 +79,14 @@ impl SignedCookieBuilder {
             .same_site(SameSite::Lax)
             .max_age_secs(max_login_duration_seconds);
 
-        let cookie = Cookie::named(cookie_name)
+        // `Cookie::host` applies the `__Host-` prefix and sets `Secure` +
+        // `Path=/` (the prefix's requirements). SameSite is `Lax`, not
+        // `Strict`: the OAuth callback is a cross-site top-level navigation
+        // from the provider, and `Strict` would withhold the cookie there,
+        // breaking state validation.
+        let cookie = Cookie::host(cookie_name, "")
             .http_only()
-            .same_site(SameSite::Strict)
-            .secure()
+            .same_site(SameSite::Lax)
             .max_age_secs(max_login_duration_seconds);
 
         Self {
