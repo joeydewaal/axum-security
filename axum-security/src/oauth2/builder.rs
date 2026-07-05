@@ -1,6 +1,6 @@
 use std::{borrow::Cow, error::Error, fmt::Display, sync::Arc, time::Duration};
 
-use axum_security_oauth2::{ConfigError, HttpClient, OAuth2Client, OAuth2ClientBuilder};
+use axum_security_oauth2::{AuthType, ConfigError, HttpClient, OAuth2Client, OAuth2ClientBuilder};
 use cookie_monster::CookieBuilder;
 
 use crate::{
@@ -14,6 +14,7 @@ pub struct OAuth2ContextBuilder {
     cookie_builder: OAuthCookieBuilder,
     login_path: Option<Cow<'static, str>>,
     client_builder: OAuth2ClientBuilder,
+    auth_params: Vec<(String, String)>,
     flow_type: FlowType,
 }
 
@@ -23,6 +24,7 @@ impl OAuth2ContextBuilder {
             cookie_builder: OAuthCookieBuilder::new(oauth2_provider_name.into()),
             login_path: None,
             client_builder: OAuth2Client::builder(),
+            auth_params: Vec::new(),
             flow_type: FlowType::AuthorizationCodeFlowPkce,
         }
     }
@@ -74,6 +76,23 @@ impl OAuth2ContextBuilder {
 
     pub fn scopes(mut self, scopes: &[&str]) -> Self {
         self.client_builder.set_scopes(scopes);
+        self
+    }
+
+    /// Appends an extra query parameter to every authorization redirect —
+    /// provider-specific knobs like Google's `access_type=offline` +
+    /// `prompt=consent` (required to receive a refresh token) or GitHub's
+    /// `allow_signup=false`.
+    pub fn auth_param(mut self, name: impl Into<String>, value: impl Into<String>) -> Self {
+        self.auth_params.push((name.into(), value.into()));
+        self
+    }
+
+    /// How the client authenticates to the token endpoint. Defaults to
+    /// [`AuthType::BasicAuth`]; some providers only accept credentials in
+    /// the request body ([`AuthType::RequestBody`]).
+    pub fn auth_type(mut self, auth_type: AuthType) -> Self {
+        self.client_builder.set_auth_type(auth_type);
         self
     }
 
@@ -158,6 +177,7 @@ impl OAuth2ContextBuilder {
             inner,
             session: self.cookie_builder.try_build()?,
             login_path: self.login_path,
+            auth_params: self.auth_params,
             flow_type: self.flow_type,
         })))
     }

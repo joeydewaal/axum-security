@@ -6,7 +6,7 @@ use axum::{
     response::{IntoResponse, Redirect},
 };
 
-use axum_security_oauth2::{CsrfToken, OAuth2Client};
+use axum_security_oauth2::{CsrfToken, LoginOptions, OAuth2Client};
 use cookie_monster::{CookieBuilder, CookieJar};
 
 use crate::oauth2::{
@@ -27,6 +27,7 @@ pub(super) struct OAuth2ContextInner<H> {
     pub(super) session: OAuth2Cookie,
     pub(super) client: OAuth2Client,
     pub(super) login_path: Option<Cow<'static, str>>,
+    pub(super) auth_params: Vec<(String, String)>,
     pub(super) flow_type: FlowType,
 }
 impl OAuth2Context<()> {
@@ -38,6 +39,28 @@ impl OAuth2Context<()> {
         Self::builder("github")
             .auth_url(super::providers::github::AUTH_URL)
             .token_url(super::providers::github::TOKEN_URL)
+    }
+
+    pub fn google() -> OAuth2ContextBuilder {
+        Self::builder("google")
+            .auth_url(super::providers::google::AUTH_URL)
+            .token_url(super::providers::google::TOKEN_URL)
+    }
+
+    /// Microsoft's multi-tenant (`common`) endpoints; single-tenant apps
+    /// use [`builder`](Self::builder) with their tenant's URLs.
+    pub fn microsoft() -> OAuth2ContextBuilder {
+        Self::builder("microsoft")
+            .auth_url(super::providers::microsoft::AUTH_URL)
+            .token_url(super::providers::microsoft::TOKEN_URL)
+    }
+
+    /// gitlab.com's endpoints; self-hosted instances use
+    /// [`builder`](Self::builder) with their own URLs.
+    pub fn gitlab() -> OAuth2ContextBuilder {
+        Self::builder("gitlab")
+            .auth_url(super::providers::gitlab::AUTH_URL)
+            .token_url(super::providers::gitlab::TOKEN_URL)
     }
 
     pub fn discord() -> OAuth2ContextBuilder {
@@ -142,6 +165,7 @@ impl<H: OAuth2Handler> OAuth2Context<H> {
         Ok(TokenResponse {
             access_token: tokens.access_token,
             refresh_token: tokens.refresh_token,
+            expires_in: tokens.expires_in,
         })
     }
 
@@ -154,7 +178,10 @@ impl<H: OAuth2Handler> OAuth2Context<H> {
 
         let (redirect_url, cookie) = match self.0.flow_type {
             FlowType::AuthorizationCodeFlow => {
-                let login = self.0.client.start_login_non_pkce();
+                let login = self
+                    .0
+                    .client
+                    .start_login_non_pkce_with(|options| self.auth_params(options));
                 let cookie = self
                     .0
                     .session
@@ -162,7 +189,10 @@ impl<H: OAuth2Handler> OAuth2Context<H> {
                 (login.url, cookie)
             }
             FlowType::AuthorizationCodeFlowPkce => {
-                let login = self.0.client.start_login();
+                let login = self
+                    .0
+                    .client
+                    .start_login_with(|options| self.auth_params(options));
                 let cookie = self
                     .0
                     .session
@@ -173,6 +203,14 @@ impl<H: OAuth2Handler> OAuth2Context<H> {
 
         // Send session cookie back
         (cookie, Redirect::to(redirect_url.as_str())).into_response()
+    }
+
+    /// Applies the builder's `auth_param` extras to a login.
+    fn auth_params(&self, mut options: LoginOptions) -> LoginOptions {
+        for (name, value) in &self.0.auth_params {
+            options = options.param(name, value);
+        }
+        options
     }
 
     pub fn cookie(&self, name: impl Into<Cow<'static, str>>) -> CookieBuilder {

@@ -53,10 +53,21 @@
 //! assert!(csrf_token == state); // reject the callback if this fails
 //! let code = "code-from-the-query-string";
 //! let tokens = client.finish_login(code, &pkce_verifier).await?;
-//! let _access_token = tokens.access_token;
+//! let _access_token = &tokens.access_token;
+//!
+//! // Later: trade the refresh token for fresh tokens (RFC 6749 §6).
+//! if let Some(refresh_token) = &tokens.refresh_token {
+//!     let fresh = client.refresh_tokens(refresh_token).await?;
+//!     let _fresh_access_token = &fresh.access_token;
+//! }
 //! # Ok(())
 //! # }
 //! ```
+//!
+//! Per-login extras (an oidc `nonce`, `prompt`, ...) go through
+//! [`start_login_with`](OAuth2Client::start_login_with); providers that
+//! only take credentials in the request body are served by
+//! [`AuthType::RequestBody`].
 
 mod builder;
 mod client;
@@ -69,9 +80,9 @@ mod rand;
 mod tokens;
 
 pub use builder::{ConfigError, OAuth2ClientBuilder};
-pub use client::OAuth2Client;
+pub use client::{AuthType, OAuth2Client};
 pub use csrf::CsrfToken;
 pub use error::{Error, ErrorCode, HttpError, ParseError, ServerError};
 pub use http::HttpClient;
-pub use login::{Login, LoginNonPkce};
+pub use login::{Login, LoginNonPkce, LoginOptions};
 pub use tokens::Tokens;

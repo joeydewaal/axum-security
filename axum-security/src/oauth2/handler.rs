@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use axum::response::IntoResponse;
 
 pub use crate::after_login::AfterLoginCookies;
@@ -8,6 +10,8 @@ pub struct TokenResponse {
     pub access_token: String,
     /// The refresh token, if the provider issued one.
     pub refresh_token: Option<String>,
+    /// The lifetime of the access token, if the provider sent `expires_in`.
+    pub expires_in: Option<Duration>,
 }
 
 /// Implement this trait to handle a successful OAuth 2.0 login.

@@ -3,7 +3,7 @@
 //! bodies, Basic-auth correctness and redirects-not-followed.
 #![cfg(feature = "reqwest")]
 
-use axum_security_oauth2::{Error, ErrorCode, OAuth2Client};
+use axum_security_oauth2::{AuthType, Error, ErrorCode, OAuth2Client};
 use wiremock::{
     Mock, MockServer, ResponseTemplate,
     matchers::{body_string_contains, header, method, path},
@@ -127,6 +127,76 @@ async fn non_pkce_round_trip() {
 
     let tokens = client.finish_login_non_pkce("test-code").await.unwrap();
     assert_eq!(tokens.access_token, "test-access-token");
+}
+
+/// Matches when the request carries no header with the given name.
+struct HeaderAbsent(&'static str);
+
+impl wiremock::Match for HeaderAbsent {
+    fn matches(&self, request: &wiremock::Request) -> bool {
+        !request.headers.contains_key(self.0)
+    }
+}
+
+#[tokio::test]
+async fn refresh_tokens_round_trip() {
+    let server = MockServer::start().await;
+    let client = client(&server, true);
+
+    let expected_basic = format!(
+        "Basic {}",
+        base64_encode(&format!("{CLIENT_ID}:{CLIENT_SECRET}"))
+    );
+    Mock::given(method("POST"))
+        .and(path("/token"))
+        .and(header("authorization", expected_basic.as_str()))
+        .and(body_string_contains("grant_type=refresh_token"))
+        .and(body_string_contains("refresh_token=test-refresh-token"))
+        .and(BodyLacks("code="))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "access_token": "fresh-access-token",
+            "token_type": "Bearer",
+            "expires_in": 3600
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let tokens = client.refresh_tokens("test-refresh-token").await.unwrap();
+    assert_eq!(tokens.access_token, "fresh-access-token");
+    // §6: no new refresh token in the response — the caller keeps the
+    // old one.
+    assert_eq!(tokens.refresh_token, None);
+}
+
+/// `AuthType::RequestBody`: credentials go in the form body and no
+/// Authorization header is sent.
+#[tokio::test]
+async fn request_body_auth_sends_credentials_in_body() {
+    let server = MockServer::start().await;
+    let client = OAuth2Client::builder()
+        .client_id(CLIENT_ID)
+        .client_secret(CLIENT_SECRET)
+        .auth_url(format!("{}/authorize", server.uri()))
+        .token_url(format!("{}/token", server.uri()))
+        .auth_type(AuthType::RequestBody)
+        .build();
+
+    Mock::given(method("POST"))
+        .and(path("/token"))
+        .and(HeaderAbsent("authorization"))
+        .and(body_string_contains("client_id=test-client-id"))
+        .and(body_string_contains("client_secret=test-client-secret"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(tokens_body()))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let login = client.start_login();
+    client
+        .finish_login("test-code", &login.pkce_verifier)
+        .await
+        .unwrap();
 }
 
 #[tokio::test]

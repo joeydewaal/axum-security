@@ -8,11 +8,22 @@ use crate::{
     csrf::CsrfToken,
     error::{Error, ParseError, ServerErrorWire},
     http::{FormResponse, HttpClient},
-    login::{Login, LoginNonPkce},
+    login::{Login, LoginNonPkce, LoginOptions},
     pkce,
     rand::random_b64,
     tokens::{Tokens, TokensWire},
 };
+
+/// How the client authenticates to the token endpoint (RFC 6749 §2.3.1).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum AuthType {
+    /// HTTP Basic with form-urlencoded credentials. The default.
+    #[default]
+    BasicAuth,
+    /// `client_id` and `client_secret` in the request body, for providers
+    /// that don't support HTTP Basic.
+    RequestBody,
+}
 
 /// An OAuth2 client for the authorization code flow with PKCE
 /// (RFC 6749 §4.1 + RFC 7636).
@@ -27,6 +38,7 @@ pub struct OAuth2Client {
     pub(crate) token_url: Url,
     pub(crate) redirect_url: Option<Url>,
     pub(crate) scopes: Vec<String>,
+    pub(crate) auth_type: AuthType,
     pub(crate) http: HttpClient,
 }
 
@@ -42,6 +54,7 @@ impl fmt::Debug for OAuth2Client {
             .field("token_url", &self.token_url)
             .field("redirect_url", &self.redirect_url)
             .field("scopes", &self.scopes)
+            .field("auth_type", &self.auth_type)
             .field("http", &self.http)
             .finish()
     }
@@ -127,15 +140,32 @@ impl OAuth2Client {
         &self.scopes
     }
 
+    pub fn auth_type(&self) -> AuthType {
+        self.auth_type
+    }
+
     /// Starts the login flow: generates the CSRF token and the PKCE S256
     /// challenge/verifier pair, and builds the authorization URL.
     ///
     /// Pure — no I/O, infallible.
     pub fn start_login(&self) -> Login {
+        self.start_login_with(|options| options)
+    }
+
+    /// Like [`start_login`](Self::start_login), with extra authorization
+    /// parameters — e.g. an oidc `nonce`, `prompt` or `login_hint`:
+    ///
+    /// ```ignore
+    /// let login = client.start_login_with(|o| o.param("nonce", &nonce));
+    /// ```
+    ///
+    /// Pure — no I/O, infallible.
+    pub fn start_login_with(&self, f: impl FnOnce(LoginOptions) -> LoginOptions) -> Login {
+        let options = f(LoginOptions::default());
         let csrf_token = random_b64();
         let (challenge, pkce_verifier) = pkce::generate();
 
-        let mut url = self.authorize_url(&csrf_token);
+        let mut url = self.authorize_url(&csrf_token, &options);
         url.query_pairs_mut()
             .append_pair("code_challenge", &challenge)
             .append_pair("code_challenge_method", "S256");
@@ -159,8 +189,21 @@ impl OAuth2Client {
     ///
     /// Pure — no I/O, infallible.
     pub fn start_login_non_pkce(&self) -> LoginNonPkce {
+        self.start_login_non_pkce_with(|options| options)
+    }
+
+    /// Like [`start_login_non_pkce`](Self::start_login_non_pkce), with
+    /// extra authorization parameters (see
+    /// [`start_login_with`](Self::start_login_with)).
+    ///
+    /// Pure — no I/O, infallible.
+    pub fn start_login_non_pkce_with(
+        &self,
+        f: impl FnOnce(LoginOptions) -> LoginOptions,
+    ) -> LoginNonPkce {
+        let options = f(LoginOptions::default());
         let csrf_token = random_b64();
-        let url = self.authorize_url(&csrf_token);
+        let url = self.authorize_url(&csrf_token, &options);
         LoginNonPkce {
             url,
             csrf_token: CsrfToken::new(csrf_token),
@@ -168,7 +211,7 @@ impl OAuth2Client {
     }
 
     /// The authorization URL with everything but the PKCE parameters.
-    fn authorize_url(&self, csrf_token: &str) -> Url {
+    fn authorize_url(&self, csrf_token: &str, options: &LoginOptions) -> Url {
         let mut url = self.auth_url.clone();
         {
             let mut query = url.query_pairs_mut();
@@ -181,6 +224,9 @@ impl OAuth2Client {
                 query.append_pair("scope", &self.scopes.join(" "));
             }
             query.append_pair("state", csrf_token);
+            for (name, value) in &options.params {
+                query.append_pair(name, value);
+            }
         }
         url
     }
@@ -218,15 +264,36 @@ impl OAuth2Client {
         self.token_request(form).await
     }
 
+    /// Exchanges a refresh token for fresh tokens (RFC 6749 §6).
+    ///
+    /// The server may answer without a new refresh token
+    /// ([`Tokens::refresh_token`] is `None`) — keep using the old one then.
+    pub async fn refresh_tokens(&self, refresh_token: &str) -> Result<Tokens, Error> {
+        let form = vec![
+            ("grant_type", "refresh_token"),
+            ("refresh_token", refresh_token),
+        ];
+
+        self.token_request(form).await
+    }
+
     async fn token_request<'a>(
         &'a self,
         mut form: Vec<(&'a str, &'a str)>,
     ) -> Result<Tokens, Error> {
         // Client auth per RFC 6749 §2.3.1: HTTP Basic when a secret is
-        // set, `client_id` in the body otherwise.
-        let authorization = match &self.client_secret {
-            Some(secret) => Some(basic_auth_header(&self.client_id, secret)),
-            None => {
+        // set (credentials in the body instead under
+        // `AuthType::RequestBody`), bare `client_id` in the body otherwise.
+        let authorization = match (self.auth_type, &self.client_secret) {
+            (AuthType::BasicAuth, Some(secret)) => Some(basic_auth_header(&self.client_id, secret)),
+            (AuthType::RequestBody, secret) => {
+                form.push(("client_id", &self.client_id));
+                if let Some(secret) = secret {
+                    form.push(("client_secret", secret));
+                }
+                None
+            }
+            (AuthType::BasicAuth, None) => {
                 form.push(("client_id", &self.client_id));
                 None
             }
@@ -334,6 +401,44 @@ mod tests {
             crate::pkce::challenge_s256(&login.pkce_verifier)
         );
         assert_eq!(query["code_challenge_method"], "S256");
+    }
+
+    #[test]
+    fn start_login_with_appends_extra_params() {
+        let client = base_builder().build();
+
+        let login =
+            client.start_login_with(|o| o.param("nonce", "test-nonce").param("hd", "example.com"));
+        let query = query_map(&login.url);
+
+        assert_eq!(query["nonce"], "test-nonce");
+        assert_eq!(query["hd"], "example.com");
+        // The standard parameters are still present.
+        assert_eq!(query["response_type"], "code");
+        assert_eq!(login.csrf_token, query["state"]);
+        assert!(query.contains_key("code_challenge"));
+
+        let login = client.start_login_non_pkce_with(|o| o.param("nonce", "test-nonce"));
+        let query = query_map(&login.url);
+        assert_eq!(query["nonce"], "test-nonce");
+        assert!(!query.contains_key("code_challenge"));
+    }
+
+    #[test]
+    fn login_options_debug_redacts_values() {
+        let options = crate::LoginOptions::default().param("nonce", "secret-nonce");
+        let debug = format!("{options:?}");
+        assert!(debug.contains("nonce"), "{debug}");
+        assert!(!debug.contains("secret-nonce"), "{debug}");
+    }
+
+    #[test]
+    fn auth_type_defaults_to_basic() {
+        let client = base_builder().build();
+        assert_eq!(client.auth_type(), AuthType::BasicAuth);
+
+        let client = base_builder().auth_type(AuthType::RequestBody).build();
+        assert_eq!(client.auth_type(), AuthType::RequestBody);
     }
 
     #[test]

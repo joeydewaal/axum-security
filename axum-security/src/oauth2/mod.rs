@@ -7,7 +7,8 @@
 //! Use [`OAuth2Ext::with_oauth2`] on a [`Router`](axum::Router) to register
 //! the login and callback routes.
 //!
-//! Built-in provider shortcuts: [`OAuth2Context::github`], [`OAuth2Context::discord`],
+//! Built-in provider shortcuts: [`OAuth2Context::github`], [`OAuth2Context::google`],
+//! [`OAuth2Context::microsoft`], [`OAuth2Context::gitlab`], [`OAuth2Context::discord`],
 //! [`OAuth2Context::spotify`], [`OAuth2Context::twitch`].
 
 mod builder;
@@ -18,6 +19,7 @@ pub mod providers;
 mod redirect;
 mod router;
 
+pub use axum_security_oauth2::AuthType;
 pub use builder::OAuth2BuilderError;
 pub use context::OAuth2Context;
 pub use handler::{AfterLoginCookies, OAuth2Handler, TokenResponse};
