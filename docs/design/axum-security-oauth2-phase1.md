@@ -57,7 +57,7 @@ consciously defer/drop (the rest).
 |---|---|---|
 | `Client::new(ClientId)` | ✓ | builder `client_id(...)` |
 | `set_client_secret(ClientSecret)` | ✓ | builder `client_secret(...)` |
-| `set_auth_uri(AuthUrl)` / `_option(Option<_>)` | ✓ | builder `auth_url(...)`; endpoints are plain optionals, no `_option` twins (those exist only to feed `EndpointMaybeSet`) |
+| `set_auth_uri(AuthUrl)` / `_option(Option<_>)` | ✓ | builder `auth_url(...)`; required at `try_build()`, no `_option` twins (those exist only to feed `EndpointMaybeSet` — see decision 11) |
 | `set_token_uri(TokenUrl)` / `_option` | ✓ | builder `token_url(...)` |
 | `set_redirect_uri(RedirectUrl)` | ✓ | builder `redirect_url(...)` |
 | `set_auth_type(AuthType)` (§2.3.1 Basic vs body) | ❌ | deferred to phase 3 — Basic hardcoded (see decision 2) |
@@ -70,12 +70,12 @@ consciously defer/drop (the rest).
 |---|---|---|
 | `state_fn: FnOnce() -> CsrfToken` (injectable CSRF source) | ✓ (`new_random` only) | not injectable — `start_login()` always generates via `getrandom`; tests mock at the HTTP seam, not the RNG (see decision 3) |
 | `add_scope(Scope)` / `add_scopes(iter)` | ✓ | client-level `scopes(&[&str])` config — set once, not re-added per login (see decision 9) |
-| `set_pkce_challenge(PkceCodeChallenge)` | ✓ | client-level `pkce` flag (default **on**); challenge generated inside `start_login()` |
+| `set_pkce_challenge(PkceCodeChallenge)` | ✓ | no flag — challenge generated inside `start_login()`; a parallel `start_login_non_pkce()` pair covers providers that reject the params (see decision 4) |
 | `add_extra_param(name, value)` | ❌ | phase 3 (`start_login_with(\|o\| o.param(...))`) — oidc prereq |
 | `set_redirect_uri(Cow<RedirectUrl>)` (per-request override) | ❌ | phase 3 |
 | `set_response_type(&ResponseType)` | ❌ | dropped with the implicit grant; revisit only if oidc needs a non-`code` response type |
 | `use_implicit_flow()` | ❌ | **dropped** (OAuth 2.1) |
-| terminal `url() -> (Url, CsrfToken)` | ✓ | `start_login() -> Result<Login, Error>` — one struct, PKCE verifier included instead of a separate variable to carry |
+| terminal `url() -> (Url, CsrfToken)` | ✓ | `start_login() -> Login` (infallible — config validated at build) — one struct, PKCE verifier included instead of a separate variable to carry |
 
 ### PKCE and random types
 
@@ -86,14 +86,14 @@ consciously defer/drop (the rest).
 | `from_code_verifier_sha256(&verifier)` (recompute challenge) | ❌ | not public; used internally |
 | `new_random_plain()` / `from_code_verifier_plain()` | ❌ | phase 4, `pkce-plain` feature |
 | `PkceCodeChallenge::as_str()`, `.method()` | ❌ | not public in phase 1 (challenge never leaves `start_login`) |
-| newtype pattern: `T::new(String)`, `.secret()`, `.into_secret()` | ✓ (`new`, `secret`) | kept on our secret types (see §3) |
+| newtype pattern: `T::new(String)`, `.secret()`, `.into_secret()` | ✓ (`new`, `secret`) | **dropped** — secrets are plain strings; holding types redact in `Debug` (see §3, decision 12) |
 
 ### Code exchange — `exchange_code(code) -> CodeTokenRequest<'a>`
 
 | Upstream option | axs | Our phase 1 |
 |---|---|---|
 | `exchange_code(AuthorizationCode)` | ✓ | `finish_login(code, verifier)` |
-| `set_pkce_verifier(PkceCodeVerifier)` (owned) | ✓ | second arg: `Option<&PkceVerifier>` (borrowed — we only need the string; see decision 4) |
+| `set_pkce_verifier(PkceCodeVerifier)` (owned) | ✓ | second arg: `&str`, required (see decisions 4, 12) |
 | `add_extra_param(name, value)` | ❌ | phase 3 |
 | `set_redirect_uri(Cow<RedirectUrl>)` | ❌ | phase 3 (client-level `redirect_url` is sent automatically, as upstream does) |
 | `request(sync)` / `request_async(&http)` | ✓ (async) | gone — `finish_login` is the async call itself; the backend lives on the client |
@@ -144,10 +144,10 @@ src/
   lib.rs          // docs, re-exports
   client.rs       // OAuth2Client + start_login/finish_login
   builder.rs      // OAuth2ClientBuilder + ConfigError
-  login.rs        // Login
+  login.rs        // Login, LoginNonPkce
   tokens.rs       // Tokens
-  secret.rs       // secret newtypes (one internal impl, distinct names)
-  pkce.rs         // challenge derivation (crate-private except PkceVerifier)
+  rand.rs         // random_b64 (crate-private CSPRNG helper)
+  pkce.rs         // challenge derivation (crate-private)
   error.rs        // Error, ServerError, ErrorCode
   http/
     mod.rs        // HttpClient enum + crate-private post_form seam
@@ -157,27 +157,18 @@ src/
 `dep_reqwest.rs` follows cookie-monster's `dep_*.rs` convention; phase 4's
 `jiff`/`chrono`/`time` accessors will do the same.
 
-### Secret types
+### Secrets (revised — the newtypes are gone)
 
-Phase 1 ships five: `ClientSecret`, `AccessToken`, `RefreshToken`,
-`AuthorizationCode`, `CsrfToken`, `PkceVerifier`. (`DeviceCode` is phase 4.)
-One internal implementation (macro), identical surface:
-
-```rust
-impl CsrfToken {                       // same for all six
-    pub fn new(secret: impl Into<String>) -> Self;  // reconstruct (e.g. from a cookie)
-    pub fn secret(&self) -> &str;
-    pub fn into_secret(self) -> String;
-}
-// Debug = "CsrfToken([redacted])", no Display,
-// PartialEq via subtle (constant time) — including PartialEq<str> so
-// `login.csrf_token() == state_param` is safe by construction.
-```
-
-No public `random()` constructors — `start_login()` is the only generator
-(callers can't accidentally mint a verifier that doesn't match the
-challenge). `new` exists because axum-security round-trips these through
-its HMAC cookie as strings.
+Phase 1 originally shipped six secret newtypes (`ClientSecret`,
+`AccessToken`, `RefreshToken`, `AuthorizationCode`, `CsrfToken`,
+`PkceVerifier`); they were removed in favor of plain `String`/`&str`
+(see decision 12). Redaction moved into the hand-written `Debug` impls
+of every type that holds a secret (`OAuth2Client`, `Login`,
+`LoginNonPkce`, `Tokens`), none of which implements `Display`; the
+crate-wide redaction test pins it. `start_login()` is still the only
+generator of CSRF tokens and verifiers — there's just no wrapper around
+what it hands back, so it round-trips through axum-security's HMAC
+cookie without `::new()`/`.secret()` ceremony.
 
 ### Builder
 
@@ -189,25 +180,35 @@ let client = OAuth2Client::builder()
     .token_url("https://.../token")
     .redirect_url("https://app/callback")
     .scopes(&["read:user", "user:email"])   // &[&str], replaces; default empty
-    .set_pkce(false)                        // default true; pkce() re-enables
     .http_client(reqwest_client)            // impl Into<HttpClient>; default under `reqwest` feature
-    .build()?;                              // -> Result<OAuth2Client, ConfigError>
+    .try_build()?;                          // -> Result<OAuth2Client, ConfigError>; build() = try_build().unwrap()
 
 #[non_exhaustive]
 pub enum ConfigError {
     MissingClientId,
+    MissingAuthUrl,
+    MissingTokenUrl,
     InvalidAuthUrl(url::ParseError),
     InvalidTokenUrl(url::ParseError),
     InvalidRedirectUrl(url::ParseError),
+    NoHttpClient,   // no backend feature and no http_client(...) set
 }
 ```
 
-House rules applied: bare-name chainable setters, `pkce()`/`set_pkce(bool)`
-flag pair, fallible terminal `build()`. Only `client_id` is required —
-endpoints stay optional and fail at call time (`Error::MissingEndpoint`),
-which is what lets one client type cover every endpoint combination without
-typestate. No `get_` builder getters until something needs one. Env-var
-variants (`client_id_env`) stay in axum-security's builder.
+House rules applied: bare-name chainable setters, `build()`/`try_build()`
+terminal pair (axum-security's split: `try_build()` returns `Result`,
+`build()` is the panicking convenience). `client_id`, `auth_url` and
+`token_url` are required, and an HTTP backend must exist (the `reqwest`
+default or an explicit `http_client(...)`) — `try_build()` validates all of
+it, so the client's methods never fail on configuration (see decision 11).
+No `get_` builder getters until something needs one. Env-var variants
+(`client_id_env`) stay in axum-security's builder.
+
+Provider shortcuts preset the endpoints (mirroring axum-security's
+`OAuth2Context::github()` shape): `OAuth2Client::github()`, `google()`,
+`discord()`, `spotify()`, `twitch()` return the ordinary builder with
+`auth_url`/`token_url` filled in — no separate type, everything else
+still applies.
 
 The default HTTP client (behind `reqwest`): no redirects, 10s timeout —
 replaces axum-security's `default_reqwest_client()`.
@@ -217,11 +218,10 @@ replaces axum-security's `default_reqwest_client()`.
 ```rust
 impl OAuth2Client {
     pub fn client_id(&self) -> &str;
-    pub fn auth_url(&self) -> Option<&Url>;
-    pub fn token_url(&self) -> Option<&Url>;
+    pub fn auth_url(&self) -> &Url;
+    pub fn token_url(&self) -> &Url;
     pub fn redirect_url(&self) -> Option<&Url>;   // axs: .path() → callback route
     pub fn scopes(&self) -> &[String];
-    pub fn is_pkce(&self) -> bool;
 }
 ```
 
@@ -231,43 +231,52 @@ the cheapest redaction of all.
 ### Leg 1: `start_login`
 
 ```rust
-pub fn start_login(&self) -> Result<Login, Error>   // Error::MissingEndpoint(Endpoint::Auth)
+pub fn start_login(&self) -> Login                 // pure, infallible; PKCE
+pub fn start_login_non_pkce(&self) -> LoginNonPkce // ditto, no PKCE params
 
 pub struct Login { /* owns url, csrf_token, pkce_verifier */ }
 
 impl Login {
     pub fn url(&self) -> &Url;
-    pub fn csrf_token(&self) -> &CsrfToken;
-    pub fn pkce_verifier(&self) -> Option<&PkceVerifier>;
-    pub fn into_parts(self) -> (Url, CsrfToken, Option<PkceVerifier>);
+    pub fn csrf_token(&self) -> &str;
+    pub fn pkce_verifier(&self) -> &str;
+    pub fn into_parts(self) -> (Url, String, String); // url, csrf, verifier
 }
+
+pub struct LoginNonPkce { /* owns url, csrf_token — no verifier field */ }
+// url(), csrf_token(), into_parts() -> (Url, String)
 ```
 
-Pure — no I/O, no async, works with zero features enabled. Generates the
-CSRF token (32 bytes, base64url-nopad) and, when `pkce` is on, the S256
-challenge/verifier pair; builds the URL with `response_type=code`,
-`client_id`, `redirect_uri` (if set), joined scopes, `state`, and the
-challenge params. `into_parts` is for consumers like axum-security that
-immediately scatter the pieces (cookie one way, redirect the other) —
-avoids cloning out of the struct.
+Pure — no I/O, no async, infallible (configuration was validated at
+build). Generates the CSRF token (32 bytes, base64url-nopad) and, in
+`start_login`, the S256 challenge/verifier pair; builds the URL with
+`response_type=code`, `client_id`, `redirect_uri` (if set), joined scopes,
+`state`, and (PKCE leg) the challenge params. `into_parts` is for
+consumers like axum-security that immediately scatter the pieces (cookie
+one way, redirect the other) — avoids cloning out of the struct. The two
+flows are separate method pairs with separate `Login` types instead of a
+flag or an `Option` (see decision 4); each leg's docs point at its
+matching counterpart, since the type system can't link legs that meet
+across a cookie.
 
 ### Leg 2: `finish_login`
 
 ```rust
 pub async fn finish_login(
     &self,
-    code: AuthorizationCode,
-    pkce_verifier: Option<&PkceVerifier>,
+    code: &str,
+    pkce_verifier: &str,
 ) -> Result<Tokens, Error>
+
+pub async fn finish_login_non_pkce(&self, code: &str) -> Result<Tokens, Error>
 ```
 
 POSTs the token endpoint: `grant_type=authorization_code`, the code, the
-verifier if given, `redirect_uri` if configured; client auth via HTTP Basic
+verifier (PKCE pair only), `redirect_uri` if configured; client auth via HTTP Basic
 (form-urlencoded credentials, §2.3.1) when a secret is set, `client_id` in
 the body otherwise; `Accept: application/json`; redirects never followed.
-Fails fast before I/O with `MissingEndpoint(Endpoint::Token)`,
-`NoHttpClient`, or `MissingPkceVerifier` (PKCE on, verifier `None` — the
-check axum-security hand-rolls today).
+No fail-fast configuration checks — everything configuration-shaped was
+already validated by `try_build()`.
 
 ### `Tokens`
 
@@ -279,13 +288,17 @@ bare-name getters, `is_bearer()`, `extra` map with typed accessors.
 ```rust
 #[non_exhaustive]
 pub enum Error {
-    MissingEndpoint(Endpoint),      // Endpoint: fieldless enum, Auth | Token (grows later)
-    NoHttpClient,
-    MissingPkceVerifier,
     Http(HttpError),                // transport failure; source() → backend error
     Server(ServerError),            // well-formed §5.2 error body
     Parse(ParseError),              // non-JSON / wrong-shape body
 }
+```
+
+Only things that can actually happen at request time — configuration
+problems (missing/invalid endpoints, no HTTP backend) are `ConfigError`
+at `try_build()` and cannot reach a built client (see decision 11).
+
+```rust
 
 pub struct ServerError {            // RFC 6749 §5.2 body + context
     // code() -> &ErrorCode, description() -> Option<&str>, uri() -> Option<&str>,
@@ -326,11 +339,10 @@ impl From<reqwest::Client> for HttpClient {}   // cfg(feature = "reqwest")
 
 ### Full re-export list (`lib.rs`)
 
-`OAuth2Client`, `OAuth2ClientBuilder`, `ConfigError`, `Login`, `Tokens`,
-`Error`, `Endpoint`, `HttpError`, `ParseError`, `ServerError`, `ErrorCode`,
-`HttpClient`, `ClientSecret`, `AccessToken`, `RefreshToken`,
-`AuthorizationCode`, `CsrfToken`, `PkceVerifier`. Eighteen items, flat —
-no module paths in the public API.
+`OAuth2Client`, `OAuth2ClientBuilder`, `ConfigError`, `Login`,
+`LoginNonPkce`, `Tokens`, `Error`, `HttpError`, `ParseError`,
+`ServerError`, `ErrorCode`, `HttpClient`. Twelve items, flat — no module
+paths in the public API.
 
 ## 4. Decision points
 
@@ -352,13 +364,25 @@ Options considered per design point; recommendation first.
    `state`/`verifier` through the mock server instead. Removing it deletes
    a generic from the hot path and an entire class of "caller supplied weak
    randomness" misuse.
-4. **`finish_login` verifier: `Option<&PkceVerifier>` argument** (chosen)
-   vs a required argument when `pkce` is on (two methods) vs storing the
-   verifier in `Login` and passing `&Login` back. The `Option` matches
-   reality — the verifier comes back from the consumer's cookie, which can
-   be absent — and `Error::MissingPkceVerifier` moves axum-security's
-   hand-rolled check into the crate. Passing `&Login` back is wrong for
-   the actual flow: leg 2 happens in a different request; `Login` is gone.
+4. **PKCE: two method pairs, no flag, no `Option`** (chosen; revised
+   twice — from a client-level `pkce` flag with `Option<&PkceVerifier>`,
+   then from PKCE-only) vs the opt-out flag vs splitting the *client* per
+   flow (`PkceClient`, ...). The default pair `start_login()` /
+   `finish_login(code, &verifier)` is PKCE with a required verifier;
+   `start_login_non_pkce() -> LoginNonPkce` / `finish_login_non_pkce(code)`
+   exist for providers that reject requests carrying `code_challenge`
+   (compliant ones ignore it per RFC 6749 §3.1, so PKCE is the right
+   default and carries no suffix). Method pairs keep every signature
+   `Option`-free — the earlier flag design forced `Option` into `Login`
+   and `finish_login`, plus `Error::MissingPkceVerifier`. The flow-split
+   *client* was rejected: it doubles the client/builder surface,
+   multiplies with every phase-3/4 grant, and forces multi-provider
+   consumers to wrap the pair in an enum. Known limit, documented on the
+   methods: the legs can't be type-linked (leg 2's verifier arrives from
+   a cookie in a different request), so a mismatched
+   `start_login` + `finish_login_non_pkce` fails at the provider, not at
+   compile time. A consumer whose cookie is missing the verifier fails
+   its own cookie validation before ever reaching the crate.
 5. **`ServerError` code: enum with `Other(String)`** (chosen) vs plain
    `String`. The six §5.2 codes are closed by the RFC; matching
    `ErrorCode::InvalidGrant` (expired code — the retryable case) beats
@@ -378,14 +402,40 @@ Options considered per design point; recommendation first.
    (upstream's `(Url, CsrfToken)` + a floating verifier variable) vs
    getters only. Struct per house style; `into_parts` because the one real
    consumer immediately splits ownership of the three pieces.
-9. **Naming: `PkceVerifier`** (chosen) vs upstream's `PkceCodeVerifier`.
-   Short noun per house style; "code" adds nothing next to
-   `AuthorizationCode`. Parent doc updated to match.
-10. **`AuthorizationCode` argument: explicit newtype** (chosen) vs
-    `impl Into<AuthorizationCode>` sugar on `finish_login`. One
-    `AuthorizationCode::new(params.code)` at the axum boundary keeps the
-    secret visibly typed from the query string onward; `Into` sugar on a
-    security parameter hides the moment a plain `String` becomes a secret.
+9. **Naming: `pkce_verifier`** (chosen) vs upstream's
+   `pkce_code_verifier`. Short noun per house style; "code" adds nothing
+   next to the authorization code. (Originally about the `PkceVerifier`
+   type; the type is gone — decision 12 — but the method/argument name
+   keeps the convention.)
+10. **`AuthorizationCode` argument: explicit newtype** — superseded by
+    decision 12; `finish_login` takes the code as a plain `&str` straight
+    from the query string.
+11. **Endpoints + HTTP backend validated at `try_build()`** (chosen;
+    revised from optional endpoints failing at call time) vs
+    `Error::MissingEndpoint(Endpoint)`/`Error::NoHttpClient` surfacing on
+    the first login. The call-time design was the runtime translation of
+    upstream's `EndpointMaybeSet`, kept for phase-4 grants that don't use
+    `auth_url` (client credentials, device flow) — but every phase-1–3
+    flow needs both endpoints, so a missing one is a configuration bug
+    that should fail at startup, not on the first login attempt. Moving
+    the checks makes `start_login` infallible and shrinks `Error` to
+    `Http`/`Server`/`Parse`. Cost, accepted at 0.0.x: without a backend
+    feature `try_build()` now always fails (`ConfigError::NoHttpClient`),
+    and phase 4 revisits `auth_url` being required when grants that never
+    authorize land.
+12. **No secret newtypes** (chosen; revised — six shipped originally) vs
+    the wrapper set with redacted `Debug` + `subtle` `PartialEq`.
+    Secrets are plain `String`/`&str`; every crate type that holds one
+    (`OAuth2Client`, `Login`, `LoginNonPkce`, `Tokens`) hand-writes
+    `Debug` to redact it, pinned by the redaction tests. This deletes
+    the `.secret()`/`::new()` ceremony at every call site, the six-type
+    macro, and the `subtle` dep (constant-time `state` comparison is the
+    consumer's job — axum-security already does its own; standalone
+    users are pointed at it in the `csrf_token()` docs). Accepted
+    trade-offs, stated honestly: a secret past a getter is an ordinary
+    string, so consumer-side `Debug` leak-safety is the consumer's
+    responsibility, and `finish_login(code, verifier)`'s two `&str`
+    arguments are order-documented, not type-checked.
 
 ## 5. Explicitly not in phase 1
 
