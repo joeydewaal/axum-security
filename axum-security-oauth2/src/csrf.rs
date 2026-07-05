@@ -31,9 +31,6 @@ impl CsrfToken {
 }
 
 impl From<String> for CsrfToken {
-    /// Wraps a token string — typically one read back from a cookie — so it
-    /// can be compared against the callback's `state` with the wrapper's
-    /// constant-time [`PartialEq`].
     fn from(token: String) -> Self {
         Self(token)
     }
