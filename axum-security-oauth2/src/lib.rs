@@ -85,4 +85,5 @@ pub use csrf::CsrfToken;
 pub use error::{Error, ErrorCode, HttpError, ParseError, ServerError};
 pub use http::{HttpClient, HttpResponse};
 pub use login::{Login, LoginNonPkce, LoginOptions};
+pub use rand::random_token;
 pub use tokens::Tokens;

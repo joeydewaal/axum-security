@@ -7,6 +7,16 @@ pub(crate) fn random_b64() -> String {
     URL_SAFE_NO_PAD.encode(bytes)
 }
 
+/// A cryptographically random token: 32 bytes from the OS CSPRNG,
+/// base64url-nopad encoded (43 characters).
+///
+/// The same generator this crate uses for CSRF `state` and PKCE verifiers,
+/// exposed for callers that need a matching secret — e.g. an OpenID Connect
+/// `nonce` (`axum-security-oidc`).
+pub fn random_token() -> String {
+    random_b64()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
