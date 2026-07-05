@@ -160,6 +160,30 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn login_redirect_carries_auth_params() {
+        let context = OAuth2Context::google()
+            .client_id(CLIENT_ID)
+            .client_secret(CLIENT_SECRET)
+            .redirect_url(REDIRECT_URL)
+            .auth_param("access_type", "offline")
+            .auth_param("prompt", "consent")
+            .build(TestHandler);
+
+        let service = OAuth2LoginService::new(context);
+        let req = axum::http::Request::builder()
+            .uri("/login")
+            .body(Body::empty())
+            .unwrap();
+
+        let res = service.oneshot(req).await.unwrap();
+        assert_eq!(res.status(), StatusCode::SEE_OTHER);
+        let location = res.headers().get("location").unwrap().to_str().unwrap();
+        assert!(location.contains("accounts.google.com"), "{location}");
+        assert!(location.contains("access_type=offline"), "{location}");
+        assert!(location.contains("prompt=consent"), "{location}");
+    }
+
+    #[tokio::test]
     async fn redirect_service_rejects_missing_params() {
         let service = OAuth2RedirectService::new(test_context());
         let req = axum::http::Request::builder()

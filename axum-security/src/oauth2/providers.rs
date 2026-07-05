@@ -3,6 +3,11 @@ pub mod github {
     pub const AUTH_URL: &str = "https://github.com/login/oauth/authorize";
 }
 
+pub mod google {
+    pub const AUTH_URL: &str = "https://accounts.google.com/o/oauth2/v2/auth";
+    pub const TOKEN_URL: &str = "https://oauth2.googleapis.com/token";
+}
+
 pub mod discord {
     pub const AUTH_URL: &str = "https://discord.com/api/oauth2/authorize";
     pub const TOKEN_URL: &str = "https://discord.com/api/oauth2/token";

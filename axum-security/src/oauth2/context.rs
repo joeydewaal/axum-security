@@ -6,7 +6,7 @@ use axum::{
     response::{IntoResponse, Redirect},
 };
 
-use axum_security_oauth2::OAuth2Client;
+use axum_security_oauth2::{LoginOptions, OAuth2Client};
 use cookie_monster::{CookieBuilder, CookieJar};
 
 use crate::oauth2::{
@@ -27,6 +27,7 @@ pub(super) struct OAuth2ContextInner<H> {
     pub(super) session: OAuth2Cookie,
     pub(super) client: OAuth2Client,
     pub(super) login_path: Option<Cow<'static, str>>,
+    pub(super) auth_params: Vec<(String, String)>,
     pub(super) flow_type: FlowType,
 }
 impl OAuth2Context<()> {
@@ -38,6 +39,12 @@ impl OAuth2Context<()> {
         Self::builder("github")
             .auth_url(super::providers::github::AUTH_URL)
             .token_url(super::providers::github::TOKEN_URL)
+    }
+
+    pub fn google() -> OAuth2ContextBuilder {
+        Self::builder("google")
+            .auth_url(super::providers::google::AUTH_URL)
+            .token_url(super::providers::google::TOKEN_URL)
     }
 
     pub fn discord() -> OAuth2ContextBuilder {
@@ -140,6 +147,7 @@ impl<H: OAuth2Handler> OAuth2Context<H> {
         Ok(TokenResponse {
             access_token: tokens.access_token().to_string(),
             refresh_token: tokens.refresh_token().map(String::from),
+            expires_in: tokens.expires_in(),
         })
     }
 
@@ -152,11 +160,19 @@ impl<H: OAuth2Handler> OAuth2Context<H> {
 
         let (redirect_url, cookie) = match self.0.flow_type {
             FlowType::AuthorizationCodeFlow => {
-                let (url, csrf_token) = self.0.client.start_login_non_pkce().into_parts();
+                let (url, csrf_token) = self
+                    .0
+                    .client
+                    .start_login_non_pkce_with(|options| self.auth_params(options))
+                    .into_parts();
                 (url, self.0.session.generate_cookie(&csrf_token, None))
             }
             FlowType::AuthorizationCodeFlowPkce => {
-                let (url, csrf_token, pkce_verifier) = self.0.client.start_login().into_parts();
+                let (url, csrf_token, pkce_verifier) = self
+                    .0
+                    .client
+                    .start_login_with(|options| self.auth_params(options))
+                    .into_parts();
                 let cookie = self
                     .0
                     .session
@@ -167,6 +183,14 @@ impl<H: OAuth2Handler> OAuth2Context<H> {
 
         // Send session cookie back
         (cookie, Redirect::to(redirect_url.as_str())).into_response()
+    }
+
+    /// Applies the builder's `auth_param` extras to a login.
+    fn auth_params(&self, mut options: LoginOptions) -> LoginOptions {
+        for (name, value) in &self.0.auth_params {
+            options = options.param(name, value);
+        }
+        options
     }
 
     pub fn cookie(&self, name: impl Into<Cow<'static, str>>) -> CookieBuilder {

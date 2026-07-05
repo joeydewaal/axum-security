@@ -1,6 +1,6 @@
 use std::{borrow::Cow, error::Error, fmt::Display, sync::Arc, time::Duration};
 
-use axum_security_oauth2::{ConfigError, HttpClient, OAuth2Client};
+use axum_security_oauth2::{AuthType, ConfigError, HttpClient, OAuth2Client};
 use cookie_monster::CookieBuilder;
 
 use crate::{
@@ -19,6 +19,8 @@ pub struct OAuth2ContextBuilder {
     scopes: Vec<String>,
     auth_url: Option<String>,
     token_url: Option<String>,
+    auth_params: Vec<(String, String)>,
+    auth_type: AuthType,
     http_client: Option<HttpClient>,
     flow_type: FlowType,
 }
@@ -34,6 +36,8 @@ impl OAuth2ContextBuilder {
             scopes: Vec::new(),
             auth_url: None,
             token_url: None,
+            auth_params: Vec::new(),
+            auth_type: AuthType::default(),
             http_client: None,
             flow_type: FlowType::AuthorizationCodeFlowPkce,
         }
@@ -86,6 +90,23 @@ impl OAuth2ContextBuilder {
 
     pub fn scopes(mut self, scopes: &[&str]) -> Self {
         self.scopes = scopes.iter().map(|s| s.to_string()).collect();
+        self
+    }
+
+    /// Appends an extra query parameter to every authorization redirect —
+    /// provider-specific knobs like Google's `access_type=offline` +
+    /// `prompt=consent` (required to receive a refresh token) or GitHub's
+    /// `allow_signup=false`.
+    pub fn auth_param(mut self, name: impl Into<String>, value: impl Into<String>) -> Self {
+        self.auth_params.push((name.into(), value.into()));
+        self
+    }
+
+    /// How the client authenticates to the token endpoint. Defaults to
+    /// [`AuthType::BasicAuth`]; some providers only accept credentials in
+    /// the request body ([`AuthType::RequestBody`]).
+    pub fn auth_type(mut self, auth_type: AuthType) -> Self {
+        self.auth_type = auth_type;
         self
     }
 
@@ -180,13 +201,17 @@ impl OAuth2ContextBuilder {
             client_builder = client_builder.http_client(http_client);
         }
         let scopes: Vec<&str> = self.scopes.iter().map(String::as_str).collect();
-        let client = client_builder.scopes(&scopes).try_build()?;
+        let client = client_builder
+            .scopes(&scopes)
+            .auth_type(self.auth_type)
+            .try_build()?;
 
         Ok(OAuth2Context(Arc::new(OAuth2ContextInner {
             client,
             inner,
             session: self.cookie_builder.try_build()?,
             login_path: self.login_path,
+            auth_params: self.auth_params,
             flow_type: self.flow_type,
         })))
     }
