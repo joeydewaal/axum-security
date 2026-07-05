@@ -204,6 +204,12 @@ it, so the client's methods never fail on configuration (see decision 11).
 No `get_` builder getters until something needs one. Env-var variants
 (`client_id_env`) stay in axum-security's builder.
 
+Provider shortcuts preset the endpoints (mirroring axum-security's
+`OAuth2Context::github()` shape): `OAuth2Client::github()`, `google()`,
+`discord()`, `spotify()`, `twitch()` return the ordinary builder with
+`auth_url`/`token_url` filled in — no separate type, everything else
+still applies.
+
 The default HTTP client (behind `reqwest`): no redirects, 10s timeout —
 replaces axum-security's `default_reqwest_client()`.
 

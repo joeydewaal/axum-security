@@ -52,6 +52,41 @@ impl OAuth2Client {
         OAuth2ClientBuilder::new()
     }
 
+    /// A builder preconfigured with GitHub's endpoints.
+    pub fn github() -> OAuth2ClientBuilder {
+        Self::builder()
+            .auth_url("https://github.com/login/oauth/authorize")
+            .token_url("https://github.com/login/oauth/access_token")
+    }
+
+    /// A builder preconfigured with Google's endpoints.
+    pub fn google() -> OAuth2ClientBuilder {
+        Self::builder()
+            .auth_url("https://accounts.google.com/o/oauth2/v2/auth")
+            .token_url("https://oauth2.googleapis.com/token")
+    }
+
+    /// A builder preconfigured with Discord's endpoints.
+    pub fn discord() -> OAuth2ClientBuilder {
+        Self::builder()
+            .auth_url("https://discord.com/api/oauth2/authorize")
+            .token_url("https://discord.com/api/oauth2/token")
+    }
+
+    /// A builder preconfigured with Spotify's endpoints.
+    pub fn spotify() -> OAuth2ClientBuilder {
+        Self::builder()
+            .auth_url("https://accounts.spotify.com/authorize")
+            .token_url("https://accounts.spotify.com/api/token")
+    }
+
+    /// A builder preconfigured with Twitch's endpoints.
+    pub fn twitch() -> OAuth2ClientBuilder {
+        Self::builder()
+            .auth_url("https://id.twitch.tv/oauth2/authorize")
+            .token_url("https://id.twitch.tv/oauth2/token")
+    }
+
     pub fn client_id(&self) -> &str {
         &self.client_id
     }
@@ -276,6 +311,43 @@ mod tests {
             crate::pkce::challenge_s256(login.pkce_verifier())
         );
         assert_eq!(query["code_challenge_method"], "S256");
+    }
+
+    #[test]
+    fn provider_shortcuts_set_endpoints() {
+        let cases = [
+            (
+                OAuth2Client::github(),
+                "https://github.com/login/oauth/authorize",
+                "https://github.com/login/oauth/access_token",
+            ),
+            (
+                OAuth2Client::google(),
+                "https://accounts.google.com/o/oauth2/v2/auth",
+                "https://oauth2.googleapis.com/token",
+            ),
+            (
+                OAuth2Client::discord(),
+                "https://discord.com/api/oauth2/authorize",
+                "https://discord.com/api/oauth2/token",
+            ),
+            (
+                OAuth2Client::spotify(),
+                "https://accounts.spotify.com/authorize",
+                "https://accounts.spotify.com/api/token",
+            ),
+            (
+                OAuth2Client::twitch(),
+                "https://id.twitch.tv/oauth2/authorize",
+                "https://id.twitch.tv/oauth2/token",
+            ),
+        ];
+
+        for (builder, auth_url, token_url) in cases {
+            let client = builder.client_id("test_client_id").build();
+            assert_eq!(client.auth_url().as_str(), auth_url);
+            assert_eq!(client.token_url().as_str(), token_url);
+        }
     }
 
     #[test]
