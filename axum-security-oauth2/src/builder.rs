@@ -21,6 +21,8 @@ pub struct OAuth2ClientBuilder {
     auth_url: Option<String>,
     token_url: Option<String>,
     redirect_url: Option<String>,
+    introspection_url: Option<String>,
+    revocation_url: Option<String>,
     scopes: Vec<String>,
     auth_type: AuthType,
     http: Option<HttpClient>,
@@ -34,6 +36,8 @@ impl OAuth2ClientBuilder {
             auth_url: None,
             token_url: None,
             redirect_url: None,
+            introspection_url: None,
+            revocation_url: None,
             scopes: Vec::new(),
             auth_type: AuthType::default(),
             http: None,
@@ -71,6 +75,22 @@ impl OAuth2ClientBuilder {
     /// [`build`](Self::build).
     pub fn redirect_url(mut self, redirect_url: impl Into<String>) -> Self {
         self.redirect_url = Some(redirect_url.into());
+        self
+    }
+
+    /// The token introspection endpoint (RFC 7662), parsed in
+    /// [`build`](Self::build). Optional — required only to call
+    /// [`introspect`](crate::OAuth2Client::introspect).
+    pub fn introspection_url(mut self, introspection_url: impl Into<String>) -> Self {
+        self.introspection_url = Some(introspection_url.into());
+        self
+    }
+
+    /// The token revocation endpoint (RFC 7009), parsed in
+    /// [`build`](Self::build). Optional — required only to call
+    /// [`revoke`](crate::OAuth2Client::revoke).
+    pub fn revocation_url(mut self, revocation_url: impl Into<String>) -> Self {
+        self.revocation_url = Some(revocation_url.into());
         self
     }
 
@@ -137,6 +157,18 @@ impl OAuth2ClientBuilder {
         self.redirect_url = Some(redirect_url.into());
     }
 
+    /// Sets the introspection endpoint in place. See
+    /// [`introspection_url`](Self::introspection_url).
+    pub fn set_introspection_url(&mut self, introspection_url: impl Into<String>) {
+        self.introspection_url = Some(introspection_url.into());
+    }
+
+    /// Sets the revocation endpoint in place. See
+    /// [`revocation_url`](Self::revocation_url).
+    pub fn set_revocation_url(&mut self, revocation_url: impl Into<String>) {
+        self.revocation_url = Some(revocation_url.into());
+    }
+
     /// Sets the requested scopes in place. See [`scopes`](Self::scopes).
     pub fn set_scopes(&mut self, scopes: &[&str]) {
         self.scopes = scopes.iter().map(|scope| scope.to_string()).collect();
@@ -173,6 +205,18 @@ impl OAuth2ClientBuilder {
             .transpose()
             .map_err(ConfigError::InvalidRedirectUrl)?;
 
+        let introspection_url = self
+            .introspection_url
+            .map(|url| Url::parse(&url))
+            .transpose()
+            .map_err(ConfigError::InvalidIntrospectionUrl)?;
+
+        let revocation_url = self
+            .revocation_url
+            .map(|url| Url::parse(&url))
+            .transpose()
+            .map_err(ConfigError::InvalidRevocationUrl)?;
+
         let http = self.http;
         #[cfg(feature = "reqwest")]
         let http = http.or_else(|| {
@@ -188,6 +232,8 @@ impl OAuth2ClientBuilder {
             auth_url,
             token_url,
             redirect_url,
+            introspection_url,
+            revocation_url,
             scopes: self.scopes,
             auth_type: self.auth_type,
             http,
@@ -205,6 +251,8 @@ pub enum ConfigError {
     InvalidAuthUrl(url::ParseError),
     InvalidTokenUrl(url::ParseError),
     InvalidRedirectUrl(url::ParseError),
+    InvalidIntrospectionUrl(url::ParseError),
+    InvalidRevocationUrl(url::ParseError),
     /// No backend feature (such as `reqwest`) is enabled and no client was
     /// set with [`http_client`](OAuth2ClientBuilder::http_client).
     NoHttpClient,
@@ -224,6 +272,12 @@ impl fmt::Display for ConfigError {
             }
             ConfigError::InvalidRedirectUrl(parse_error) => {
                 write!(f, "could not parse redirect url: {parse_error}")
+            }
+            ConfigError::InvalidIntrospectionUrl(parse_error) => {
+                write!(f, "could not parse introspection url: {parse_error}")
+            }
+            ConfigError::InvalidRevocationUrl(parse_error) => {
+                write!(f, "could not parse revocation url: {parse_error}")
             }
             ConfigError::NoHttpClient => f.write_str(
                 "no HTTP client available (enable a backend feature such as `reqwest`, or set one with `http_client`)",

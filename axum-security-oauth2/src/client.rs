@@ -8,6 +8,7 @@ use crate::{
     csrf::CsrfToken,
     error::{Error, ParseError, ServerErrorWire},
     http::{FormResponse, HttpClient},
+    introspect::{Introspection, IntrospectionWire},
     login::{Login, LoginNonPkce, LoginOptions},
     pkce,
     rand::random_b64,
@@ -37,6 +38,8 @@ pub struct OAuth2Client {
     pub(crate) auth_url: Url,
     pub(crate) token_url: Url,
     pub(crate) redirect_url: Option<Url>,
+    pub(crate) introspection_url: Option<Url>,
+    pub(crate) revocation_url: Option<Url>,
     pub(crate) scopes: Vec<String>,
     pub(crate) auth_type: AuthType,
     pub(crate) http: HttpClient,
@@ -53,6 +56,8 @@ impl fmt::Debug for OAuth2Client {
             .field("auth_url", &self.auth_url)
             .field("token_url", &self.token_url)
             .field("redirect_url", &self.redirect_url)
+            .field("introspection_url", &self.introspection_url)
+            .field("revocation_url", &self.revocation_url)
             .field("scopes", &self.scopes)
             .field("auth_type", &self.auth_type)
             .field("http", &self.http)
@@ -134,6 +139,14 @@ impl OAuth2Client {
 
     pub fn redirect_url(&self) -> Option<&Url> {
         self.redirect_url.as_ref()
+    }
+
+    pub fn introspection_url(&self) -> Option<&Url> {
+        self.introspection_url.as_ref()
+    }
+
+    pub fn revocation_url(&self) -> Option<&Url> {
+        self.revocation_url.as_ref()
     }
 
     pub fn scopes(&self) -> &[String] {
@@ -272,14 +285,120 @@ impl OAuth2Client {
         self.token_request(form).await
     }
 
+    /// Introspects a token at the introspection endpoint (RFC 7662): asks
+    /// the server whether it is active and returns its metadata.
+    ///
+    /// Requires an [`introspection_url`](OAuth2ClientBuilder::introspection_url)
+    /// on the client — otherwise this fails with
+    /// [`Error::MissingEndpoint`]. The request is authenticated the same way
+    /// as a token request (RFC 7662 §2.1). A well-formed response with
+    /// [`active`](Introspection::is_active) `false` is a success, not an
+    /// error.
+    pub async fn introspect(&self, token: &str) -> Result<Introspection, Error> {
+        let endpoint = self
+            .introspection_url
+            .as_ref()
+            .ok_or(Error::MissingEndpoint("introspection_url"))?;
+
+        let mut form: Vec<(&str, &str)> = vec![("token", token)];
+        let authorization = self.client_auth(&mut form);
+
+        let response = self
+            .http
+            .post_form(endpoint, &form, authorization.as_deref())
+            .await
+            .map_err(Error::Http)?;
+
+        parse_response::<IntrospectionWire>(endpoint, response)
+            .map(IntrospectionWire::into_introspection)
+    }
+
+    /// Revokes a token at the revocation endpoint (RFC 7009) without a
+    /// `token_type_hint`, letting the server figure out the type.
+    ///
+    /// Requires a [`revocation_url`](OAuth2ClientBuilder::revocation_url) on
+    /// the client — otherwise this fails with [`Error::MissingEndpoint`].
+    /// The request is authenticated the same way as a token request. Per
+    /// RFC 7009 §2.2 the server answers `200` even for an unknown or already
+    /// invalid token, so a successful call does not imply the token existed.
+    ///
+    /// Prefer [`revoke_access_token`](Self::revoke_access_token) or
+    /// [`revoke_refresh_token`](Self::revoke_refresh_token) when the type is
+    /// known — the hint lets the server skip looking the value up as the
+    /// other type (RFC 7009 §2.1).
+    pub async fn revoke(&self, token: &str) -> Result<(), Error> {
+        self.revoke_with_hint(token, None).await
+    }
+
+    /// Revokes an access token at the revocation endpoint (RFC 7009), with
+    /// `token_type_hint=access_token`. See [`revoke`](Self::revoke) for the
+    /// requirements and semantics.
+    pub async fn revoke_access_token(&self, access_token: &str) -> Result<(), Error> {
+        self.revoke_with_hint(access_token, Some("access_token"))
+            .await
+    }
+
+    /// Revokes a refresh token at the revocation endpoint (RFC 7009), with
+    /// `token_type_hint=refresh_token`. Revoking a refresh token usually
+    /// revokes the access tokens derived from it too (RFC 7009 §2.1). See
+    /// [`revoke`](Self::revoke) for the requirements and semantics.
+    pub async fn revoke_refresh_token(&self, refresh_token: &str) -> Result<(), Error> {
+        self.revoke_with_hint(refresh_token, Some("refresh_token"))
+            .await
+    }
+
+    async fn revoke_with_hint(
+        &self,
+        token: &str,
+        token_type_hint: Option<&str>,
+    ) -> Result<(), Error> {
+        let endpoint = self
+            .revocation_url
+            .as_ref()
+            .ok_or(Error::MissingEndpoint("revocation_url"))?;
+
+        let mut form: Vec<(&str, &str)> = vec![("token", token)];
+        if let Some(token_type_hint) = token_type_hint {
+            form.push(("token_type_hint", token_type_hint));
+        }
+        let authorization = self.client_auth(&mut form);
+
+        let response = self
+            .http
+            .post_form(endpoint, &form, authorization.as_deref())
+            .await
+            .map_err(Error::Http)?;
+
+        if (200..300).contains(&response.status) {
+            Ok(())
+        } else {
+            Err(response_error(endpoint, response))
+        }
+    }
+
     async fn token_request<'a>(
         &'a self,
         mut form: Vec<(&'a str, &'a str)>,
     ) -> Result<Tokens, Error> {
-        // Client auth per RFC 6749 §2.3.1: HTTP Basic when a secret is
-        // set (credentials in the body instead under
-        // `AuthType::RequestBody`), bare `client_id` in the body otherwise.
-        let authorization = match (self.auth_type, &self.client_secret) {
+        let authorization = self.client_auth(&mut form);
+
+        let response = self
+            .http
+            .post_form(&self.token_url, &form, authorization.as_deref())
+            .await
+            .map_err(Error::Http)?;
+
+        parse_response::<TokensWire>(&self.token_url, response).map(TokensWire::into_tokens)
+    }
+
+    /// Client authentication per RFC 6749 §2.3.1, shared by every
+    /// authenticated request (token, introspection, revocation): HTTP Basic
+    /// when a secret is set (credentials go in the body instead under
+    /// [`AuthType::RequestBody`]), bare `client_id` in the body otherwise.
+    /// Returns the `Authorization` header value, if any, and pushes any
+    /// body credentials onto `form`.
+    fn client_auth<'a>(&'a self, form: &mut Vec<(&'a str, &'a str)>) -> Option<String> {
+        match (self.auth_type, &self.client_secret) {
             (AuthType::BasicAuth, Some(secret)) => Some(basic_auth_header(&self.client_id, secret)),
             (AuthType::RequestBody, secret) => {
                 form.push(("client_id", &self.client_id));
@@ -292,15 +411,7 @@ impl OAuth2Client {
                 form.push(("client_id", &self.client_id));
                 None
             }
-        };
-
-        let response = self
-            .http
-            .post_form(&self.token_url, &form, authorization.as_deref())
-            .await
-            .map_err(Error::Http)?;
-
-        parse_token_response(&self.token_url, response)
+        }
     }
 }
 
@@ -312,15 +423,18 @@ fn basic_auth_header(client_id: &str, client_secret: &str) -> String {
     format!("Basic {}", STANDARD.encode(format!("{id}:{secret}")))
 }
 
-fn parse_token_response(url: &Url, response: FormResponse) -> Result<Tokens, Error> {
-    let success = (200..300).contains(&response.status);
-
-    if success {
-        match serde_json::from_slice::<TokensWire>(&response.body) {
-            Ok(tokens) => return Ok(tokens.into_tokens()),
+/// Parses a `2xx` response body into `T`, falling back to a
+/// [`ServerError`] for §5.2 error bodies (some providers, e.g. GitHub, send
+/// them with a `2xx` status) and a [`ParseError`] otherwise. A non-success
+/// status goes straight to [`response_error`].
+fn parse_response<T: serde::de::DeserializeOwned>(
+    url: &Url,
+    response: FormResponse,
+) -> Result<T, Error> {
+    if (200..300).contains(&response.status) {
+        match serde_json::from_slice::<T>(&response.body) {
+            Ok(value) => return Ok(value),
             Err(parse_error) => {
-                // Some providers (GitHub) send §5.2 error bodies with a
-                // 2xx status.
                 if let Ok(server_error) = serde_json::from_slice::<ServerErrorWire>(&response.body)
                 {
                     return Err(Error::Server(
@@ -332,11 +446,15 @@ fn parse_token_response(url: &Url, response: FormResponse) -> Result<Tokens, Err
         }
     }
 
+    Err(response_error(url, response))
+}
+
+/// Turns a non-success response into a [`ServerError`] when it carries a
+/// §5.2 error body, else a [`ParseError`].
+fn response_error(url: &Url, response: FormResponse) -> Error {
     match serde_json::from_slice::<ServerErrorWire>(&response.body) {
-        Ok(server_error) => Err(Error::Server(
-            server_error.into_server_error(response.status),
-        )),
-        Err(parse_error) => Err(Error::Parse(parse_error_from(url, response, parse_error))),
+        Ok(server_error) => Error::Server(server_error.into_server_error(response.status)),
+        Err(parse_error) => Error::Parse(parse_error_from(url, response, parse_error)),
     }
 }
 
@@ -566,6 +684,37 @@ mod tests {
 
         let result = base_builder().redirect_url("not an url").try_build();
         assert!(matches!(result, Err(ConfigError::InvalidRedirectUrl(_))));
+
+        let result = base_builder().introspection_url("not an url").try_build();
+        assert!(matches!(
+            result,
+            Err(ConfigError::InvalidIntrospectionUrl(_))
+        ));
+
+        let result = base_builder().revocation_url("not an url").try_build();
+        assert!(matches!(result, Err(ConfigError::InvalidRevocationUrl(_))));
+    }
+
+    #[test]
+    fn introspection_and_revocation_urls_are_optional() {
+        // Absent by default...
+        let client = base_builder().build();
+        assert_eq!(client.introspection_url(), None);
+        assert_eq!(client.revocation_url(), None);
+
+        // ...and read back when set.
+        let client = base_builder()
+            .introspection_url("https://provider.example/introspect")
+            .revocation_url("https://provider.example/revoke")
+            .build();
+        assert_eq!(
+            client.introspection_url().unwrap().as_str(),
+            "https://provider.example/introspect"
+        );
+        assert_eq!(
+            client.revocation_url().unwrap().as_str(),
+            "https://provider.example/revoke"
+        );
     }
 
     #[test]
