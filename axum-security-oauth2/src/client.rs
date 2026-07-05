@@ -436,7 +436,7 @@ mod tests {
         let client = base_builder().build();
         assert_eq!(client.auth_type(), AuthType::BasicAuth);
 
-        let client = base_builder().auth_type(AuthType::RequestBody).build();
+        let client = base_builder().request_body().build();
         assert_eq!(client.auth_type(), AuthType::RequestBody);
     }
 

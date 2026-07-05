@@ -81,11 +81,18 @@ impl OAuth2ClientBuilder {
         self
     }
 
-    /// How the client authenticates to the token endpoint. Defaults to
-    /// [`AuthType::BasicAuth`]; some providers only accept credentials in
-    /// the request body ([`AuthType::RequestBody`]).
-    pub fn auth_type(mut self, auth_type: AuthType) -> Self {
-        self.auth_type = auth_type;
+    /// Authenticate to the token endpoint with HTTP Basic (RFC 6749
+    /// §2.3.1). This is the default; call this only to undo a prior
+    /// [`request_body`](Self::request_body).
+    pub fn basic_auth(mut self) -> Self {
+        self.auth_type = AuthType::BasicAuth;
+        self
+    }
+
+    /// Send `client_id` and `client_secret` in the request body instead of
+    /// an HTTP Basic header, for providers that don't support Basic.
+    pub fn request_body(mut self) -> Self {
+        self.auth_type = AuthType::RequestBody;
         self
     }
 
@@ -133,12 +140,6 @@ impl OAuth2ClientBuilder {
     /// Sets the requested scopes in place. See [`scopes`](Self::scopes).
     pub fn set_scopes(&mut self, scopes: &[&str]) {
         self.scopes = scopes.iter().map(|scope| scope.to_string()).collect();
-    }
-
-    /// Sets the token-endpoint auth type in place. See
-    /// [`auth_type`](Self::auth_type).
-    pub fn set_auth_type(&mut self, auth_type: AuthType) {
-        self.auth_type = auth_type;
     }
 
     /// Sets the HTTP backend in place. See
