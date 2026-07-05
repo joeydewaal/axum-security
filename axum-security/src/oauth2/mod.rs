@@ -8,7 +8,8 @@
 //! the login and callback routes.
 //!
 //! Built-in provider shortcuts: [`OAuth2Context::github`], [`OAuth2Context::google`],
-//! [`OAuth2Context::discord`], [`OAuth2Context::spotify`], [`OAuth2Context::twitch`].
+//! [`OAuth2Context::microsoft`], [`OAuth2Context::gitlab`], [`OAuth2Context::discord`],
+//! [`OAuth2Context::spotify`], [`OAuth2Context::twitch`].
 
 mod builder;
 mod context;

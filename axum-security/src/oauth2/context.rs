@@ -47,6 +47,22 @@ impl OAuth2Context<()> {
             .token_url(super::providers::google::TOKEN_URL)
     }
 
+    /// Microsoft's multi-tenant (`common`) endpoints; single-tenant apps
+    /// use [`builder`](Self::builder) with their tenant's URLs.
+    pub fn microsoft() -> OAuth2ContextBuilder {
+        Self::builder("microsoft")
+            .auth_url(super::providers::microsoft::AUTH_URL)
+            .token_url(super::providers::microsoft::TOKEN_URL)
+    }
+
+    /// gitlab.com's endpoints; self-hosted instances use
+    /// [`builder`](Self::builder) with their own URLs.
+    pub fn gitlab() -> OAuth2ContextBuilder {
+        Self::builder("gitlab")
+            .auth_url(super::providers::gitlab::AUTH_URL)
+            .token_url(super::providers::gitlab::TOKEN_URL)
+    }
+
     pub fn discord() -> OAuth2ContextBuilder {
         Self::builder("discord")
             .auth_url(super::providers::discord::AUTH_URL)
