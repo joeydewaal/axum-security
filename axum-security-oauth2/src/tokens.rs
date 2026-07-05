@@ -125,7 +125,10 @@ mod tests {
         assert_eq!(tokens.token_type(), "example");
         assert!(!tokens.is_bearer());
         assert_eq!(tokens.expires_in, Some(Duration::from_secs(3600)));
-        assert_eq!(tokens.refresh_token.as_deref(), Some("tGzv3JOkF0XG5Qx2TlKWIA"));
+        assert_eq!(
+            tokens.refresh_token.as_deref(),
+            Some("tGzv3JOkF0XG5Qx2TlKWIA")
+        );
         assert_eq!(tokens.scopes(), None);
         assert_eq!(
             tokens.extra_field::<String>("example_parameter").as_deref(),
