@@ -8,7 +8,9 @@ use crate::{
 };
 
 /// Builds an [`OAuth2Client`]. Created with
-/// [`OAuth2Client::builder()`](OAuth2Client::builder).
+/// [`OAuth2Client::builder()`](OAuth2Client::builder) or a provider
+/// shortcut ([`OAuth2Client::github()`](OAuth2Client::github),
+/// [`google()`](OAuth2Client::google), ...) that presets the endpoints.
 ///
 /// `client_id`, `auth_url` and `token_url` are required; the rest is
 /// optional. [`try_build`](Self::try_build) validates everything up

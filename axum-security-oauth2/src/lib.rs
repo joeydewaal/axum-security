@@ -31,11 +31,11 @@
 //! use axum_security_oauth2::OAuth2Client;
 //!
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-//! let client = OAuth2Client::builder()
+//! // Provider shortcuts (github, google, discord, spotify, twitch)
+//! // preset the endpoints; OAuth2Client::builder() takes them explicitly.
+//! let client = OAuth2Client::github()
 //!     .client_id("my-client-id")
 //!     .client_secret("my-client-secret")
-//!     .auth_url("https://github.com/login/oauth/authorize")
-//!     .token_url("https://github.com/login/oauth/access_token")
 //!     .redirect_url("https://my-app.example/callback")
 //!     .scopes(&["read:user"])
 //!     .build(); // or try_build() to handle ConfigError
