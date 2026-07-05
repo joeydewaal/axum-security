@@ -109,8 +109,7 @@ impl IdTokenVerifier {
         validation.set_audience(&[&self.audience]);
 
         // Signature + iss + aud + exp/nbf, in one call.
-        let data =
-            decode::<NonceClaim>(id_token, &key, &validation).map_err(map_jwt_error)?;
+        let data = decode::<NonceClaim>(id_token, &key, &validation).map_err(map_jwt_error)?;
 
         // Nonce is OIDC-specific — jsonwebtoken has no concept of it. Compare in
         // constant time; an absent token nonce compares against "" and fails.
@@ -212,38 +211,11 @@ mod tests {
     const AUDIENCE: &str = "test-client-id";
 
     // A 2048-bit RSA test key pair, generated once for these tests. `N` is the
-    // public modulus (base64url); the public key lives in the JWKS below, the
-    // private key signs tokens.
-    const N: &str = "x6t2Q0gDKIJJBeLq66EPk2PZpLvNw6vbKgzqW_MBsYnI8Tebs1sOqWkxjxAZEn5bb_qNptjYxoKLZATFw_2bPouOCIivzPbB8Eale-kzx4-Eo_34WraDFl_UCfv34Z-d7uWgK_R5o01TpCAEOjnlKFxMs9wFYDRBXadY0PGY4LPk4FyT3n8pENwlvaKZfphR9GIMjWZ8vnuk-XrEvtXcyp-842V4aQd2kVPe41gJRQeUKKWTLhKMe6qKtiywgTFIyL7PyVhmjvEuSkqJ-RzlSdgm1OpQbCqUFz4rEoDBwl4vvUOB2HAz-xGcFvznTDhfNFpFd-91-T6YtHkOKkLPiQ";
-
-    const PRIV_PEM: &str = "-----BEGIN PRIVATE KEY-----
-MIIEvwIBADANBgkqhkiG9w0BAQEFAASCBKkwggSlAgEAAoIBAQDHq3ZDSAMogkkF
-4urroQ+TY9mku83Dq9sqDOpb8wGxicjxN5uzWw6paTGPEBkSfltv+o2m2NjGgotk
-BMXD/Zs+i44IiK/M9sHwRqV76TPHj4Sj/fhatoMWX9QJ+/fhn53u5aAr9HmjTVOk
-IAQ6OeUoXEyz3AVgNEFdp1jQ8Zjgs+TgXJPefykQ3CW9opl+mFH0YgyNZny+e6T5
-esS+1dzKn7zjZXhpB3aRU97jWAlFB5QopZMuEox7qoq2LLCBMUjIvs/JWGaO8S5K
-Son5HOVJ2CbU6lBsKpQXPisSgMHCXi+9Q4HYcDP7EZwW/OdMOF80WkV373X5Ppi0
-eQ4qQs+JAgMBAAECggEANekuukXUTHi4/LTjFxHaocIg/qCSkxVwzG7GTGNVfrkk
-HzUTfh7E26sCbY08J8kkKRzuaDE+foK63huHxj5QT1fg1p8JUH8DqDt67PTvPR+c
-AadOCjgjNsRS/QsiR7IQM3Oehp+wxA3Z2oOmgI4nOHmLYDi03t/dEktf6LKCw5B0
-w0rxQCmaMh1WwqTpDVZ1b0AXLxbtvOXSoPNxkKGSLjpuMeRITd+yNJwSC8Vds5Uo
-zdMVtOojAbHud6G3NRslrnro4UMz6Sq/4YKts62lmvYrlH2/8jYF5H0o7b2voFcS
-n3zGX/yOuYqfFe0z1d7YI+5lFmWUszFSmdQEflp6fQKBgQDpHQlI6gv2QCz7YAq5
-9etXrazDtYvRUX3sKBgEoUkGUQ4Qc6muVnhRX01DMdL4uciVEDAirxtd0dyj4huc
-rt1/S4JBQr6uLQRhXj332Vwy/W5HuigcYCEE6NlV4SD78706AvbZJhBwmy6MqMZc
-rxe/Oc48ML9wHAoG4fBGPZ4X0wKBgQDbRd5fyU95MEMrHj7UuSJL+kT7ipx9zFZe
-ziTdtu5hJcAxyr2nHflR8/im84r5lcBbqHCG/iLNce6nR5JNYBZ97nqAM1qj2RVH
-iy6YT5db7xoxH/n/YuoP9li3sgJO5kXUmpTLlL7yuYz4a2NDdlSiiuxumJX1Y5el
-JguiM93dswKBgQCHQ737fTNrtFllk5klxrjEq5YwCcwTrYGv4qPtK9k/vRC4IyU2
-cB5ouTAP6X1Nrh/hvv7vYUQz8G5i+fSjuiP0lVADpkMWtjBwf0rd4lZJkBzJqg9U
-R8NhIevalUOabxhB7S5nWlr3vFQKcnSHm2HgKB6vdmnfF6YJ0FinqWFu2QKBgQCB
-havteMRxGYkTlzIWBaW0q4jD7QSzalg6eBpevQfiaqI0x0VvyczUFAD03TdiZorR
-mZWep892+621MhnBiti+WngR8kPANSLUt+o2Hg2SSJJ4IiNSL+OCukl9eLDUWkE1
-bHooJx0D04bp1sUzvFoSCW3PhmJOKR4Sd363uVt88QKBgQCVLdfqahjLx0rkCd91
-LKexqDS7amoTtoO+9ulw3XNC5hQC7H0AppqYhewiGUQVTVA88sOt+6n18j9972P6
-8PGQlzyHMx0l/u2dZKZSK1H+wNV4TzBo0WRcniMCTwpGKfSKXXAHkvnv0idALHYI
-9tS4tVf7m6iuAq2m3dCkyqSIfA==
------END PRIVATE KEY-----";
+    // public modulus (base64url) — it lives in the JWKS below; the private key
+    // signs tokens. Both are in `testdata/` (base64 blobs the typos checker
+    // would otherwise flag as misspellings).
+    const N: &str = include_str!("testdata/rsa_modulus_b64u.txt");
+    const PRIV_PEM: &str = include_str!("testdata/rsa_priv_pem.txt");
 
     fn now() -> u64 {
         SystemTime::now()
@@ -293,7 +265,9 @@ LKexqDS7amoTtoO+9ulw3XNC5hQC7H0AppqYhewiGUQVTVA88sOt+6n18j9972P6
     #[test]
     fn verifies_a_valid_token() {
         let verifier = IdTokenVerifier::new(ISSUER, AUDIENCE, jwks());
-        let verified = verifier.verify(&valid_token("the-nonce"), "the-nonce").unwrap();
+        let verified = verifier
+            .verify(&valid_token("the-nonce"), "the-nonce")
+            .unwrap();
 
         let claims = verified.claims().unwrap();
         assert_eq!(claims.issuer, ISSUER);
@@ -302,7 +276,10 @@ LKexqDS7amoTtoO+9ulw3XNC5hQC7H0AppqYhewiGUQVTVA88sOt+6n18j9972P6
         assert_eq!(claims.email, Some("user@example.com"));
         assert_eq!(claims.email_verified, Some(true));
         // Non-standard claims land in `extra`.
-        assert_eq!(claims.extra.get("hd").and_then(Value::as_str), Some("example.com"));
+        assert_eq!(
+            claims.extra.get("hd").and_then(Value::as_str),
+            Some("example.com")
+        );
     }
 
     #[test]
