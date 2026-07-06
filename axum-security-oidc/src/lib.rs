@@ -38,15 +38,22 @@
 //!   [`OidcClaims`] / [`UtcTimestamp`]. Off by default; the core exposes raw
 //!   unix seconds (`i64`).
 
+mod builder;
 mod claims;
+mod client;
 mod error;
 mod jwks;
+mod logout;
 mod metadata;
+pub mod providers;
 mod verifier;
 
+pub use builder::{OidcBuilderError, OidcClientBuilder};
 pub use claims::{OidcAddress, OidcClaims, UtcTimestamp};
-pub use error::{ClaimsError, DiscoveryError, VerifyError};
+pub use client::{OidcClient, OidcLogin, OidcTokens};
+pub use error::{ClaimsError, DiscoveryError, OidcError, VerifyError};
 pub use jwks::{DEFAULT_MIN_REFETCH_INTERVAL, JwksCache};
+pub use logout::LogoutUrl;
 pub use metadata::ProviderMetadata;
 pub use verifier::{IdTokenVerifier, VerifiedIdToken};
 
@@ -56,6 +63,6 @@ pub use verifier::{IdTokenVerifier, VerifiedIdToken};
 pub use jsonwebtoken::{Algorithm, jwk::JwkSet};
 
 /// Re-exported from [`axum_security_oauth2`]: the shared HTTP backend used for
-/// discovery and JWKS fetches. Clone the login flow's client in so both ride
-/// one connection pool.
-pub use axum_security_oauth2::{HttpClient, HttpResponse};
+/// discovery and JWKS fetches (clone the login flow's client in so both ride
+/// one connection pool), and the [`CsrfToken`] carried by [`OidcLogin`].
+pub use axum_security_oauth2::{CsrfToken, HttpClient, HttpResponse};
