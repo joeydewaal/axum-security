@@ -14,7 +14,3 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - *(rbac)* rename requires_any to allows
 - some more cleaning
 - upgrade deps ([#5](https://github.com/joeydewaal/axum-security/pull/5))
-- wip
-- wip
-- wip
-- wip
