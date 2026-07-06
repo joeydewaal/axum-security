@@ -25,6 +25,15 @@ pub enum VerifyError {
     IssuerMismatch,
     /// The `aud` claim did not contain the expected audience (the client id).
     AudienceMismatch,
+    /// The `azp` (authorized party) claim was present but did not equal the
+    /// expected audience (the client id). Per OpenID Connect Core §3.1.3.7, a
+    /// token minted for a different authorized party must not be accepted even
+    /// if it lists this client in `aud`.
+    AuthorizedPartyMismatch,
+    /// The token named more than one audience but carried no `azp` claim. Per
+    /// OpenID Connect Core §3.1.3.7 a multi-audience token must identify its
+    /// authorized party, so it cannot be attributed to this client.
+    AuthorizedPartyMissing,
     /// The `exp` claim is in the past (outside the configured leeway).
     Expired,
     /// The `nbf` claim is in the future (outside the configured leeway).
@@ -51,6 +60,12 @@ impl fmt::Display for VerifyError {
             VerifyError::SignatureInvalid => f.write_str("ID token signature is invalid"),
             VerifyError::IssuerMismatch => f.write_str("ID token issuer does not match"),
             VerifyError::AudienceMismatch => f.write_str("ID token audience does not match"),
+            VerifyError::AuthorizedPartyMismatch => {
+                f.write_str("ID token authorized party (azp) does not match")
+            }
+            VerifyError::AuthorizedPartyMissing => {
+                f.write_str("ID token has multiple audiences but no authorized party (azp)")
+            }
             VerifyError::Expired => f.write_str("ID token has expired"),
             VerifyError::ImmatureToken => f.write_str("ID token is not yet valid"),
             VerifyError::NonceMismatch => f.write_str("ID token nonce does not match"),
