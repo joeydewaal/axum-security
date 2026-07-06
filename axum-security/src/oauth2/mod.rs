@@ -21,5 +21,11 @@ mod router;
 
 pub use builder::OAuth2BuilderError;
 pub use context::OAuth2Context;
-pub use handler::{AfterLoginCookies, OAuth2Handler, TokenResponse};
+pub use handler::{
+    AfterLoginCookies, AuthorizationErrorResponse, OAuth2Handler, TokenResponse,
+};
 pub use router::OAuth2Ext;
+
+/// Errors returned by token requests (code exchange, refresh), re-exported
+/// from the underlying `axum-security-oauth2` crate.
+pub use axum_security_oauth2::{Error, ErrorCode, HttpError, ParseError, ServerError};

@@ -76,6 +76,7 @@ async fn basic() -> Result<(), Box<dyn Error>> {
         .redirect_url(REDIRECT_URL)
         .auth_url(AUTH_URL)
         .token_url(TOKEN_URL)
+        .random_cookie_secret()
         .build(TestHandler);
 
     let res = oauth2_context.start_challenge().await;
@@ -92,6 +93,7 @@ async fn basic_login_path() -> Result<(), Box<dyn Error>> {
         .auth_url(AUTH_URL)
         .token_url(TOKEN_URL)
         .login_path(LOGIN_PATH)
+        .random_cookie_secret()
         .build(TestHandler);
 
     let router = Router::<()>::new().with_oauth2(oauth2_context);
@@ -308,7 +310,8 @@ impl TestServer {
             .auth_url(auth_url)
             .token_url(token_url)
             .login_path(LOGIN_PATH)
-            .use_dev_cookies(true);
+            .use_dev_cookies(true)
+            .random_cookie_secret();
 
         if !pkce {
             builder = builder.authorization_code_flow();

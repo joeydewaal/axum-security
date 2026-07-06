@@ -87,6 +87,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .logout_path("/logout")
         .scopes(&["openid", "email", "profile"])
         .use_dev_cookies(true)
+        // Dev only: an ephemeral per-process signing secret. In production
+        // set a stable one with `.cookie_secret(..)`.
+        .random_cookie_secret()
         .build(handler);
 
     let router = Router::new()

@@ -132,8 +132,27 @@ impl OAuth2ContextBuilder {
         self
     }
 
+    /// Sets the secret used to sign the login state cookie.
+    ///
+    /// A secret is **required**: [`try_build`](Self::try_build) fails with
+    /// [`OAuth2BuilderError::MissingCookieSecret`] if none is set. Use a
+    /// stable secret (e.g. from the environment) so that in-flight logins
+    /// survive restarts and work across instances; for local development
+    /// [`random_cookie_secret`](Self::random_cookie_secret) opts into an
+    /// ephemeral one.
     pub fn cookie_secret(mut self, secret: impl AsRef<[u8]>) -> Self {
         self.cookie_builder.secret = Some(secret.as_ref().to_vec());
+        self
+    }
+
+    /// Signs the login state cookie with a fresh random per-process secret.
+    ///
+    /// The secret is regenerated on every restart and differs between
+    /// instances, so a login begun on one process cannot be completed on
+    /// another. Only appropriate for local development or single-instance
+    /// deployments; otherwise set a stable [`cookie_secret`](Self::cookie_secret).
+    pub fn random_cookie_secret(mut self) -> Self {
+        self.cookie_builder.use_random_secret();
         self
     }
 
@@ -221,6 +240,11 @@ pub enum OAuth2BuilderError {
     InvalidAuthUrl(url::ParseError),
     InvalidTokenUrl(url::ParseError),
     WhitespaceInProviderName,
+    /// No cookie signing secret was set. Provide one with
+    /// [`cookie_secret`](OAuth2ContextBuilder::cookie_secret) or opt into an
+    /// ephemeral one with
+    /// [`random_cookie_secret`](OAuth2ContextBuilder::random_cookie_secret).
+    MissingCookieSecret,
 }
 
 impl Error for OAuth2BuilderError {}
@@ -244,6 +268,9 @@ impl Display for OAuth2BuilderError {
             OAuth2BuilderError::WhitespaceInProviderName => {
                 f.write_str("provider name can't contain whitespaces")
             }
+            OAuth2BuilderError::MissingCookieSecret => f.write_str(
+                "cookie signing secret is missing (set one with `cookie_secret`, or opt into an ephemeral one with `random_cookie_secret`)",
+            ),
         }
     }
 }
@@ -283,6 +310,7 @@ mod builder {
             .auth_url(AUTH_URL)
             .token_url(TOKEN_URL)
             .redirect_url(REDIRECT_URL)
+            .random_cookie_secret()
             .try_build(TestHandler {});
 
         assert!(res.is_ok());
@@ -292,9 +320,23 @@ mod builder {
             .auth_url(AUTH_URL)
             .token_url(TOKEN_URL)
             .redirect_url(REDIRECT_URL)
+            .random_cookie_secret()
             .try_build(TestHandler {});
 
         assert!(res.is_ok());
+    }
+
+    #[test]
+    fn missing_cookie_secret() {
+        let res = OAuth2Context::builder("github")
+            .client_id(CLIENT_ID)
+            .client_secret(CLIENT_SECRET)
+            .auth_url(AUTH_URL)
+            .token_url(TOKEN_URL)
+            .redirect_url(REDIRECT_URL)
+            .try_build(TestHandler {});
+
+        assert!(matches!(res, Err(OAuth2BuilderError::MissingCookieSecret)));
     }
 
     #[test]

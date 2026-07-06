@@ -15,7 +15,6 @@ pub struct OidcState<'a> {
     csrf_token: &'a str,
     pkce_verifier: &'a str,
     nonce: &'a str,
-    provider_name: &'a str,
     issued: u64,
     expires: u64,
 }
@@ -35,13 +34,11 @@ impl OidcCookie {
     pub fn generate_cookie(&self, csrf_token: &str, pkce_verifier: &str, nonce: &str) -> Cookie {
         let issued = utc_now_secs();
         let expires = issued + self.inner.max_login_duration_seconds;
-        let provider_name = &self.inner.provider_name;
 
         let state = OidcState {
             csrf_token,
             pkce_verifier,
             nonce,
-            provider_name,
             issued,
             expires,
         };
@@ -91,7 +88,10 @@ impl OidcCookieBuilder {
 
     pub fn try_build(self) -> Result<OidcCookie, OidcBuilderError> {
         self.inner
-            .try_build(OidcBuilderError::WhitespaceInProviderName)
+            .try_build(
+                OidcBuilderError::WhitespaceInProviderName,
+                OidcBuilderError::MissingCookieSecret,
+            )
             .map(|inner| OidcCookie { inner })
     }
 }
@@ -120,8 +120,9 @@ mod tests {
     fn make_handler(secret: Option<Vec<u8>>) -> OidcCookie {
         let mut builder = OidcCookieBuilder::new("test".into());
         builder.cookie_builder.dev = true;
-        if let Some(s) = secret {
-            builder.secret = Some(s);
+        match secret {
+            Some(s) => builder.secret = Some(s),
+            None => builder.use_random_secret(),
         }
         builder.try_build().unwrap()
     }
@@ -213,7 +214,6 @@ mod tests {
             csrf_token: "csrf_token",
             pkce_verifier: "pkce_verifier",
             nonce: "nonce",
-            provider_name: "test",
             issued: now - 100,
             expires: now - 1,
         };
@@ -233,7 +233,6 @@ mod tests {
             csrf_token: "csrf_token",
             pkce_verifier: "pkce_verifier",
             nonce: "nonce",
-            provider_name: "test",
             issued: now + 1000,
             expires: now + 2000,
         };
