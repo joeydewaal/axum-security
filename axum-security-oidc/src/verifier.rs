@@ -109,7 +109,11 @@ impl IdTokenVerifier {
         validation.set_audience(&[&self.audience]);
 
         // Signature + iss + aud + exp/nbf, in one call.
-        let data = decode::<NonceClaim>(id_token, &key, &validation).map_err(map_jwt_error)?;
+        let data = decode::<VerifiedClaims>(id_token, &key, &validation).map_err(map_jwt_error)?;
+
+        // `aud` membership is checked above; the `azp` rules are OIDC-specific
+        // and jsonwebtoken does not know them.
+        self.check_authorized_party(&data.claims)?;
 
         // Nonce is OIDC-specific — jsonwebtoken has no concept of it. Compare in
         // constant time; an absent token nonce compares against "" and fails.
@@ -123,6 +127,18 @@ impl IdTokenVerifier {
             id_token: id_token.to_owned(),
             payload,
         })
+    }
+
+    /// Enforce the OpenID Connect Core §3.1.3.7 `azp` rules: an `azp` claim, if
+    /// present, must equal our audience (the client id), and a token that names
+    /// more than one audience must carry `azp`. Without this a token minted for
+    /// a different client that merely lists us in `aud` would be accepted.
+    fn check_authorized_party(&self, claims: &VerifiedClaims) -> Result<(), VerifyError> {
+        match &claims.azp {
+            Some(azp) if azp != &self.audience => Err(VerifyError::AuthorizedPartyMismatch),
+            None if claims.aud.len() > 1 => Err(VerifyError::AuthorizedPartyMissing),
+            _ => Ok(()),
+        }
     }
 
     /// Select the verification key by `kid`. A token with no `kid` is only
@@ -169,11 +185,33 @@ impl fmt::Debug for VerifiedIdToken {
     }
 }
 
-/// The only OIDC-specific claim `jsonwebtoken` won't check for us.
+/// The OIDC-specific claims `jsonwebtoken` won't check for us: the `nonce`
+/// (replay protection) and the `azp`/`aud` pair (authorized-party binding).
 #[derive(serde::Deserialize)]
-struct NonceClaim {
+struct VerifiedClaims {
     #[serde(default)]
     nonce: Option<String>,
+    #[serde(default)]
+    azp: Option<String>,
+    aud: Audiences,
+}
+
+/// The `aud` claim: a single string or an array of them (OIDC Core §2). Only
+/// the count matters here — jsonwebtoken already checked membership.
+#[derive(serde::Deserialize)]
+#[serde(untagged)]
+enum Audiences {
+    One(#[allow(dead_code)] String),
+    Many(Vec<String>),
+}
+
+impl Audiences {
+    fn len(&self) -> usize {
+        match self {
+            Audiences::One(_) => 1,
+            Audiences::Many(auds) => auds.len(),
+        }
+    }
 }
 
 /// Decode the JWT payload (second segment) from base64url.
@@ -298,6 +336,72 @@ mod tests {
         let verifier = IdTokenVerifier::new(ISSUER, AUDIENCE, jwks());
         let err = verifier.verify(&token, "n").unwrap_err();
         assert!(matches!(err, VerifyError::AudienceMismatch), "{err:?}");
+    }
+
+    #[test]
+    fn accepts_matching_azp() {
+        // A single audience plus an `azp` naming this client: fine.
+        let token = sign(
+            &json!({
+                "iss": ISSUER, "aud": AUDIENCE, "sub": "user-123",
+                "exp": now() + 3600, "iat": now(), "nonce": "n", "azp": AUDIENCE,
+            }),
+            KID,
+        );
+        let verifier = IdTokenVerifier::new(ISSUER, AUDIENCE, jwks());
+        assert!(verifier.verify(&token, "n").is_ok());
+    }
+
+    #[test]
+    fn rejects_mismatched_azp() {
+        // `aud` lists this client, but `azp` says the token was issued to
+        // someone else — OIDC Core §3.1.3.7 says reject it.
+        let token = sign(
+            &json!({
+                "iss": ISSUER, "aud": AUDIENCE, "sub": "user-123",
+                "exp": now() + 3600, "iat": now(), "nonce": "n",
+                "azp": "another-client",
+            }),
+            KID,
+        );
+        let verifier = IdTokenVerifier::new(ISSUER, AUDIENCE, jwks());
+        let err = verifier.verify(&token, "n").unwrap_err();
+        assert!(
+            matches!(err, VerifyError::AuthorizedPartyMismatch),
+            "{err:?}"
+        );
+    }
+
+    #[test]
+    fn accepts_multiple_audiences_with_matching_azp() {
+        let token = sign(
+            &json!({
+                "iss": ISSUER, "aud": [AUDIENCE, "other-client"], "sub": "user-123",
+                "exp": now() + 3600, "iat": now(), "nonce": "n", "azp": AUDIENCE,
+            }),
+            KID,
+        );
+        let verifier = IdTokenVerifier::new(ISSUER, AUDIENCE, jwks());
+        assert!(verifier.verify(&token, "n").is_ok());
+    }
+
+    #[test]
+    fn rejects_multiple_audiences_without_azp() {
+        // Multiple audiences and no `azp`: the token doesn't say which client
+        // it was minted for, so it can't be attributed to us.
+        let token = sign(
+            &json!({
+                "iss": ISSUER, "aud": [AUDIENCE, "other-client"], "sub": "user-123",
+                "exp": now() + 3600, "iat": now(), "nonce": "n",
+            }),
+            KID,
+        );
+        let verifier = IdTokenVerifier::new(ISSUER, AUDIENCE, jwks());
+        let err = verifier.verify(&token, "n").unwrap_err();
+        assert!(
+            matches!(err, VerifyError::AuthorizedPartyMissing),
+            "{err:?}"
+        );
     }
 
     #[test]
