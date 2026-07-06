@@ -1,6 +1,6 @@
 [package]
 name = "axum-security"
-version = "0.0.1"
+version = "0.0.2"
 edition = "2024"
 authors = ["Joey de Waal <dewaaljoey@gmail.com>"]
 license = "MIT"
@@ -43,9 +43,9 @@ pin-project-lite = { workspace = true, optional = true }
 
 cookie-monster = { workspace = true, optional = true }
 jsonwebtoken = { workspace = true, features = ["aws_lc_rs"], optional = true }
-axum-security-macros = { path = "../axum-security-macros", version = "0.0.1", optional = true }
-axum-security-oauth2 = { path = "../axum-security-oauth2", version = "0.0.1", default-features = false, optional = true }
-axum-security-oidc = { path = "../axum-security-oidc", version = "0.0.1", default-features = false, optional = true }
+axum-security-macros = { path = "../axum-security-macros", version = "0.0.2", optional = true }
+axum-security-oauth2 = { path = "../axum-security-oauth2", version = "0.0.2", default-features = false, optional = true }
+axum-security-oidc = { path = "../axum-security-oidc", version = "0.0.2", default-features = false, optional = true }
 url = { workspace = true, optional = true }
 
 uuid = { workspace = true, features = ["v7"], optional = true }

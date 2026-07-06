@@ -1,6 +1,6 @@
 [package]
 name = "axum-security-oauth2"
-version = "0.0.1"
+version = "0.0.2"
 edition = "2024"
 authors = ["Joey de Waal <dewaaljoey@gmail.com>"]
 license = "MIT"

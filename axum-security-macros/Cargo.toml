@@ -1,6 +1,6 @@
 [package]
 name = "axum-security-macros"
-version = "0.0.1"
+version = "0.0.2"
 edition = "2024"
 license = "MIT"
 description = "Macro's for axum-security"
