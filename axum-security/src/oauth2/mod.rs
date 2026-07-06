@@ -21,9 +21,7 @@ mod router;
 
 pub use builder::OAuth2BuilderError;
 pub use context::OAuth2Context;
-pub use handler::{
-    AfterLoginCookies, AuthorizationErrorResponse, OAuth2Handler, TokenResponse,
-};
+pub use handler::{AfterLoginCookies, AuthorizationErrorResponse, OAuth2Handler, TokenResponse};
 pub use router::OAuth2Ext;
 
 /// Errors returned by token requests (code exchange, refresh), re-exported

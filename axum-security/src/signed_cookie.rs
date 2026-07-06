@@ -123,7 +123,11 @@ impl SignedCookieBuilder {
     /// A signing secret is required: without one, `missing_secret_error` is
     /// returned. Set it with an explicit secret or opt into an ephemeral one
     /// with [`use_random_secret`](Self::use_random_secret).
-    pub fn try_build<E>(self, whitespace_error: E, missing_secret_error: E) -> Result<SignedCookie, E> {
+    pub fn try_build<E>(
+        self,
+        whitespace_error: E,
+        missing_secret_error: E,
+    ) -> Result<SignedCookie, E> {
         if self
             .provider_name
             .find(|c: char| c.is_whitespace())

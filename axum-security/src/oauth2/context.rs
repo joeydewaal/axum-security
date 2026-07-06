@@ -211,7 +211,7 @@ impl<H: OAuth2Handler> OAuth2Context<H> {
     ///
     /// Note that a provider only issues refresh tokens when asked — most
     /// require a specific scope or authorization parameter (e.g. Google needs
-    /// `access_type=offline`, set via [`auth_param`](OAuth2ContextBuilder::auth_param)).
+    /// `access_type=offline`, set via the builder's `auth_param`).
     pub async fn refresh_tokens(&self, refresh_token: &str) -> Result<TokenResponse, Error> {
         let tokens = self.0.client.refresh_tokens(refresh_token).await?;
         Ok(TokenResponse {

@@ -225,10 +225,8 @@ pub enum OidcBuilderError {
     InvalidJwksUrl(url::ParseError),
     InvalidEndSessionUrl(url::ParseError),
     WhitespaceInProviderName,
-    /// No cookie signing secret was set. Provide one with
-    /// [`cookie_secret`](OidcContextBuilder::cookie_secret) or opt into an
-    /// ephemeral one with
-    /// [`random_cookie_secret`](OidcContextBuilder::random_cookie_secret).
+    /// No cookie signing secret was set. Provide one with `cookie_secret`
+    /// or opt into an ephemeral one with `random_cookie_secret`.
     MissingCookieSecret,
     DiscoveryError(String),
     /// Another OAuth2 client configuration error.

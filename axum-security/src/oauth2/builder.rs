@@ -240,10 +240,8 @@ pub enum OAuth2BuilderError {
     InvalidAuthUrl(url::ParseError),
     InvalidTokenUrl(url::ParseError),
     WhitespaceInProviderName,
-    /// No cookie signing secret was set. Provide one with
-    /// [`cookie_secret`](OAuth2ContextBuilder::cookie_secret) or opt into an
-    /// ephemeral one with
-    /// [`random_cookie_secret`](OAuth2ContextBuilder::random_cookie_secret).
+    /// No cookie signing secret was set. Provide one with `cookie_secret`
+    /// or opt into an ephemeral one with `random_cookie_secret`.
     MissingCookieSecret,
 }
 
