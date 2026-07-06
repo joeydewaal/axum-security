@@ -1,4 +1,5 @@
 /target
 notes.txt
 .env
-.claude
+.claude/worktrees/
+.claude/settings.local.json
