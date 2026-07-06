@@ -1,7 +1,6 @@
 use std::borrow::Cow;
 
 use cookie_monster::{Cookie, CookieJar};
-use openidconnect::{CsrfToken, Nonce, PkceCodeVerifier};
 use wincode::{SchemaRead, SchemaWrite};
 
 use crate::{
@@ -51,10 +50,8 @@ impl OidcCookie {
         self.inner.generate_cookie(&data)
     }
 
-    pub fn verify_cookies(
-        &self,
-        jar: &mut CookieJar,
-    ) -> Option<(CsrfToken, PkceCodeVerifier, Nonce)> {
+    /// Returns `(csrf_token, pkce_verifier, nonce)` as plain strings.
+    pub fn verify_cookies(&self, jar: &mut CookieJar) -> Option<(String, String, String)> {
         let payload = self.inner.decode_and_verify(jar)?;
 
         let now = utc_now_secs();
@@ -69,9 +66,9 @@ impl OidcCookie {
         }
 
         Some((
-            CsrfToken::new(data.csrf_token.into()),
-            PkceCodeVerifier::new(data.pkce_verifier.into()),
-            Nonce::new(data.nonce.into()),
+            data.csrf_token.into(),
+            data.pkce_verifier.into(),
+            data.nonce.into(),
         ))
     }
 }
@@ -147,9 +144,9 @@ mod tests {
         let mut jar = make_jar(cookie);
 
         let (csrf, pkce, nonce) = handler.verify_cookies(&mut jar).unwrap();
-        assert_eq!(csrf.secret(), "csrf_token");
-        assert_eq!(pkce.secret(), "pkce_verifier");
-        assert_eq!(nonce.secret(), "test_nonce");
+        assert_eq!(csrf, "csrf_token");
+        assert_eq!(pkce, "pkce_verifier");
+        assert_eq!(nonce, "test_nonce");
     }
 
     #[test]

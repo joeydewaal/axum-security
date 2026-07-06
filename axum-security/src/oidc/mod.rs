@@ -18,20 +18,21 @@
 //! - [`OidcContext::builder`] — manual endpoint configuration
 
 mod builder;
-mod claims;
 mod context;
 mod cookie;
 mod handler;
-mod jwks;
 pub mod providers;
 mod redirect;
 mod router;
 
 pub use builder::OidcBuilderError;
-pub use claims::{OidcAddress, OidcClaims, UtcTimestamp};
 pub use context::{LogoutContext, OidcContext};
 pub use handler::OidcHandler;
 pub use router::OidcExt;
+
+/// Re-exported from [`axum_security_oidc`]: the standard ID-token claim set and
+/// the ID-token verification error ([`OidcContext::warm_jwks`] returns it).
+pub use axum_security_oidc::{OidcAddress, OidcClaims, UtcTimestamp, VerifyError};
 
 pub use crate::after_login::AfterLoginCookies;
 

@@ -1,4 +1,4 @@
-use std::fmt;
+use std::{fmt, time::Duration};
 
 use axum_security_oauth2::{ConfigError, HttpClient, OAuth2Client};
 use jsonwebtoken::Algorithm;
@@ -89,6 +89,7 @@ pub struct OidcClientBuilder {
     redirect_url: Option<String>,
     scopes: Vec<String>,
     algorithms: Option<Vec<Algorithm>>,
+    min_refetch_interval: Option<Duration>,
     http: Option<HttpClient>,
 }
 
@@ -105,6 +106,7 @@ impl OidcClientBuilder {
             redirect_url: None,
             scopes: Vec::new(),
             algorithms: None,
+            min_refetch_interval: None,
             http: None,
         }
     }
@@ -183,6 +185,13 @@ impl OidcClientBuilder {
         self
     }
 
+    /// The minimum interval between rotation-triggered JWKS refetches (see
+    /// [`JwksCache::min_refetch_interval`]). Defaults to 60 seconds.
+    pub fn min_refetch_interval(mut self, interval: Duration) -> Self {
+        self.min_refetch_interval = Some(interval);
+        self
+    }
+
     /// The HTTP backend for token, JWKS, and discovery requests. Accepts
     /// anything convertible into an [`HttpClient`] (e.g. a `reqwest::Client`).
     /// Defaults to a reqwest client (the `reqwest` feature); the whole flow
@@ -238,6 +247,9 @@ impl OidcClientBuilder {
         let mut verifier = JwksCache::new(issuer, client_id, jwks_url, http);
         if let Some(algorithms) = &self.algorithms {
             verifier = verifier.algorithms(algorithms);
+        }
+        if let Some(interval) = self.min_refetch_interval {
+            verifier = verifier.min_refetch_interval(interval);
         }
 
         let end_session_endpoint = self

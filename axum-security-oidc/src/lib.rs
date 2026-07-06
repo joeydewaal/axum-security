@@ -64,5 +64,6 @@ pub use jsonwebtoken::{Algorithm, jwk::JwkSet};
 
 /// Re-exported from [`axum_security_oauth2`]: the shared HTTP backend used for
 /// discovery and JWKS fetches (clone the login flow's client in so both ride
-/// one connection pool), and the [`CsrfToken`] carried by [`OidcLogin`].
-pub use axum_security_oauth2::{CsrfToken, HttpClient, HttpResponse};
+/// one connection pool), the [`CsrfToken`] carried by [`OidcLogin`], and the
+/// [`ConfigError`] wrapped by [`OidcBuilderError::OAuth2`].
+pub use axum_security_oauth2::{ConfigError, CsrfToken, HttpClient, HttpResponse};

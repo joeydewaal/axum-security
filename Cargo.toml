@@ -13,7 +13,6 @@ cookie-monster = { version = "0.2.2", features = ["axum"] }
 jsonwebtoken = { version = "10.2.0", default-features = false }
 uuid = { version = "1.20", features = ["std"], default-features = false }
 
-openidconnect = { version = "4.0.1", default-features = false, features = ["reqwest", "rustls-tls"] }
 
 serde = { version = "1.0.228", features = ["derive"] }
 wincode = { version = "0.5.1", features = ["derive"] }

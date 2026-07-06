@@ -35,7 +35,7 @@ wiremock = "0.6.5"
 reqwest = { version = "0.13.1", features = ["cookies"], default-features=false }
 sha2 = "0.11"
 base64 = "0.22"
-openidconnect = { workspace = true }
+jsonwebtoken = { workspace = true, features = ["aws_lc_rs", "use_pem"] }
 chrono = "0.4"
 jiff = { workspace = true }
 time = { workspace = true }

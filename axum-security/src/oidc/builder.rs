@@ -1,74 +1,33 @@
 use std::{borrow::Cow, error::Error, fmt::Display, sync::Arc, time::Duration};
 
-use cookie_monster::CookieBuilder;
-use openidconnect::{
-    AuthUrl, ClientId, ClientSecret, EndSessionUrl, IssuerUrl, JsonWebKeySetUrl,
-    PostLogoutRedirectUrl, ProviderMetadataWithLogout, RedirectUrl, ResponseTypes, Scope, TokenUrl,
-    core::{
-        CoreClient, CoreJwsSigningAlgorithm, CoreProviderMetadata, CoreResponseType,
-        CoreSubjectIdentifierType,
-    },
-    reqwest::Client as HttpClient,
+use axum_security_oidc::{
+    ConfigError, DiscoveryError, HttpClient, OidcBuilderError as CrateBuilderError, OidcClient,
+    OidcClientBuilder,
 };
+use cookie_monster::CookieBuilder;
 
 use crate::utils::get_env;
 
-use super::{
-    OidcContext, OidcHandler,
-    context::{IdTokenVerification, OidcContextInner},
-    cookie::OidcCookieBuilder,
-    jwks::{DEFAULT_MIN_REFETCH_INTERVAL, LazyVerifier},
-};
+use super::{OidcContext, OidcHandler, context::OidcContextInner, cookie::OidcCookieBuilder};
 
-fn default_reqwest_client() -> openidconnect::reqwest::Client {
-    openidconnect::reqwest::Client::builder()
-        .redirect(openidconnect::reqwest::redirect::Policy::none())
-        // A hung provider must not stall the login flow indefinitely.
-        .timeout(Duration::from_secs(10))
-        .build()
-        .unwrap()
-}
-
+/// Builder for an [`OidcContext`]. Wraps the `axum-security-oidc`
+/// [`OidcClientBuilder`] with axum-security's signed-cookie and route config.
 pub struct OidcContextBuilder {
     cookie_builder: OidcCookieBuilder,
     login_path: Option<Cow<'static, str>>,
     logout_path: Option<Cow<'static, str>>,
     post_logout_redirect_url: Option<String>,
-    redirect_url: Option<String>,
-    client_id: Option<String>,
-    client_secret: Option<String>,
-    scopes: Vec<Scope>,
-    http_client: Option<HttpClient>,
-    jwks_min_refetch_interval: Option<Duration>,
-
-    // Provider metadata (filled by discover, or set manually)
-    issuer_url: Option<String>,
-    auth_url: Option<String>,
-    token_url: Option<String>,
-    jwks_url: Option<String>,
-    end_session_url: Option<String>,
-    provider_metadata: Option<ProviderMetadataWithLogout>,
+    client: OidcClientBuilder,
 }
 
 impl OidcContextBuilder {
-    pub fn new(provider_name: impl Into<Cow<'static, str>>) -> Self {
+    pub fn new(provider_name: Cow<'static, str>) -> Self {
         Self {
-            cookie_builder: OidcCookieBuilder::new(provider_name.into()),
+            cookie_builder: OidcCookieBuilder::new(provider_name),
             login_path: None,
             logout_path: None,
             post_logout_redirect_url: None,
-            redirect_url: None,
-            client_id: None,
-            client_secret: None,
-            scopes: Vec::new(),
-            http_client: None,
-            jwks_min_refetch_interval: None,
-            issuer_url: None,
-            auth_url: None,
-            token_url: None,
-            jwks_url: None,
-            end_session_url: None,
-            provider_metadata: None,
+            client: OidcClient::builder(),
         }
     }
 
@@ -76,12 +35,7 @@ impl OidcContextBuilder {
         provider_name: Cow<'static, str>,
         issuer_url: &str,
     ) -> Result<Self, OidcBuilderError> {
-        let issuer =
-            IssuerUrl::new(issuer_url.to_string()).map_err(OidcBuilderError::InvalidIssuerUrl)?;
-
-        let http_client = default_reqwest_client();
-
-        let metadata = ProviderMetadataWithLogout::discover_async(issuer, &http_client)
+        let client = OidcClient::discover(issuer_url, HttpClient::default_reqwest())
             .await
             .map_err(|e| OidcBuilderError::DiscoveryError(e.to_string()))?;
 
@@ -90,23 +44,12 @@ impl OidcContextBuilder {
             login_path: None,
             logout_path: None,
             post_logout_redirect_url: None,
-            redirect_url: None,
-            client_id: None,
-            client_secret: None,
-            scopes: Vec::new(),
-            http_client: Some(http_client),
-            jwks_min_refetch_interval: None,
-            issuer_url: None,
-            auth_url: None,
-            token_url: None,
-            jwks_url: None,
-            end_session_url: None,
-            provider_metadata: Some(metadata),
+            client,
         })
     }
 
     pub fn redirect_url(mut self, url: impl Into<String>) -> Self {
-        self.redirect_url = Some(url.into());
+        self.client = self.client.redirect_url(url);
         self
     }
 
@@ -115,7 +58,7 @@ impl OidcContextBuilder {
     }
 
     pub fn client_id(mut self, client_id: impl Into<String>) -> Self {
-        self.client_id = Some(client_id.into());
+        self.client = self.client.client_id(client_id);
         self
     }
 
@@ -124,7 +67,7 @@ impl OidcContextBuilder {
     }
 
     pub fn client_secret(mut self, client_secret: impl Into<String>) -> Self {
-        self.client_secret = Some(client_secret.into());
+        self.client = self.client.client_secret(client_secret);
         self
     }
 
@@ -133,27 +76,27 @@ impl OidcContextBuilder {
     }
 
     pub fn issuer_url(mut self, url: impl Into<String>) -> Self {
-        self.issuer_url = Some(url.into());
+        self.client = self.client.issuer_url(url);
         self
     }
 
     pub fn auth_url(mut self, url: impl Into<String>) -> Self {
-        self.auth_url = Some(url.into());
+        self.client = self.client.auth_url(url);
         self
     }
 
     pub fn token_url(mut self, url: impl Into<String>) -> Self {
-        self.token_url = Some(url.into());
+        self.client = self.client.token_url(url);
         self
     }
 
     pub fn jwks_url(mut self, url: impl Into<String>) -> Self {
-        self.jwks_url = Some(url.into());
+        self.client = self.client.jwks_url(url);
         self
     }
 
     pub fn scopes(mut self, scopes: &[&str]) -> Self {
-        self.scopes = scopes.iter().map(|s| Scope::new(s.to_string())).collect();
+        self.client = self.client.scopes(scopes);
         self
     }
 
@@ -183,7 +126,7 @@ impl OidcContextBuilder {
     }
 
     pub fn end_session_url(mut self, url: impl Into<String>) -> Self {
-        self.end_session_url = Some(url.into());
+        self.client = self.client.end_session_url(url);
         self
     }
 
@@ -193,7 +136,7 @@ impl OidcContextBuilder {
     }
 
     pub fn http_client(mut self, http_client: HttpClient) -> Self {
-        self.http_client = Some(http_client);
+        self.client = self.client.http_client(http_client);
         self
     }
 
@@ -202,9 +145,8 @@ impl OidcContextBuilder {
     ///
     /// An ID token with an unknown signing key (key rotation) triggers a JWKS
     /// refetch, at most one attempt per this interval. Defaults to 60 seconds.
-    /// Has no effect on the discovery path, which fetches keys at build time.
     pub fn jwks_min_refetch_interval(mut self, interval: Duration) -> Self {
-        self.jwks_min_refetch_interval = Some(interval);
+        self.client = self.client.min_refetch_interval(interval);
         self
     }
 
@@ -230,127 +172,22 @@ impl OidcContextBuilder {
         self.try_build(handler).unwrap()
     }
 
-    pub fn try_build<T>(mut self, handler: T) -> Result<OidcContext<T>, OidcBuilderError>
+    pub fn try_build<T>(self, handler: T) -> Result<OidcContext<T>, OidcBuilderError>
     where
         T: OidcHandler,
     {
-        let client_id = self
-            .client_id
-            .take()
-            .ok_or(OidcBuilderError::MissingClientId)
-            .map(ClientId::new)?;
-
-        let redirect_url = self
-            .redirect_url
-            .take()
-            .ok_or(OidcBuilderError::MissingRedirectUrl)?;
-
-        let redirect_url =
-            RedirectUrl::new(redirect_url).map_err(OidcBuilderError::InvalidRedirectUrl)?;
-
-        let client_secret = self.client_secret.take().map(ClientSecret::new);
-        let explicit_end_session = self
-            .end_session_url
-            .take()
-            .map(|u| EndSessionUrl::new(u).expect("invalid end_session_url"));
-
-        let (client, end_session_url, id_token_verification) = if let Some(metadata) =
-            self.provider_metadata.take()
-        {
-            // Discovery path — extract end_session_endpoint before consuming metadata
-            let discovered_end_session =
-                metadata.additional_metadata().end_session_endpoint.clone();
-
-            let client = CoreClient::from_provider_metadata(metadata, client_id, client_secret)
-                .set_redirect_uri(redirect_url);
-
-            // Explicit end_session_url takes priority over discovered one
-            let end_session_url = explicit_end_session.or(discovered_end_session);
-
-            // Discovery baked the JWKS into the client at build time.
-            (client, end_session_url, IdTokenVerification::Baked)
-        } else {
-            // Manual path — require all endpoints
-            let issuer_url = self
-                .issuer_url
-                .take()
-                .ok_or(OidcBuilderError::MissingIssuerUrl)?;
-            let issuer_url =
-                IssuerUrl::new(issuer_url).map_err(OidcBuilderError::InvalidIssuerUrl)?;
-
-            let auth_url = self
-                .auth_url
-                .take()
-                .ok_or(OidcBuilderError::MissingAuthUrl)?;
-            let auth_url = AuthUrl::new(auth_url).map_err(OidcBuilderError::InvalidAuthUrl)?;
-
-            let token_url = self
-                .token_url
-                .take()
-                .ok_or(OidcBuilderError::MissingTokenUrl)?;
-            let token_url = TokenUrl::new(token_url).map_err(OidcBuilderError::InvalidTokenUrl)?;
-
-            let jwks_url = self
-                .jwks_url
-                .take()
-                .ok_or(OidcBuilderError::MissingJwksUrl)?;
-            let jwks_url =
-                JsonWebKeySetUrl::new(jwks_url).map_err(OidcBuilderError::InvalidJwksUrl)?;
-
-            // The client gets an empty key set: it only serves the authorize +
-            // code exchange; ID tokens are verified via the lazy JWKS below.
-            let metadata = CoreProviderMetadata::new(
-                issuer_url.clone(),
-                auth_url,
-                jwks_url.clone(),
-                vec![ResponseTypes::new(vec![CoreResponseType::Code])],
-                vec![CoreSubjectIdentifierType::Public],
-                vec![CoreJwsSigningAlgorithm::RsaSsaPkcs1V15Sha256],
-                Default::default(),
-            )
-            .set_token_endpoint(Some(token_url));
-
-            let min_refetch_interval = self
-                .jwks_min_refetch_interval
-                .take()
-                .unwrap_or(DEFAULT_MIN_REFETCH_INTERVAL);
-
-            let id_token_verification = IdTokenVerification::Lazy(Box::new(LazyVerifier::new(
-                client_id.clone(),
-                client_secret.clone(),
-                issuer_url,
-                jwks_url,
-                min_refetch_interval,
-            )));
-
-            let client = CoreClient::from_provider_metadata(metadata, client_id, client_secret)
-                .set_redirect_uri(redirect_url);
-
-            (client, explicit_end_session, id_token_verification)
-        };
-
-        // Ensure "openid" is always present
-        let openid = Scope::new("openid".to_string());
-        if !self.scopes.contains(&openid) {
-            self.scopes.insert(0, openid);
-        }
-
-        let post_logout_redirect_url = self
-            .post_logout_redirect_url
-            .take()
-            .map(|u| PostLogoutRedirectUrl::new(u).expect("invalid post_logout_redirect_url"));
+        // Build the OIDC client first (client-config errors), then the signed
+        // cookie (provider-name errors) — matching the old ordering.
+        let client = self.client.try_build().map_err(OidcBuilderError::from)?;
+        let session = self.cookie_builder.try_build()?;
 
         Ok(OidcContext(Arc::new(OidcContextInner {
             client,
-            id_token_verification,
             handler,
-            session: self.cookie_builder.try_build()?,
+            session,
             login_path: self.login_path,
             logout_path: self.logout_path,
-            end_session_url,
-            post_logout_redirect_url,
-            http_client: self.http_client.unwrap_or_else(default_reqwest_client),
-            scopes: self.scopes,
+            post_logout_redirect_url: self.post_logout_redirect_url,
         })))
     }
 }
@@ -363,13 +200,46 @@ pub enum OidcBuilderError {
     MissingTokenUrl,
     MissingIssuerUrl,
     MissingJwksUrl,
-    InvalidRedirectUrl(openidconnect::url::ParseError),
-    InvalidAuthUrl(openidconnect::url::ParseError),
-    InvalidTokenUrl(openidconnect::url::ParseError),
-    InvalidIssuerUrl(openidconnect::url::ParseError),
-    InvalidJwksUrl(openidconnect::url::ParseError),
+    InvalidRedirectUrl(url::ParseError),
+    InvalidAuthUrl(url::ParseError),
+    InvalidTokenUrl(url::ParseError),
+    InvalidJwksUrl(url::ParseError),
+    InvalidEndSessionUrl(url::ParseError),
     WhitespaceInProviderName,
     DiscoveryError(String),
+    /// Another OAuth2 client configuration error.
+    Config(String),
+}
+
+impl From<CrateBuilderError> for OidcBuilderError {
+    fn from(error: CrateBuilderError) -> Self {
+        match error {
+            CrateBuilderError::MissingClientId => Self::MissingClientId,
+            CrateBuilderError::MissingRedirectUrl => Self::MissingRedirectUrl,
+            CrateBuilderError::MissingIssuerUrl => Self::MissingIssuerUrl,
+            CrateBuilderError::MissingAuthUrl => Self::MissingAuthUrl,
+            CrateBuilderError::MissingTokenUrl => Self::MissingTokenUrl,
+            CrateBuilderError::MissingJwksUrl => Self::MissingJwksUrl,
+            CrateBuilderError::InvalidJwksUrl(e) => Self::InvalidJwksUrl(e),
+            CrateBuilderError::InvalidEndSessionUrl(e) => Self::InvalidEndSessionUrl(e),
+            CrateBuilderError::OAuth2(config) => match config {
+                ConfigError::InvalidAuthUrl(e) => Self::InvalidAuthUrl(e),
+                ConfigError::InvalidTokenUrl(e) => Self::InvalidTokenUrl(e),
+                ConfigError::InvalidRedirectUrl(e) => Self::InvalidRedirectUrl(e),
+                ConfigError::MissingClientId => Self::MissingClientId,
+                ConfigError::MissingAuthUrl => Self::MissingAuthUrl,
+                ConfigError::MissingTokenUrl => Self::MissingTokenUrl,
+                other => Self::Config(other.to_string()),
+            },
+            other => Self::Config(other.to_string()),
+        }
+    }
+}
+
+impl From<DiscoveryError> for OidcBuilderError {
+    fn from(error: DiscoveryError) -> Self {
+        OidcBuilderError::DiscoveryError(error.to_string())
+    }
 }
 
 impl Error for OidcBuilderError {}
@@ -389,21 +259,16 @@ impl Display for OidcBuilderError {
             OidcBuilderError::InvalidAuthUrl(e) => {
                 write!(f, "could not parse authorization url: {e}")
             }
-            OidcBuilderError::InvalidTokenUrl(e) => {
-                write!(f, "could not parse token url: {e}")
-            }
-            OidcBuilderError::InvalidIssuerUrl(e) => {
-                write!(f, "could not parse issuer url: {e}")
-            }
-            OidcBuilderError::InvalidJwksUrl(e) => {
-                write!(f, "could not parse JWKS url: {e}")
+            OidcBuilderError::InvalidTokenUrl(e) => write!(f, "could not parse token url: {e}"),
+            OidcBuilderError::InvalidJwksUrl(e) => write!(f, "could not parse JWKS url: {e}"),
+            OidcBuilderError::InvalidEndSessionUrl(e) => {
+                write!(f, "could not parse end-session url: {e}")
             }
             OidcBuilderError::WhitespaceInProviderName => {
                 f.write_str("provider name can't contain whitespaces")
             }
-            OidcBuilderError::DiscoveryError(e) => {
-                write!(f, "OIDC discovery failed: {e}")
-            }
+            OidcBuilderError::DiscoveryError(e) => write!(f, "OIDC discovery failed: {e}"),
+            OidcBuilderError::Config(e) => write!(f, "OIDC client configuration error: {e}"),
         }
     }
 }
