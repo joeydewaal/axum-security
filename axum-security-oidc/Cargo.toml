@@ -14,10 +14,10 @@ categories = ["web-programming", "authentication", "asynchronous"]
 all-features = true
 
 [features]
-default = ["reqwest", "rustls-tls"]
+default = ["reqwest", "rustls"]
 # HTTP backends — forwarded to axum-security-oauth2's shared HttpClient enum.
 reqwest = ["axum-security-oauth2/reqwest"]
-rustls-tls = ["axum-security-oauth2/rustls-tls"]
+rustls = ["axum-security-oauth2/rustls"]
 native-tls = ["axum-security-oauth2/native-tls"]
 # Typed timestamp accessors on OidcClaims / UtcTimestamp.
 jiff = ["dep:jiff"]
