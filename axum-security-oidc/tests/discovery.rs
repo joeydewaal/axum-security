@@ -188,6 +188,32 @@ async fn concurrent_cold_verifies_fetch_jwks_once() {
 }
 
 #[tokio::test]
+async fn warm_populates_cache_so_verify_reuses_it() {
+    let server = MockServer::start().await;
+    let issuer = server.uri();
+    // `expect(1)`: warm() fetches once, then verify() reuses the cached keys.
+    Mock::given(method("GET"))
+        .and(path("/jwks"))
+        .respond_with(ResponseTemplate::new(200).set_body_string(jwks_json("kid-1")))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let cache = JwksCache::new(
+        issuer.clone(),
+        CLIENT_ID,
+        Url::parse(&format!("{issuer}/jwks")).unwrap(),
+        HttpClient::default_reqwest(),
+    );
+
+    cache.warm().await.unwrap();
+    cache
+        .verify(&id_token(&issuer, "n", "kid-1"), "n")
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
 async fn rate_limit_blocks_rotation_refetch() {
     let server = MockServer::start().await;
     let issuer = server.uri();

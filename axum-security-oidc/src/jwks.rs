@@ -109,6 +109,16 @@ impl JwksCache {
         }
     }
 
+    /// Fetch and cache the JWK set now, if it hasn't been already.
+    ///
+    /// Verification fetches keys lazily on the first token; call this at
+    /// startup (e.g. from a [`tokio::spawn`]) to pay that cost up front and
+    /// keep the first real login fast. A no-op once the cache is warm, and it
+    /// coalesces with a concurrent first verify onto a single request.
+    pub async fn warm(&self) -> Result<(), VerifyError> {
+        self.current_verifier().await.map(|_| ())
+    }
+
     /// The cached verifier, fetching the JWK set on first use. The lock is held
     /// across the fetch so concurrent first-callers coalesce onto one request.
     async fn current_verifier(&self) -> Result<Arc<IdTokenVerifier>, VerifyError> {

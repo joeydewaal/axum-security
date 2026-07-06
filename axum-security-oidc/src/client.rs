@@ -5,7 +5,7 @@ use url::Url;
 
 use crate::{
     claims::OidcClaims,
-    error::{ClaimsError, OidcError},
+    error::{ClaimsError, OidcError, VerifyError},
     jwks::JwksCache,
     logout::LogoutUrl,
     verifier::VerifiedIdToken,
@@ -97,6 +97,13 @@ impl OidcClient {
             refresh_token: tokens.refresh_token,
             expires_in: tokens.expires_in,
         })
+    }
+
+    /// Fetch and cache the provider's signing keys now, rather than lazily on
+    /// the first login. Safe to call from a background [`tokio::spawn`] at
+    /// startup; a no-op once the keys are cached.
+    pub async fn warm_jwks(&self) -> Result<(), VerifyError> {
+        self.verifier.warm().await
     }
 
     /// The configured client id.
