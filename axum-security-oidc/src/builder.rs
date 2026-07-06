@@ -11,24 +11,28 @@ use crate::{
 };
 
 impl OidcClient {
-    /// A builder with manually-configured endpoints, using `http` as the
-    /// backend for token, JWKS, and (later) discovery requests.
+    /// A builder with manually-configured endpoints — no discovery round-trip.
     ///
-    /// Set `issuer_url`, `auth_url`, `token_url`, and `jwks_url` yourself;
-    /// prefer [`discover`](Self::discover) when the provider publishes metadata.
-    pub fn builder(http: HttpClient) -> OidcClientBuilder {
-        OidcClientBuilder::new(http)
+    /// Set `issuer_url`, `auth_url`, `token_url`, and `jwks_url` yourself, then
+    /// [`try_build`](OidcClientBuilder::try_build). The HTTP backend defaults to
+    /// a reqwest client (the `reqwest` feature); override it with
+    /// [`http_client`](OidcClientBuilder::http_client). Prefer
+    /// [`discover`](Self::discover) when the provider publishes metadata.
+    pub fn builder() -> OidcClientBuilder {
+        OidcClientBuilder::new()
     }
 
     /// A builder auto-configured from the provider's discovery document
     /// (`{issuer_url}/.well-known/openid-configuration`), fetched over `http`.
     ///
-    /// `http` is reused for token and JWKS requests, so the whole flow shares
-    /// one connection pool.
+    /// `http` accepts anything convertible into an [`HttpClient`] (e.g. a
+    /// `reqwest::Client`) and is reused for token and JWKS requests, so the
+    /// whole flow shares one connection pool.
     pub async fn discover(
         issuer_url: &str,
-        http: HttpClient,
+        http: impl Into<HttpClient>,
     ) -> Result<OidcClientBuilder, DiscoveryError> {
+        let http = http.into();
         let metadata = ProviderMetadata::discover(issuer_url, &http).await?;
         Ok(OidcClientBuilder::from_metadata(metadata, http))
     }
@@ -85,11 +89,11 @@ pub struct OidcClientBuilder {
     redirect_url: Option<String>,
     scopes: Vec<String>,
     algorithms: Option<Vec<Algorithm>>,
-    http: HttpClient,
+    http: Option<HttpClient>,
 }
 
 impl OidcClientBuilder {
-    fn new(http: HttpClient) -> Self {
+    fn new() -> Self {
         Self {
             issuer: None,
             auth_url: None,
@@ -101,12 +105,13 @@ impl OidcClientBuilder {
             redirect_url: None,
             scopes: Vec::new(),
             algorithms: None,
-            http,
+            http: None,
         }
     }
 
     fn from_metadata(metadata: ProviderMetadata, http: HttpClient) -> Self {
-        let mut builder = Self::new(http);
+        let mut builder = Self::new();
+        builder.http = Some(http);
         builder.issuer = Some(metadata.issuer);
         builder.auth_url = Some(metadata.authorization_endpoint);
         builder.token_url = Some(metadata.token_endpoint);
@@ -178,6 +183,15 @@ impl OidcClientBuilder {
         self
     }
 
+    /// The HTTP backend for token, JWKS, and discovery requests. Accepts
+    /// anything convertible into an [`HttpClient`] (e.g. a `reqwest::Client`).
+    /// Defaults to a reqwest client (the `reqwest` feature); the whole flow
+    /// shares one pool.
+    pub fn http_client(mut self, http: impl Into<HttpClient>) -> Self {
+        self.http = Some(http.into());
+        self
+    }
+
     /// Build the client, panicking on invalid configuration. Use
     /// [`try_build`](Self::try_build) to handle the error.
     pub fn build(self) -> OidcClient {
@@ -202,19 +216,26 @@ impl OidcClientBuilder {
         }
         let scope_refs: Vec<&str> = self.scopes.iter().map(String::as_str).collect();
 
+        // Resolve the HTTP backend once and share it between the token exchange
+        // (OAuth2 client) and the JWKS fetch, so they reuse one connection pool.
+        let http = self.http;
+        #[cfg(feature = "reqwest")]
+        let http = http.or_else(|| Some(HttpClient::default_reqwest()));
+        let http = http.ok_or(OidcBuilderError::NoHttpClient)?;
+
         let mut oauth2 = OAuth2Client::builder()
             .client_id(client_id.clone())
             .auth_url(auth_url)
             .token_url(token_url)
             .redirect_url(redirect_url)
             .scopes(&scope_refs)
-            .http_client(self.http.clone());
+            .http_client(http.clone());
         if let Some(client_secret) = self.client_secret {
-            oauth2 = oauth2.client_secret(client_secret);
+            oauth2.set_client_secret(client_secret);
         }
         let oauth2 = oauth2.try_build().map_err(OidcBuilderError::OAuth2)?;
 
-        let mut verifier = JwksCache::new(issuer, client_id, jwks_url, self.http);
+        let mut verifier = JwksCache::new(issuer, client_id, jwks_url, http);
         if let Some(algorithms) = &self.algorithms {
             verifier = verifier.algorithms(algorithms);
         }
@@ -245,6 +266,8 @@ pub enum OidcBuilderError {
     MissingJwksUrl,
     InvalidJwksUrl(url::ParseError),
     InvalidEndSessionUrl(url::ParseError),
+    /// No HTTP backend was configured and the `reqwest` feature is disabled.
+    NoHttpClient,
     /// The underlying OAuth2 client could not be built.
     OAuth2(ConfigError),
 }
@@ -262,6 +285,9 @@ impl fmt::Display for OidcBuilderError {
             OidcBuilderError::InvalidEndSessionUrl(e) => {
                 write!(f, "could not parse end-session url: {e}")
             }
+            OidcBuilderError::NoHttpClient => f.write_str(
+                "no HTTP client configured; enable the `reqwest` feature or call `http_client`",
+            ),
             OidcBuilderError::OAuth2(e) => write!(f, "could not build the OAuth2 client: {e}"),
         }
     }
@@ -290,7 +316,7 @@ mod tests {
     const REDIRECT: &str = "https://app.example/callback";
 
     fn manual() -> OidcClientBuilder {
-        OidcClient::builder(HttpClient::default_reqwest())
+        OidcClient::builder()
             .issuer_url(ISSUER)
             .auth_url(AUTH)
             .token_url(TOKEN)
@@ -323,7 +349,7 @@ mod tests {
 
     #[test]
     fn missing_jwks_url() {
-        let result = OidcClient::builder(HttpClient::default_reqwest())
+        let result = OidcClient::builder()
             .client_id("id")
             .issuer_url(ISSUER)
             .auth_url(AUTH)
@@ -337,5 +363,12 @@ mod tests {
     fn invalid_jwks_url() {
         let result = manual().jwks_url("not a url").client_id("id").try_build();
         assert!(matches!(result, Err(OidcBuilderError::InvalidJwksUrl(_))));
+    }
+
+    #[test]
+    fn builds_without_discovery_or_explicit_http() {
+        // `builder()` takes no HTTP client: the manual path defaults to reqwest.
+        let client = manual().client_id("id").build();
+        assert_eq!(client.client_id(), "id");
     }
 }
