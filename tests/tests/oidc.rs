@@ -365,6 +365,7 @@ impl TestServer {
             .login_path(LOGIN_PATH)
             .scopes(&["openid", "email", "profile"])
             .use_dev_cookies(true)
+            .random_cookie_secret()
             .build(TestHandler);
 
         let router = Router::<()>::new().with_oidc(oidc_context);
@@ -443,6 +444,7 @@ impl ClaimsTestServer {
             .login_path(LOGIN_PATH)
             .scopes(&["openid", "email", "profile"])
             .use_dev_cookies(true)
+            .random_cookie_secret()
             .build(handler);
 
         let router = Router::<()>::new().with_oidc(oidc_context);
@@ -653,6 +655,7 @@ impl TestServer {
             .scopes(&["openid", "email", "profile"])
             .jwks_min_refetch_interval(min_refetch)
             .use_dev_cookies(true)
+            .random_cookie_secret()
             .build(TestHandler);
 
         let router = Router::<()>::new().with_oidc(oidc_context);
@@ -997,6 +1000,7 @@ impl LogoutTestServer {
             .post_logout_redirect_url(POST_LOGOUT_URL)
             .scopes(&["openid", "email", "profile"])
             .use_dev_cookies(true)
+            .random_cookie_secret()
             .build(handler);
 
         let router = Router::<()>::new().with_oidc(oidc_context);

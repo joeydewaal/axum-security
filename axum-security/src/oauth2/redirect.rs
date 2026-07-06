@@ -19,11 +19,16 @@ use crate::oauth2::{OAuth2Context, OAuth2Handler};
 
 type BoxFuture<T> = Pin<Box<dyn Future<Output = T> + Send>>;
 
-// Both parameters are secrets — no Debug derive.
+/// The callback query, which is either a success (`code` + `state`) or an
+/// authorization error (`error` [+ `error_description`/`error_uri`], with the
+/// `state` echoed back). `code` is a secret — no Debug derive.
 #[derive(Deserialize)]
 pub struct OAuth2Params {
-    code: String,
-    state: String,
+    pub(crate) code: Option<String>,
+    pub(crate) state: Option<String>,
+    pub(crate) error: Option<String>,
+    pub(crate) error_description: Option<String>,
+    pub(crate) error_uri: Option<String>,
 }
 
 pub(crate) struct OAuth2RedirectService<H> {
@@ -68,7 +73,7 @@ impl<H: OAuth2Handler> Service<Request<Body>> for OAuth2RedirectService<H> {
                 Err(rejection) => return Ok(rejection.into_response()),
             };
 
-            Ok(context.on_redirect(jar, query.code, query.state).await)
+            Ok(context.on_callback(jar, query).await)
         })
     }
 }
@@ -142,6 +147,7 @@ mod tests {
             .auth_url(AUTH_URL)
             .token_url(TOKEN_URL)
             .redirect_url(REDIRECT_URL)
+            .random_cookie_secret()
             .build(TestHandler)
     }
 
@@ -167,6 +173,7 @@ mod tests {
             .redirect_url(REDIRECT_URL)
             .auth_param("access_type", "offline")
             .auth_param("prompt", "consent")
+            .random_cookie_secret()
             .build(TestHandler);
 
         let service = OAuth2LoginService::new(context);
@@ -205,5 +212,65 @@ mod tests {
 
         let res = service.oneshot(req).await.unwrap();
         assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    /// A provider error on the callback (RFC 6749 §4.1.2.1) reaches
+    /// `on_error`, which by default returns `401`.
+    #[tokio::test]
+    async fn redirect_service_default_on_error_is_unauthorized() {
+        let service = OAuth2RedirectService::new(test_context());
+        let req = axum::http::Request::builder()
+            .uri("/redirect?error=access_denied&state=whatever")
+            .body(Body::empty())
+            .unwrap();
+
+        let res = service.oneshot(req).await.unwrap();
+        assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    /// A handler can override `on_error` to render its own response, and the
+    /// reported error code reaches it.
+    #[tokio::test]
+    async fn redirect_service_custom_on_error() {
+        use crate::oauth2::AuthorizationErrorResponse;
+        use std::sync::{Arc, Mutex};
+
+        #[derive(Clone)]
+        struct ErrHandler(Arc<Mutex<Option<String>>>);
+
+        impl OAuth2Handler for ErrHandler {
+            async fn after_login(
+                &self,
+                _token_res: TokenResponse,
+                _context: &mut AfterLoginCookies<'_>,
+            ) -> impl IntoResponse {
+                ()
+            }
+
+            async fn on_error(&self, error: AuthorizationErrorResponse) -> impl IntoResponse {
+                *self.0.lock().unwrap() = Some(error.error);
+                StatusCode::IM_A_TEAPOT
+            }
+        }
+
+        let seen = Arc::new(Mutex::new(None));
+        let context = OAuth2Context::builder("github")
+            .client_id(CLIENT_ID)
+            .client_secret(CLIENT_SECRET)
+            .auth_url(AUTH_URL)
+            .token_url(TOKEN_URL)
+            .redirect_url(REDIRECT_URL)
+            .random_cookie_secret()
+            .build(ErrHandler(seen.clone()));
+
+        let service = OAuth2RedirectService::new(context);
+        let req = axum::http::Request::builder()
+            .uri("/redirect?error=access_denied&error_description=nope&state=x")
+            .body(Body::empty())
+            .unwrap();
+
+        let res = service.oneshot(req).await.unwrap();
+        assert_eq!(res.status(), StatusCode::IM_A_TEAPOT);
+        assert_eq!(seen.lock().unwrap().as_deref(), Some("access_denied"));
     }
 }

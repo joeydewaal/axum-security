@@ -107,6 +107,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .auth_url(github::AUTH_URL)
         .cookie(|c| c.path("/login"))
         .use_dev_cookies(true)
+        // Dev only: an ephemeral per-process signing secret. In production
+        // set a stable one with `.cookie_secret(..)`.
+        .random_cookie_secret()
         .build(OAuth2Backend::new(session.clone()));
 
     let router = Router::new()

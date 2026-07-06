@@ -12,7 +12,6 @@ use crate::cookie_options::CookieOptionsBuilder;
 const HMAC_HASH_LEN: usize = 32;
 
 pub(crate) struct SignedCookie {
-    pub(crate) provider_name: Cow<'static, str>,
     pub(crate) secret: Hmac<Sha256>,
     pub(crate) cookie_builder: CookieBuilder,
     pub(crate) max_login_duration_seconds: u64,
@@ -106,7 +105,29 @@ impl SignedCookieBuilder {
             .set_max_age_secs(max_login_duration_seconds);
     }
 
-    pub fn try_build<E>(self, whitespace_error: E) -> Result<SignedCookie, E> {
+    /// Generate a fresh random 32-byte signing secret.
+    ///
+    /// This is a per-process secret: it is regenerated on every restart and
+    /// differs between instances, so a login begun on one process cannot be
+    /// completed on another. It is only appropriate for local development or
+    /// single-instance deployments where dropping in-flight logins on restart
+    /// is acceptable. Anything else must set an explicit, stable secret.
+    pub fn use_random_secret(&mut self) {
+        let mut secret = [0u8; 32];
+        rand::rng().fill_bytes(&mut secret);
+        self.secret = Some(secret.to_vec());
+    }
+
+    /// Validates the configuration and builds the signed cookie.
+    ///
+    /// A signing secret is required: without one, `missing_secret_error` is
+    /// returned. Set it with an explicit secret or opt into an ephemeral one
+    /// with [`use_random_secret`](Self::use_random_secret).
+    pub fn try_build<E>(
+        self,
+        whitespace_error: E,
+        missing_secret_error: E,
+    ) -> Result<SignedCookie, E> {
         if self
             .provider_name
             .find(|c: char| c.is_whitespace())
@@ -115,19 +136,12 @@ impl SignedCookieBuilder {
             return Err(whitespace_error);
         }
 
-        let secret = if let Some(secret) = self.secret {
-            secret
-        } else {
-            let mut secret = [0u8; 32];
-            rand::rng().fill_bytes(&mut secret);
-            secret.to_vec()
-        };
+        let secret = self.secret.ok_or(missing_secret_error)?;
 
         let secret = Hmac::new_from_slice(&secret).expect("Hmac accepts any secret length");
         let cookie_builder = self.cookie_builder.build();
 
         Ok(SignedCookie {
-            provider_name: self.provider_name,
             secret,
             cookie_builder,
             max_login_duration_seconds: self.max_login_duration_seconds,

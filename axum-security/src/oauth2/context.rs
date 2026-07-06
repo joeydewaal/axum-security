@@ -6,13 +6,15 @@ use axum::{
     response::{IntoResponse, Redirect},
 };
 
-use axum_security_oauth2::{CsrfToken, LoginOptions, OAuth2Client};
+use axum_security_oauth2::{CsrfToken, Error, LoginOptions, OAuth2Client};
 use cookie_monster::{CookieBuilder, CookieJar};
 
 use crate::oauth2::{
     AfterLoginCookies, OAuth2Handler, TokenResponse,
     builder::{FlowType, OAuth2ContextBuilder},
     cookie::OAuth2Cookie,
+    handler::AuthorizationErrorResponse,
+    redirect::OAuth2Params,
 };
 
 /// OAuth 2.0 context that manages the login flow.
@@ -86,6 +88,37 @@ impl<H: OAuth2Handler> OAuth2Context<H> {
     pub(crate) fn callback_url(&self) -> &str {
         // The builder requires a redirect_url, so it is always set.
         self.0.client.redirect_url().unwrap().path()
+    }
+
+    /// Entry point for the callback route: routes the query to either the
+    /// authorization-error hook or the code exchange.
+    pub(crate) async fn on_callback(
+        &self,
+        mut jar: CookieJar,
+        params: OAuth2Params,
+    ) -> axum::response::Response {
+        // The provider returned an authorization error (RFC 6749 §4.1.2.1)
+        // instead of a code — e.g. the user denied consent. Clear the login
+        // state cookie and hand off to the handler's error hook.
+        if let Some(error) = params.error {
+            crate::debug!("provider returned authorization error: {error}");
+            // Drop the login state cookie if present (queues a removal).
+            self.0.session.verify_cookies(&mut jar);
+            let err = AuthorizationErrorResponse {
+                error,
+                error_description: params.error_description,
+                error_uri: params.error_uri,
+            };
+            let res = self.0.inner.on_error(err).await.into_response();
+            return (jar, res).into_response();
+        }
+
+        let (Some(code), Some(state)) = (params.code, params.state) else {
+            crate::debug!("callback missing code or state");
+            return StatusCode::BAD_REQUEST.into_response();
+        };
+
+        self.on_redirect(jar, code, state).await
     }
 
     pub(crate) async fn on_redirect(
@@ -162,6 +195,25 @@ impl<H: OAuth2Handler> OAuth2Context<H> {
             }
         };
 
+        Ok(TokenResponse {
+            access_token: tokens.access_token,
+            refresh_token: tokens.refresh_token,
+            expires_in: tokens.expires_in,
+        })
+    }
+
+    /// Exchanges a refresh token for a fresh set of tokens (RFC 6749 §6).
+    ///
+    /// Call this from your own routes to renew an access token you stored
+    /// after login. The provider may or may not return a new refresh token;
+    /// when [`TokenResponse::refresh_token`] is `None`, keep using the current
+    /// one.
+    ///
+    /// Note that a provider only issues refresh tokens when asked — most
+    /// require a specific scope or authorization parameter (e.g. Google needs
+    /// `access_type=offline`, set via the builder's `auth_param`).
+    pub async fn refresh_tokens(&self, refresh_token: &str) -> Result<TokenResponse, Error> {
+        let tokens = self.0.client.refresh_tokens(refresh_token).await?;
         Ok(TokenResponse {
             access_token: tokens.access_token,
             refresh_token: tokens.refresh_token,

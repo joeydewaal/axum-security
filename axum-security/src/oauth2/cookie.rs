@@ -14,7 +14,6 @@ use crate::{
 pub struct OAuthState<'a> {
     csrf_token: &'a str,
     pkce_verifier: Option<&'a str>,
-    provider_name: &'a str,
     issued: u64,
     expires: u64,
 }
@@ -34,12 +33,10 @@ impl OAuth2Cookie {
     pub fn generate_cookie(&self, csrf_token: &str, pkce_verifier: Option<&str>) -> Cookie {
         let issued = utc_now_secs();
         let expires = issued + self.inner.max_login_duration_seconds;
-        let provider_name = &self.inner.provider_name;
 
         let state = OAuthState {
             csrf_token,
             pkce_verifier,
-            provider_name,
             issued,
             expires,
         };
@@ -80,8 +77,9 @@ mod tests {
     fn make_handler(secret: Option<Vec<u8>>) -> OAuth2Cookie {
         let mut builder = OAuthCookieBuilder::new("test".into());
         builder.inner.cookie_builder.dev = true;
-        if let Some(s) = secret {
-            builder.inner.secret = Some(s);
+        match secret {
+            Some(s) => builder.inner.secret = Some(s),
+            None => builder.inner.use_random_secret(),
         }
         builder.try_build().unwrap()
     }
@@ -105,7 +103,9 @@ mod tests {
         use cookie_monster::SameSite;
 
         // dev defaults to false, so this builds the production cookie.
-        let handler = OAuthCookieBuilder::new("test".into()).try_build().unwrap();
+        let mut builder = OAuthCookieBuilder::new("test".into());
+        builder.inner.use_random_secret();
+        let handler = builder.try_build().unwrap();
         let cookie = handler.generate_cookie("csrf", Some("pkce"));
 
         // The logical name is unprefixed; the prefix lands on the wire.
@@ -185,7 +185,6 @@ mod tests {
         let state = OAuthState {
             csrf_token: "csrf_token",
             pkce_verifier: Some("pkce_verifier"),
-            provider_name: "test",
             issued: now,
             expires: now + 3600,
         };
@@ -206,7 +205,6 @@ mod tests {
         let state = OAuthState {
             csrf_token: "csrf_token",
             pkce_verifier: Some("pkce_verifier"),
-            provider_name: "test",
             issued: now,
             expires: now + 3600,
         };
@@ -262,7 +260,6 @@ mod tests {
         let state = OAuthState {
             csrf_token: "csrf_token",
             pkce_verifier: None,
-            provider_name: "test",
             issued: now - 100,
             expires: now - 1, // already past
         };
@@ -284,7 +281,6 @@ mod tests {
         let state = OAuthState {
             csrf_token: "csrf_token",
             pkce_verifier: None,
-            provider_name: "test",
             issued: now + 1000,
             expires: now + 2000,
         };
@@ -326,7 +322,10 @@ impl OAuthCookieBuilder {
 
     pub fn try_build(self) -> Result<OAuth2Cookie, OAuth2BuilderError> {
         self.inner
-            .try_build(OAuth2BuilderError::WhitespaceInProviderName)
+            .try_build(
+                OAuth2BuilderError::WhitespaceInProviderName,
+                OAuth2BuilderError::MissingCookieSecret,
+            )
             .map(|inner| OAuth2Cookie { inner })
     }
 }

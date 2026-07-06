@@ -192,6 +192,7 @@ mod tests {
             .token_url(TOKEN_URL)
             .jwks_url(JWKS_URL)
             .redirect_url(REDIRECT_URL)
+            .random_cookie_secret()
             .build(TestHandler)
     }
 

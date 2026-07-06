@@ -150,8 +150,27 @@ impl OidcContextBuilder {
         self
     }
 
+    /// Sets the secret used to sign the login state cookie.
+    ///
+    /// A secret is **required**: [`try_build`](Self::try_build) fails with
+    /// [`OidcBuilderError::MissingCookieSecret`] if none is set. Use a stable
+    /// secret (e.g. from the environment) so that in-flight logins survive
+    /// restarts and work across instances; for local development
+    /// [`random_cookie_secret`](Self::random_cookie_secret) opts into an
+    /// ephemeral one.
     pub fn cookie_secret(mut self, secret: impl AsRef<[u8]>) -> Self {
         self.cookie_builder.secret = Some(secret.as_ref().to_vec());
+        self
+    }
+
+    /// Signs the login state cookie with a fresh random per-process secret.
+    ///
+    /// The secret is regenerated on every restart and differs between
+    /// instances, so a login begun on one process cannot be completed on
+    /// another. Only appropriate for local development or single-instance
+    /// deployments; otherwise set a stable [`cookie_secret`](Self::cookie_secret).
+    pub fn random_cookie_secret(mut self) -> Self {
+        self.cookie_builder.use_random_secret();
         self
     }
 
@@ -206,6 +225,9 @@ pub enum OidcBuilderError {
     InvalidJwksUrl(url::ParseError),
     InvalidEndSessionUrl(url::ParseError),
     WhitespaceInProviderName,
+    /// No cookie signing secret was set. Provide one with `cookie_secret`
+    /// or opt into an ephemeral one with `random_cookie_secret`.
+    MissingCookieSecret,
     DiscoveryError(String),
     /// Another OAuth2 client configuration error.
     Config(String),
@@ -267,6 +289,9 @@ impl Display for OidcBuilderError {
             OidcBuilderError::WhitespaceInProviderName => {
                 f.write_str("provider name can't contain whitespaces")
             }
+            OidcBuilderError::MissingCookieSecret => f.write_str(
+                "cookie signing secret is missing (set one with `cookie_secret`, or opt into an ephemeral one with `random_cookie_secret`)",
+            ),
             OidcBuilderError::DiscoveryError(e) => write!(f, "OIDC discovery failed: {e}"),
             OidcBuilderError::Config(e) => write!(f, "OIDC client configuration error: {e}"),
         }
@@ -311,9 +336,25 @@ mod tests {
             .token_url(TOKEN_URL)
             .jwks_url(JWKS_URL)
             .redirect_url(REDIRECT_URL)
+            .random_cookie_secret()
             .try_build(TestHandler);
 
         assert!(res.is_ok());
+    }
+
+    #[test]
+    fn missing_cookie_secret() {
+        let res = OidcContext::builder("google")
+            .client_id(CLIENT_ID)
+            .client_secret(CLIENT_SECRET)
+            .issuer_url(ISSUER_URL)
+            .auth_url(AUTH_URL)
+            .token_url(TOKEN_URL)
+            .jwks_url(JWKS_URL)
+            .redirect_url(REDIRECT_URL)
+            .try_build(TestHandler);
+
+        assert!(matches!(res, Err(OidcBuilderError::MissingCookieSecret)));
     }
 
     #[test]
