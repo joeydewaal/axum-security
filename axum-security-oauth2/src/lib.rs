@@ -22,7 +22,7 @@
 //!   enum, plus a default client (no redirects, 10s timeout). Without any
 //!   backend feature [`try_build`](OAuth2ClientBuilder::try_build) fails
 //!   with [`ConfigError::NoHttpClient`].
-//! - `rustls-tls` *(default)* — TLS for the reqwest backend via rustls.
+//! - `rustls` *(default)* — TLS for the reqwest backend via rustls.
 //! - `native-tls` — TLS for the reqwest backend via the platform's native
 //!   TLS library.
 //!

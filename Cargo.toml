@@ -20,8 +20,8 @@ wincode = { version = "0.5.1", features = ["derive"] }
 tracing = { version = "0.1.44" }
 base64 = "0.22.1"
 url = "2.5"
-getrandom = "0.3"
-reqwest = { version = "0.12", default-features = false }
+getrandom = "0.4.3"
+reqwest = { version = "0.13.4", default-features = false }
 hmac = { version = "0.13" }
 sha2 = "0.11"
 rand = "0.10.0"

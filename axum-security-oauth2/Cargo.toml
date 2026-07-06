@@ -14,9 +14,9 @@ categories = ["web-programming", "authentication", "asynchronous"]
 all-features = true
 
 [features]
-default = ["reqwest", "rustls-tls"]
+default = ["reqwest", "rustls"]
 reqwest = ["dep:reqwest"]
-rustls-tls = ["reqwest?/rustls-tls"]
+rustls = ["reqwest?/rustls"]
 native-tls = ["reqwest?/native-tls"]
 
 [dependencies]
@@ -28,7 +28,7 @@ url.workspace = true
 getrandom.workspace = true
 subtle.workspace = true
 
-reqwest = { workspace = true, optional = true }
+reqwest = { workspace = true, optional = true, features = ["form"] }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
