@@ -283,7 +283,9 @@ impl SecurityHeaders {
     /// with `localhost` or plain HTTP.
     pub fn use_dev_headers(mut self, dev_headers: bool) -> Self {
         self.dev = dev_headers;
-        Arc::make_mut(&mut self.headers).clear();
+        if dev_headers {
+            Arc::make_mut(&mut self.headers).clear();
+        }
         self
     }
 

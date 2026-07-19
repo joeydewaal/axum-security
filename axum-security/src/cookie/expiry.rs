@@ -12,10 +12,19 @@ pub(crate) async fn maintenance_task<S: 'static>(this: ErasedStore<S>, expires_a
     let mut interval = tokio::time::interval(check_interval);
     loop {
         interval.tick().await;
-        if let Err(_e) = this.remove_before(utc_now_secs()).await {
+        let deadline = expiry_deadline(utc_now_secs(), expires_after);
+        if let Err(_e) = this.remove_before(deadline).await {
             crate::error!("session maintenance task failed to remove expired sessions");
         }
     }
+}
+
+fn expiry_deadline(now: u64, expires_after: Duration) -> u64 {
+    now.saturating_sub(expires_after.as_secs())
+}
+
+pub(crate) fn is_expired(created_at: u64, expires_after: Duration) -> bool {
+    created_at <= expiry_deadline(utc_now_secs(), expires_after)
 }
 
 #[cfg(test)]
@@ -23,6 +32,14 @@ mod expiry {
     use std::time::Duration;
 
     use crate::cookie::{CookieContext, MemStore};
+
+    use super::expiry_deadline;
+
+    #[test]
+    fn cleanup_deadline_accounts_for_session_duration() {
+        assert_eq!(expiry_deadline(10_000, Duration::from_secs(3_600)), 6_400);
+        assert_eq!(expiry_deadline(10, Duration::from_secs(20)), 0);
+    }
 
     #[tokio::test]
     async fn duration() {

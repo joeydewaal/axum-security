@@ -99,11 +99,23 @@ impl<H: OAuth2Handler> OAuth2Context<H> {
     ) -> axum::response::Response {
         // The provider returned an authorization error (RFC 6749 §4.1.2.1)
         // instead of a code — e.g. the user denied consent. Clear the login
-        // state cookie and hand off to the handler's error hook.
+        // state cookie, validate the echoed state, and hand off to the
+        // handler's error hook.
         if let Some(error) = params.error {
             crate::debug!("provider returned authorization error: {error}");
-            // Drop the login state cookie if present (queues a removal).
-            self.0.session.verify_cookies(&mut jar);
+
+            let Some((csrf_token, _)) = self.0.session.verify_cookies(&mut jar) else {
+                return StatusCode::UNAUTHORIZED.into_response();
+            };
+            let Some(state) = params.state else {
+                return StatusCode::UNAUTHORIZED.into_response();
+            };
+            let csrf_token = CsrfToken::from(csrf_token);
+            if csrf_token != state {
+                crate::debug!("state does not match");
+                return StatusCode::UNAUTHORIZED.into_response();
+            }
+
             let err = AuthorizationErrorResponse {
                 error,
                 error_description: params.error_description,

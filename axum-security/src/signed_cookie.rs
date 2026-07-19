@@ -101,6 +101,7 @@ impl SignedCookieBuilder {
     }
 
     pub fn set_max_login_duration_secs(&mut self, max_login_duration_seconds: u64) {
+        self.max_login_duration_seconds = max_login_duration_seconds;
         self.cookie_builder
             .set_max_age_secs(max_login_duration_seconds);
     }
@@ -146,5 +147,22 @@ impl SignedCookieBuilder {
             cookie_builder,
             max_login_duration_seconds: self.max_login_duration_seconds,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SignedCookieBuilder;
+
+    #[test]
+    fn configured_login_duration_updates_cookie_and_signed_state_lifetime() {
+        let mut builder = SignedCookieBuilder::new("test".into(), "oauth2.session.");
+        builder.secret = Some(vec![0; 32]);
+        builder.cookie_builder.dev = true;
+        builder.set_max_login_duration_secs(90);
+
+        let cookie = builder.try_build((), ()).unwrap();
+        assert_eq!(cookie.max_login_duration_seconds, 90);
+        assert_eq!(cookie.generate_cookie(b"state").max_age_secs(), Some(90));
     }
 }

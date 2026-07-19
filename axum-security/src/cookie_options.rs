@@ -15,9 +15,11 @@ impl CookieOptionsBuilder {
             dev: false,
             // Make sure to use "/" as path so all paths can see the cookie in dev mode.
             dev_cookie: Cookie::named("dev-session")
+                .path("/")
                 .same_site(SameSite::Lax)
                 .max_age(std::time::Duration::from_hours(24)),
             cookie: Cookie::named("session")
+                .path("/")
                 .same_site(SameSite::Strict)
                 .http_only()
                 .secure(),

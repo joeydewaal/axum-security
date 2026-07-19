@@ -100,6 +100,7 @@ impl<S> CookieSessionBuilder<S> {
         CookieContext(Arc::new(CookieContextInner {
             store,
             cookie_opts,
+            session_expiry,
             handle,
         }))
     }
@@ -172,6 +173,7 @@ mod cookie {
             .unwrap();
 
         assert!(cookie.name() == "session");
+        assert_eq!(cookie.path(), Some("/"));
 
         let cookie = CookieContext::builder()
             .store(MemStore::new())
@@ -182,6 +184,7 @@ mod cookie {
             .unwrap();
 
         assert!(cookie.name() == "dev-session");
+        assert_eq!(cookie.path(), Some("/"));
 
         let cookie = CookieContext::builder()
             .store(MemStore::new())

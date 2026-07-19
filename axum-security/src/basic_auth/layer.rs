@@ -109,7 +109,11 @@ where
 
 fn decode_header(headers: &HeaderMap) -> Option<String> {
     let value = headers.get(header::AUTHORIZATION)?.to_str().ok()?;
-    let encoded = value.strip_prefix("Basic ")?;
+    let (scheme, encoded) = value.split_once(' ')?;
+    if !scheme.eq_ignore_ascii_case("Basic") {
+        return None;
+    }
+    let encoded = encoded.trim_start_matches(' ');
     let decoded = STANDARD.decode(encoded).ok()?;
     String::from_utf8(decoded).ok()
 }
