@@ -81,6 +81,19 @@ async fn valid_credentials_returns_200() -> Result<(), Box<dyn Error>> {
 }
 
 #[tokio::test]
+async fn auth_scheme_is_case_insensitive() -> Result<(), Box<dyn Error>> {
+    let mut router = test_router();
+    let header = make_basic_header("alice", "secret").replacen("Basic", "basic", 1);
+    let req = Request::get("/required")
+        .header(AUTHORIZATION, header)
+        .body(Body::empty())?;
+
+    let res = router.call(req).await?;
+    assert_eq!(res.status(), StatusCode::OK);
+    Ok(())
+}
+
+#[tokio::test]
 async fn missing_header_returns_401() -> Result<(), Box<dyn Error>> {
     let mut router = test_router();
 

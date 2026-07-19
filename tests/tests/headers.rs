@@ -160,6 +160,18 @@ async fn security_headers_dev_mode_sets_no_headers() {
 }
 
 #[tokio::test]
+async fn security_headers_false_keeps_configured_headers() {
+    let headers = SecurityHeaders::recommended().use_dev_headers(false);
+    let router = Router::new()
+        .route("/", get(|| async { "ok" }))
+        .layer(headers);
+
+    let res = call(router, "/").await;
+    assert_eq!(res.headers()["cross-origin-opener-policy"], "same-origin");
+    assert_eq!(res.headers()["x-content-type-options"], "nosniff");
+}
+
+#[tokio::test]
 async fn individual_header_layer() {
     let router = Router::new()
         .route("/", get(|| async { "ok" }))

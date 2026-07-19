@@ -35,7 +35,7 @@ mod service;
 mod session;
 mod store;
 
-use std::{borrow::Cow, convert::Infallible, sync::Arc};
+use std::{borrow::Cow, convert::Infallible, sync::Arc, time::Duration};
 
 use axum::{
     extract::{FromRef, FromRequestParts},
@@ -65,6 +65,7 @@ pub struct CookieContext<S>(Arc<CookieContextInner<S>>);
 struct CookieContextInner<S> {
     store: ErasedStore<S>,
     cookie_opts: CookieBuilder,
+    session_expiry: Option<Duration>,
     handle: Option<JoinHandle<()>>,
 }
 
@@ -153,7 +154,7 @@ impl<S: 'static> CookieContext<S> {
             return Ok(None);
         };
 
-        self.0.store.load_session(&session_id).await
+        self.load_session(&session_id).await
     }
 
     pub(crate) fn session_id_from_jar(&self, jar: &CookieJar) -> Option<SessionId> {
@@ -169,7 +170,23 @@ impl<S: 'static> CookieContext<S> {
     ) -> Result<Option<CookieSession<S>>, Response> {
         let session_id = SessionId::from_cookie(cookie);
 
-        self.0.store.load_session(&session_id).await
+        self.load_session(&session_id).await
+    }
+
+    async fn load_session(
+        &self,
+        session_id: &SessionId,
+    ) -> Result<Option<CookieSession<S>>, Response> {
+        let session = self.0.store.load_session(session_id).await?;
+
+        if let (Some(session), Some(expiry)) = (&session, self.0.session_expiry)
+            && expiry::is_expired(session.created_at, expiry)
+        {
+            self.0.store.remove_session(session_id).await?;
+            return Ok(None);
+        }
+
+        Ok(session)
     }
 }
 

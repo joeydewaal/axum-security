@@ -113,8 +113,13 @@ impl<H: OAuth2Handler> Service<Request<Body>> for OAuth2LoginService<H> {
 
 #[cfg(test)]
 mod tests {
-    use axum::{body::Body, http::StatusCode, response::IntoResponse};
+    use axum::{
+        body::Body,
+        http::{StatusCode, header},
+        response::IntoResponse,
+    };
     use tower::ServiceExt;
+    use url::Url;
 
     use crate::oauth2::{
         AfterLoginCookies, OAuth2Context, OAuth2Handler, TokenResponse, providers::github,
@@ -149,6 +154,36 @@ mod tests {
             .redirect_url(REDIRECT_URL)
             .random_cookie_secret()
             .build(TestHandler)
+    }
+
+    async fn error_callback_credentials<H: OAuth2Handler>(
+        context: &OAuth2Context<H>,
+    ) -> (String, String) {
+        let response = context.start_challenge().await;
+        let location = response
+            .headers()
+            .get(header::LOCATION)
+            .unwrap()
+            .to_str()
+            .unwrap();
+        let state = Url::parse(location)
+            .unwrap()
+            .query_pairs()
+            .find(|(name, _)| name == "state")
+            .unwrap()
+            .1
+            .into_owned();
+        let cookie = response
+            .headers()
+            .get(header::SET_COOKIE)
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .split(';')
+            .next()
+            .unwrap()
+            .to_string();
+        (state, cookie)
     }
 
     #[tokio::test]
@@ -228,6 +263,21 @@ mod tests {
         assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
     }
 
+    #[tokio::test]
+    async fn redirect_service_rejects_error_with_invalid_state() {
+        let context = test_context();
+        let (_, cookie) = error_callback_credentials(&context).await;
+        let service = OAuth2RedirectService::new(context);
+        let req = axum::http::Request::builder()
+            .uri("/redirect?error=access_denied&state=invalid")
+            .header(header::COOKIE, cookie)
+            .body(Body::empty())
+            .unwrap();
+
+        let res = service.oneshot(req).await.unwrap();
+        assert_eq!(res.status(), StatusCode::UNAUTHORIZED);
+    }
+
     /// A handler can override `on_error` to render its own response, and the
     /// reported error code reaches it.
     #[tokio::test]
@@ -263,9 +313,13 @@ mod tests {
             .random_cookie_secret()
             .build(ErrHandler(seen.clone()));
 
+        let (state, cookie) = error_callback_credentials(&context).await;
         let service = OAuth2RedirectService::new(context);
         let req = axum::http::Request::builder()
-            .uri("/redirect?error=access_denied&error_description=nope&state=x")
+            .uri(format!(
+                "/redirect?error=access_denied&error_description=nope&state={state}"
+            ))
+            .header(header::COOKIE, cookie)
             .body(Body::empty())
             .unwrap();
 
